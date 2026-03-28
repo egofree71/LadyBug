@@ -59,6 +59,7 @@ animations = [{
 }]
 
 [node name="Player" type="Node2D" unique_id=428822617]
+position = Vector2(0, -2)
 script = ExtResource("1_gfjak")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1145632977]

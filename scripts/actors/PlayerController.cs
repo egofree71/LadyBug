@@ -12,7 +12,7 @@ using Godot;
 /// - keeps the player animation running continuously
 ///
 /// This version currently supports movement against the static maze only.
-/// Revolving doors and more accurate arcade turn windows will be added later.
+/// Revolving doors and more accurate arcade behavior can be added later.
 /// </summary>
 public partial class PlayerController : Node2D
 {
@@ -43,6 +43,9 @@ public partial class PlayerController : Node2D
     // Direction currently requested by player input.
     private Vector2I _wantedDir = Vector2I.Zero;
 
+    // Last direction used for visual orientation.
+    private Vector2I _lastVisualDir = Vector2I.Right;
+
     public override void _Ready()
     {
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
@@ -51,10 +54,10 @@ public partial class PlayerController : Node2D
         _mazeGrid = GetParent().GetNode<MazeGrid>("MazeGrid");
 
         _arcadePixelPos = StartArcadePixelPosition;
-        UpdateRenderPosition();
+        _lastVisualDir = _currentDir;
 
-        // In Lady Bug, the player animation can stay active even when the player is idle.
-        PlayAnimation(_currentDir);
+        UpdateRenderPosition();
+        PlayAnimation(_lastVisualDir);
     }
 
     public override void _Process(double delta)
@@ -75,24 +78,66 @@ public partial class PlayerController : Node2D
 
     private void ReadInput()
     {
-        _wantedDir = Vector2I.Zero;
+        // If a direction was just pressed this frame, it becomes the new wanted direction.
+        if (Input.IsActionJustPressed("move_left"))
+        {
+            _wantedDir = Vector2I.Left;
+            _lastVisualDir = _wantedDir;
+            return;
+        }
 
+        if (Input.IsActionJustPressed("move_right"))
+        {
+            _wantedDir = Vector2I.Right;
+            _lastVisualDir = _wantedDir;
+            return;
+        }
+
+        if (Input.IsActionJustPressed("move_up"))
+        {
+            _wantedDir = Vector2I.Up;
+            _lastVisualDir = _wantedDir;
+            return;
+        }
+
+        if (Input.IsActionJustPressed("move_down"))
+        {
+            _wantedDir = Vector2I.Down;
+            _lastVisualDir = _wantedDir;
+            return;
+        }
+
+        // If the currently wanted direction is still being held, keep it.
+        if (_wantedDir != Vector2I.Zero && IsDirectionHeld(_wantedDir))
+            return;
+
+        // Otherwise, fall back to any currently held direction.
         if (Input.IsActionPressed("move_left"))
         {
             _wantedDir = Vector2I.Left;
+            return;
         }
-        else if (Input.IsActionPressed("move_right"))
+
+        if (Input.IsActionPressed("move_right"))
         {
             _wantedDir = Vector2I.Right;
+            return;
         }
-        else if (Input.IsActionPressed("move_up"))
+
+        if (Input.IsActionPressed("move_up"))
         {
             _wantedDir = Vector2I.Up;
+            return;
         }
-        else if (Input.IsActionPressed("move_down"))
+
+        if (Input.IsActionPressed("move_down"))
         {
             _wantedDir = Vector2I.Down;
+            return;
         }
+
+        // No direction is held anymore.
+        _wantedDir = Vector2I.Zero;
     }
 
     /// <summary>
@@ -104,17 +149,29 @@ public partial class PlayerController : Node2D
         if (_wantedDir == Vector2I.Zero)
             return;
 
-        // If the player asks for a different direction,
-        // try to switch only when the maze and alignment allow it.
-        if (_wantedDir != _currentDir && CanTurnInto(_wantedDir))
+        if (_wantedDir != _currentDir)
         {
-            _currentDir = _wantedDir;
+            // Opposite direction changes should be immediate.
+            if (IsOppositeDirection(_currentDir, _wantedDir) && CanStepForward(_wantedDir))
+            {
+                _currentDir = _wantedDir;
+            }
+            // Perpendicular direction changes use arcade turn-window capture.
+            else if (TryCaptureTurn(_wantedDir))
+            {
+                return;
+            }
+            // If the requested direction cannot be taken immediately,
+            // stop instead of continuing in the old direction.
+            else
+            {
+                return;
+            }
         }
 
-        // Recenter the actor inside the lane before advancing.
+        // Continue moving in the current direction.
         RecenterStraight(ref _arcadePixelPos, _currentDir);
 
-        // Actual forward motion is validated pixel by pixel.
         if (CanStepForward(_currentDir))
         {
             _arcadePixelPos += _currentDir;
@@ -122,29 +179,80 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Returns true if the player is allowed to switch to the requested direction.
-    /// This uses a simplified version of the arcade turning rules.
+    /// Tries to capture an arcade-style turn window.
+    /// If successful, this method handles the tick and returns true.
     /// </summary>
-    private bool CanTurnInto(Vector2I wantedDir)
+    private bool TryCaptureTurn(Vector2I wantedDir)
     {
         if (_mazeGrid == null)
             return false;
 
-        // Turning into a vertical lane requires X alignment on 8 mod 16.
-        if (wantedDir.Y != 0)
+        // Horizontal -> Vertical turn
+        if (_currentDir.X != 0 && wantedDir.Y != 0)
         {
-            return PositiveMod(_arcadePixelPos.X, 16) == 8
-                   && _mazeGrid.CanMove(_arcadePixelPos, wantedDir);
+            if (_mazeGrid.TryGetVerticalTurnTarget(_arcadePixelPos, out int targetX) &&
+                _mazeGrid.CanStep(new Vector2I(targetX, _arcadePixelPos.Y), wantedDir))
+            {
+                // Move horizontally toward the captured turn target.
+                if (_arcadePixelPos.X < targetX)
+                {
+                    _arcadePixelPos.X += 1;
+                    return true;
+                }
+
+                if (_arcadePixelPos.X > targetX)
+                {
+                    _arcadePixelPos.X -= 1;
+                    return true;
+                }
+
+                // Once aligned, switch direction and move into the new lane.
+                _currentDir = wantedDir;
+
+                if (CanStepForward(_currentDir))
+                {
+                    _arcadePixelPos += _currentDir;
+                }
+
+                return true;
+            }
         }
 
-        // Turning into a horizontal lane is accepted here with a simplified rule:
-        // Y must be aligned on 6 or 7 mod 16.
-        // Later we can replace this with the more accurate arcade capture windows.
-        if (wantedDir.X != 0)
+        // Vertical -> Horizontal turn
+        if (_currentDir.Y != 0 && wantedDir.X != 0)
         {
-            int my = PositiveMod(_arcadePixelPos.Y, 16);
-            return (my == 6 || my == 7)
-                   && _mazeGrid.CanMove(_arcadePixelPos, wantedDir);
+            if (_mazeGrid.TryGetHorizontalTurnTarget(_arcadePixelPos, out int targetY))
+            {
+                // The original logic makes the turn decision around Y % 16 == 6,
+                // but horizontal lane travel is visually centered on Y % 16 == 7.
+                int horizontalLaneY = targetY + 1;
+
+                if (_mazeGrid.CanStep(new Vector2I(_arcadePixelPos.X, horizontalLaneY), wantedDir))
+                {
+                    // Move vertically toward the actual horizontal lane center.
+                    if (_arcadePixelPos.Y < horizontalLaneY)
+                    {
+                        _arcadePixelPos.Y += 1;
+                        return true;
+                    }
+
+                    if (_arcadePixelPos.Y > horizontalLaneY)
+                    {
+                        _arcadePixelPos.Y -= 1;
+                        return true;
+                    }
+
+                    // Once aligned, switch direction and move into the new lane.
+                    _currentDir = wantedDir;
+
+                    if (CanStepForward(_currentDir))
+                    {
+                        _arcadePixelPos += _currentDir;
+                    }
+
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -200,12 +308,32 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Keeps the player animation running continuously,
-    /// while updating the visual direction.
+    /// Updates the visual direction while keeping the animation continuously active.
     /// </summary>
     private void UpdateAnimation()
     {
-        PlayAnimation(_currentDir);
+        Vector2I visualDir;
+
+        // If the player is currently requesting a different direction,
+        // display that requested direction even if movement is blocked.
+        if (_wantedDir != Vector2I.Zero && _wantedDir != _currentDir)
+        {
+            visualDir = _wantedDir;
+        }
+        // If an input is held and it matches the current movement direction,
+        // display the actual movement direction.
+        else if (_wantedDir != Vector2I.Zero)
+        {
+            visualDir = _currentDir;
+        }
+        // Otherwise keep the last visual direction.
+        else
+        {
+            visualDir = _lastVisualDir;
+        }
+
+        _lastVisualDir = visualDir;
+        PlayAnimation(visualDir);
     }
 
     /// <summary>
@@ -244,6 +372,34 @@ public partial class PlayerController : Node2D
         {
             _animatedSprite.FlipV = true;
         }
+    }
+
+    /// <summary>
+    /// Returns true if the given direction is still held on the keyboard.
+    /// </summary>
+    private static bool IsDirectionHeld(Vector2I dir)
+    {
+        if (dir == Vector2I.Left)
+            return Input.IsActionPressed("move_left");
+
+        if (dir == Vector2I.Right)
+            return Input.IsActionPressed("move_right");
+
+        if (dir == Vector2I.Up)
+            return Input.IsActionPressed("move_up");
+
+        if (dir == Vector2I.Down)
+            return Input.IsActionPressed("move_down");
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the two directions are exact opposites.
+    /// </summary>
+    private static bool IsOppositeDirection(Vector2I a, Vector2I b)
+    {
+        return a != Vector2I.Zero && b != Vector2I.Zero && a + b == Vector2I.Zero;
     }
 
     private static int PositiveMod(int value, int mod)
