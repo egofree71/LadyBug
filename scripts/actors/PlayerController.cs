@@ -2,14 +2,15 @@ using Godot;
 
 /// <summary>
 /// Controls the player character movement and animation.
-/// 
+///
 /// Responsibilities:
 /// - reads player input
 /// - manages wanted and current directions
-/// - updates arcade-style pixel movement on a updates arcade-style pixel movement on a fixed tick
+/// - updates arcade-style pixel movement on a fixed tick
 /// - recenters the player inside maze lanes
-/// - updates the visual animation state
-/// 
+/// - queries MazeGrid for movement validation
+/// - keeps the player animation running continuously
+///
 /// This version currently supports movement against the static maze only.
 /// Revolving doors and more accurate arcade turn windows will be added later.
 /// </summary>
@@ -52,6 +53,7 @@ public partial class PlayerController : Node2D
         _arcadePixelPos = StartArcadePixelPosition;
         UpdateRenderPosition();
 
+        // In Lady Bug, the player animation can stay active even when the player is idle.
         PlayAnimation(_currentDir);
     }
 
@@ -93,6 +95,9 @@ public partial class PlayerController : Node2D
         }
     }
 
+    /// <summary>
+    /// Advances the player by one arcade tick.
+    /// </summary>
     private void StepOneTick()
     {
         // In the arcade code, no input means no movement.
@@ -107,7 +112,6 @@ public partial class PlayerController : Node2D
         }
 
         // Recenter the actor inside the lane before advancing.
-        // This is one of the main reasons the movement feels arcade-like.
         RecenterStraight(ref _arcadePixelPos, _currentDir);
 
         // Actual forward motion is validated pixel by pixel.
@@ -117,6 +121,10 @@ public partial class PlayerController : Node2D
         }
     }
 
+    /// <summary>
+    /// Returns true if the player is allowed to switch to the requested direction.
+    /// This uses a simplified version of the arcade turning rules.
+    /// </summary>
     private bool CanTurnInto(Vector2I wantedDir)
     {
         if (_mazeGrid == null)
@@ -142,11 +150,17 @@ public partial class PlayerController : Node2D
         return false;
     }
 
+    /// <summary>
+    /// Returns true if the next arcade pixel belongs to the walkable graph.
+    /// </summary>
     private bool CanStepForward(Vector2I dir)
     {
         return _mazeGrid != null && _mazeGrid.CanStep(_arcadePixelPos, dir);
     }
 
+    /// <summary>
+    /// Recenter the player on the lane axis before advancing.
+    /// </summary>
     private static void RecenterStraight(ref Vector2I pixelPos, Vector2I dir)
     {
         // Vertical movement:
@@ -173,6 +187,9 @@ public partial class PlayerController : Node2D
         }
     }
 
+    /// <summary>
+    /// Converts logical arcade coordinates to rendered screen coordinates.
+    /// </summary>
     private void UpdateRenderPosition()
     {
         // Remove the original arcade top offset only for rendering.
@@ -182,38 +199,49 @@ public partial class PlayerController : Node2D
         );
     }
 
+    /// <summary>
+    /// Keeps the player animation running continuously,
+    /// while updating the visual direction.
+    /// </summary>
     private void UpdateAnimation()
     {
-        if (_wantedDir == Vector2I.Zero)
-        {
-            _animatedSprite.Stop();
-            return;
-        }
-
         PlayAnimation(_currentDir);
     }
 
+    /// <summary>
+    /// Starts the correct animation for the current direction.
+    /// </summary>
     private void PlayAnimation(Vector2I direction)
+    {
+        ApplyVisualDirection(direction);
+
+        string animationName = direction.X != 0 ? "move_right" : "move_up";
+
+        if (_animatedSprite.Animation != animationName)
+        {
+            _animatedSprite.Animation = animationName;
+        }
+
+        if (!_animatedSprite.IsPlaying())
+        {
+            _animatedSprite.Play();
+        }
+    }
+
+    /// <summary>
+    /// Applies sprite flips without changing the animation identity.
+    /// </summary>
+    private void ApplyVisualDirection(Vector2I direction)
     {
         _animatedSprite.FlipH = false;
         _animatedSprite.FlipV = false;
 
         if (direction == Vector2I.Left)
         {
-            _animatedSprite.Play("move_right");
             _animatedSprite.FlipH = true;
-        }
-        else if (direction == Vector2I.Right)
-        {
-            _animatedSprite.Play("move_right");
-        }
-        else if (direction == Vector2I.Up)
-        {
-            _animatedSprite.Play("move_up");
         }
         else if (direction == Vector2I.Down)
         {
-            _animatedSprite.Play("move_up");
             _animatedSprite.FlipV = true;
         }
     }
