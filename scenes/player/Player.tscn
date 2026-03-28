@@ -62,6 +62,5 @@ animations = [{
 script = ExtResource("1_gfjak")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1145632977]
-position = Vector2(561, 337)
 sprite_frames = SubResource("SpriteFrames_o8nba")
-animation = &"move_up"
+animation = &"move_right"

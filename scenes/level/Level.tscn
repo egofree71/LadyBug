@@ -1,3 +1,11 @@
 [gd_scene format=3 uid="uid://ddjtlt0jqsjnd"]
 
-[node name="Level_tscn" type="Node2D" unique_id=499888811]
+[ext_resource type="Script" uid="uid://rylw2tli5xw7" path="res://scripts/maze/MazeGrid.cs" id="1_cne4c"]
+[ext_resource type="PackedScene" uid="uid://bb0ow503k3dgv" path="res://scenes/player/Player.tscn" id="2_l1x8v"]
+
+[node name="Level" type="Node2D" unique_id=499888811]
+
+[node name="MazeGrid" type="Node2D" parent="." unique_id=612234802]
+script = ExtResource("1_cne4c")
+
+[node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
