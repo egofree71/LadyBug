@@ -9,48 +9,48 @@ using Godot;
 /// - updates arcade-style pixel movement on a fixed tick
 /// - recenters the player inside maze lanes
 /// - queries MazeGrid for movement validation
-/// - keeps the player animation running continuously
+/// - controls visual orientation and animation
 ///
-/// This version currently supports movement against the static maze only.
-/// Revolving doors and more accurate arcade behavior can be added later.
+/// This version matches the current arcade-like behavior:
+/// - 1 pixel per tick movement
+/// - turn windows
+/// - stop if new direction is requested but not possible
+/// - visual direction follows input when blocked
 /// </summary>
 public partial class PlayerController : Node2D
 {
-    // Arcade video frequency.
+    // --- Constants ----------------------------------------------------------
+
     private const float ArcadeTickRate = 60.1145f;
     private const float ArcadeTickDuration = 1.0f / ArcadeTickRate;
 
-    // The player spritesheet is a x4 upscale of the original 16x16 sprite.
     private const int RenderScale = 4;
-
-    // Original arcade top offset kept only in the logical position model.
     private const int MazeTopArcade = 0x30;
 
-    // Start position expressed in arcade pixels, not in screen pixels.
+    // --- Export -------------------------------------------------------------
+
     [Export]
     public Vector2I StartArcadePixelPosition = new Vector2I(0x58, 0x86);
 
+    // --- Nodes & State ------------------------------------------------------
+
     private AnimatedSprite2D _animatedSprite;
     private MazeGrid _mazeGrid;
+
     private float _accumulator = 0.0f;
 
-    // Logical position in arcade pixels.
     private Vector2I _arcadePixelPos;
 
-    // Last direction that was actually used to move.
     private Vector2I _currentDir = Vector2I.Right;
-
-    // Direction currently requested by player input.
     private Vector2I _wantedDir = Vector2I.Zero;
 
-    // Last direction used for visual orientation.
     private Vector2I _lastVisualDir = Vector2I.Right;
+
+    // --- Lifecycle ----------------------------------------------------------
 
     public override void _Ready()
     {
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
-
-        // Player and MazeGrid are both children of Level.
         _mazeGrid = GetParent().GetNode<MazeGrid>("MazeGrid");
 
         _arcadePixelPos = StartArcadePixelPosition;
@@ -63,86 +63,86 @@ public partial class PlayerController : Node2D
     public override void _Process(double delta)
     {
         ReadInput();
-
-        // Advance the simulation using a fixed arcade-style tick.
-        _accumulator += (float)delta;
-        while (_accumulator >= ArcadeTickDuration)
-        {
-            _accumulator -= ArcadeTickDuration;
-            StepOneTick();
-        }
-
+        UpdateMovement((float)delta);
         UpdateRenderPosition();
         UpdateAnimation();
     }
 
+    // --- Input --------------------------------------------------------------
+
     private void ReadInput()
     {
-        // If a direction was just pressed this frame, it becomes the new wanted direction.
+        // Priority to newly pressed input (arcade feel).
         if (Input.IsActionJustPressed("move_left"))
         {
-            _wantedDir = Vector2I.Left;
-            _lastVisualDir = _wantedDir;
+            SetWantedDirection(Vector2I.Left);
             return;
         }
 
         if (Input.IsActionJustPressed("move_right"))
         {
-            _wantedDir = Vector2I.Right;
-            _lastVisualDir = _wantedDir;
+            SetWantedDirection(Vector2I.Right);
             return;
         }
 
         if (Input.IsActionJustPressed("move_up"))
         {
-            _wantedDir = Vector2I.Up;
-            _lastVisualDir = _wantedDir;
+            SetWantedDirection(Vector2I.Up);
             return;
         }
 
         if (Input.IsActionJustPressed("move_down"))
         {
-            _wantedDir = Vector2I.Down;
-            _lastVisualDir = _wantedDir;
+            SetWantedDirection(Vector2I.Down);
             return;
         }
 
-        // If the currently wanted direction is still being held, keep it.
+        // Keep current wanted direction if still held.
         if (_wantedDir != Vector2I.Zero && IsDirectionHeld(_wantedDir))
             return;
 
-        // Otherwise, fall back to any currently held direction.
+        // Fallback to currently held keys.
         if (Input.IsActionPressed("move_left"))
         {
             _wantedDir = Vector2I.Left;
-            return;
         }
-
-        if (Input.IsActionPressed("move_right"))
+        else if (Input.IsActionPressed("move_right"))
         {
             _wantedDir = Vector2I.Right;
-            return;
         }
-
-        if (Input.IsActionPressed("move_up"))
+        else if (Input.IsActionPressed("move_up"))
         {
             _wantedDir = Vector2I.Up;
-            return;
         }
-
-        if (Input.IsActionPressed("move_down"))
+        else if (Input.IsActionPressed("move_down"))
         {
             _wantedDir = Vector2I.Down;
-            return;
         }
-
-        // No direction is held anymore.
-        _wantedDir = Vector2I.Zero;
+        else
+        {
+            _wantedDir = Vector2I.Zero;
+        }
     }
 
-    /// <summary>
-    /// Advances the player by one arcade tick.
-    /// </summary>
+    private void SetWantedDirection(Vector2I dir)
+    {
+        _wantedDir = dir;
+        _lastVisualDir = dir;
+    }
+
+    // --- Movement -----------------------------------------------------------
+
+    private void UpdateMovement(float delta)
+    {
+        _accumulator += delta;
+
+        while (_accumulator >= ArcadeTickDuration)
+        {
+            _accumulator -= ArcadeTickDuration;
+            StepOneTick();
+        }
+    }
+
     private void StepOneTick()
     {
         // In the arcade code, no input means no movement.
@@ -178,138 +178,121 @@ public partial class PlayerController : Node2D
         }
     }
 
-    /// <summary>
-    /// Tries to capture an arcade-style turn window.
-    /// If successful, this method handles the tick and returns true.
-    /// </summary>
     private bool TryCaptureTurn(Vector2I wantedDir)
     {
         if (_mazeGrid == null)
             return false;
 
-        // Horizontal -> Vertical turn
+        // Horizontal -> Vertical.
         if (_currentDir.X != 0 && wantedDir.Y != 0)
         {
-            if (_mazeGrid.TryGetVerticalTurnTarget(_arcadePixelPos, out int targetX) &&
-                _mazeGrid.CanStep(new Vector2I(targetX, _arcadePixelPos.Y), wantedDir))
+            if (_mazeGrid.TryGetVerticalLaneX(_arcadePixelPos, out int targetX) &&
+                _mazeGrid.CanStepToNextPixel(new Vector2I(targetX, _arcadePixelPos.Y), wantedDir))
             {
-                // Move horizontally toward the captured turn target.
-                if (_arcadePixelPos.X < targetX)
-                {
-                    _arcadePixelPos.X += 1;
-                    return true;
-                }
-
-                if (_arcadePixelPos.X > targetX)
-                {
-                    _arcadePixelPos.X -= 1;
-                    return true;
-                }
-
-                // Once aligned, switch direction and move into the new lane.
-                _currentDir = wantedDir;
-
-                if (CanStepForward(_currentDir))
-                {
-                    _arcadePixelPos += _currentDir;
-                }
-
-                return true;
+                return AlignAndTurnX(targetX, wantedDir);
             }
         }
 
-        // Vertical -> Horizontal turn
+        // Vertical -> Horizontal.
         if (_currentDir.Y != 0 && wantedDir.X != 0)
         {
-            if (_mazeGrid.TryGetHorizontalTurnTarget(_arcadePixelPos, out int targetY))
+            if (_mazeGrid.TryGetHorizontalLaneY(_arcadePixelPos, out int laneY) &&
+                _mazeGrid.CanStepToNextPixel(new Vector2I(_arcadePixelPos.X, laneY), wantedDir))
             {
-                // The original logic makes the turn decision around Y % 16 == 6,
-                // but horizontal lane travel is visually centered on Y % 16 == 7.
-                int horizontalLaneY = targetY + 1;
-
-                if (_mazeGrid.CanStep(new Vector2I(_arcadePixelPos.X, horizontalLaneY), wantedDir))
-                {
-                    // Move vertically toward the actual horizontal lane center.
-                    if (_arcadePixelPos.Y < horizontalLaneY)
-                    {
-                        _arcadePixelPos.Y += 1;
-                        return true;
-                    }
-
-                    if (_arcadePixelPos.Y > horizontalLaneY)
-                    {
-                        _arcadePixelPos.Y -= 1;
-                        return true;
-                    }
-
-                    // Once aligned, switch direction and move into the new lane.
-                    _currentDir = wantedDir;
-
-                    if (CanStepForward(_currentDir))
-                    {
-                        _arcadePixelPos += _currentDir;
-                    }
-
-                    return true;
-                }
+                return AlignAndTurnY(laneY, wantedDir);
             }
         }
 
         return false;
     }
 
-    /// <summary>
-    /// Returns true if the next arcade pixel belongs to the walkable graph.
-    /// </summary>
+    private bool AlignAndTurnX(int targetX, Vector2I dir)
+    {
+        if (_arcadePixelPos.X < targetX)
+        {
+            _arcadePixelPos.X += 1;
+            return true;
+        }
+
+        if (_arcadePixelPos.X > targetX)
+        {
+            _arcadePixelPos.X -= 1;
+            return true;
+        }
+
+        _currentDir = dir;
+
+        if (CanStepForward(_currentDir))
+        {
+            _arcadePixelPos += _currentDir;
+        }
+
+        return true;
+    }
+
+    private bool AlignAndTurnY(int targetY, Vector2I dir)
+    {
+        if (_arcadePixelPos.Y < targetY)
+        {
+            _arcadePixelPos.Y += 1;
+            return true;
+        }
+
+        if (_arcadePixelPos.Y > targetY)
+        {
+            _arcadePixelPos.Y -= 1;
+            return true;
+        }
+
+        _currentDir = dir;
+
+        if (CanStepForward(_currentDir))
+        {
+            _arcadePixelPos += _currentDir;
+        }
+
+        return true;
+    }
+
     private bool CanStepForward(Vector2I dir)
     {
-        return _mazeGrid != null && _mazeGrid.CanStep(_arcadePixelPos, dir);
+        return _mazeGrid != null && _mazeGrid.CanStepToNextPixel(_arcadePixelPos, dir);
     }
 
-    /// <summary>
-    /// Recenter the player on the lane axis before advancing.
-    /// </summary>
-    private static void RecenterStraight(ref Vector2I pixelPos, Vector2I dir)
+    private static void RecenterStraight(ref Vector2I pos, Vector2I dir)
     {
-        // Vertical movement:
-        // keep X aligned toward lane center X % 16 == 8
+        // Vertical movement: keep X aligned toward lane center X % 16 == 8.
         if (dir.Y != 0)
         {
-            int mx = PositiveMod(pixelPos.X, 16);
+            int mx = PositiveMod(pos.X, 16);
 
             if (mx < 8)
-                pixelPos.X += 1;
+                pos.X += 1;
             else if (mx > 8)
-                pixelPos.X -= 1;
+                pos.X -= 1;
         }
-        // Horizontal movement:
-        // keep Y aligned toward lane center Y % 16 == 7
+        // Horizontal movement: keep Y aligned toward lane center Y % 16 == 7.
         else if (dir.X != 0)
         {
-            int my = PositiveMod(pixelPos.Y, 16);
+            int my = PositiveMod(pos.Y, 16);
 
             if (my < 7)
-                pixelPos.Y += 1;
+                pos.Y += 1;
             else if (my > 7)
-                pixelPos.Y -= 1;
+                pos.Y -= 1;
         }
     }
 
-    /// <summary>
-    /// Converts logical arcade coordinates to rendered screen coordinates.
-    /// </summary>
+    // --- Rendering ----------------------------------------------------------
+
     private void UpdateRenderPosition()
     {
-        // Remove the original arcade top offset only for rendering.
         Position = new Vector2(
             _arcadePixelPos.X * RenderScale,
             (_arcadePixelPos.Y - MazeTopArcade) * RenderScale
         );
     }
 
-    /// <summary>
-    /// Updates the visual direction while keeping the animation continuously active.
-    /// </summary>
     private void UpdateAnimation()
     {
         Vector2I visualDir;
@@ -336,14 +319,11 @@ public partial class PlayerController : Node2D
         PlayAnimation(visualDir);
     }
 
-    /// <summary>
-    /// Starts the correct animation for the current direction.
-    /// </summary>
-    private void PlayAnimation(Vector2I direction)
+    private void PlayAnimation(Vector2I dir)
     {
-        ApplyVisualDirection(direction);
+        ApplyVisualDirection(dir);
 
-        string animationName = direction.X != 0 ? "move_right" : "move_up";
+        string animationName = dir.X != 0 ? "move_right" : "move_up";
 
         if (_animatedSprite.Animation != animationName)
         {
@@ -356,47 +336,32 @@ public partial class PlayerController : Node2D
         }
     }
 
-    /// <summary>
-    /// Applies sprite flips without changing the animation identity.
-    /// </summary>
-    private void ApplyVisualDirection(Vector2I direction)
+    private void ApplyVisualDirection(Vector2I dir)
     {
         _animatedSprite.FlipH = false;
         _animatedSprite.FlipV = false;
 
-        if (direction == Vector2I.Left)
+        if (dir == Vector2I.Left)
         {
             _animatedSprite.FlipH = true;
         }
-        else if (direction == Vector2I.Down)
+        else if (dir == Vector2I.Down)
         {
             _animatedSprite.FlipV = true;
         }
     }
 
-    /// <summary>
-    /// Returns true if the given direction is still held on the keyboard.
-    /// </summary>
+    // --- Utils --------------------------------------------------------------
+
     private static bool IsDirectionHeld(Vector2I dir)
     {
-        if (dir == Vector2I.Left)
-            return Input.IsActionPressed("move_left");
-
-        if (dir == Vector2I.Right)
-            return Input.IsActionPressed("move_right");
-
-        if (dir == Vector2I.Up)
-            return Input.IsActionPressed("move_up");
-
-        if (dir == Vector2I.Down)
-            return Input.IsActionPressed("move_down");
-
+        if (dir == Vector2I.Left)  return Input.IsActionPressed("move_left");
+        if (dir == Vector2I.Right) return Input.IsActionPressed("move_right");
+        if (dir == Vector2I.Up)    return Input.IsActionPressed("move_up");
+        if (dir == Vector2I.Down)  return Input.IsActionPressed("move_down");
         return false;
     }
 
-    /// <summary>
-    /// Returns true if the two directions are exact opposites.
-    /// </summary>
     private static bool IsOppositeDirection(Vector2I a, Vector2I b)
     {
         return a != Vector2I.Zero && b != Vector2I.Zero && a + b == Vector2I.Zero;
