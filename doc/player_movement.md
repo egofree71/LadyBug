@@ -415,3 +415,66 @@ This is an intermediate but already arcade-oriented implementation.
 
 The exact details of turning, horizontal lane alignment, and maze interaction
 still need further reverse engineering.
+
+===============================================================================
+PLAYER ROUTINE INDEX
+===============================================================================
+
+This section provides a compact mapping between the reverse-engineered arcade
+routines and their practical meaning for player movement.
+
+Use it as a quick reference while reading the disassembly or implementing the
+Godot/C# version.
+
+All addresses below refer to the currently analyzed Lady Bug ROM/disassembly.
+
+===============================================================================
+CORE PLAYER UPDATE
+===============================================================================
+
+- 0x35FF : main player movement / direction-handling path
+- 0x380A : one-pixel player movement step
+- 0x388C : post-step movement / target-handling path
+- 0x3A99 : player-related update path using current dir/x/y
+
+===============================================================================
+INPUT AND CURRENT PLAYER STATE
+===============================================================================
+
+- 0x6026 : current player direction
+- 0x6027 : player X position
+- 0x6028 : player Y position
+- 0x9000 / 0x9001 : hardware input ports used by joystick / status logic
+
+===============================================================================
+TURN WINDOWS AND LANE ALIGNMENT
+===============================================================================
+
+- 0x36DA : loads row-based vertical turn-center mask
+- 0x36F5 : scans vertical turn-center mask
+- 0x377A : loads column-based horizontal turn-center mask
+- 0x379D : scans horizontal turn-center mask
+- 0x0DE4 : vertical turn-center table by row
+- 0x0DFA : horizontal turn-center table by column
+
+Practical lane centers inferred from the current analysis:
+- X % 16 == 8 : vertical lane center
+- Y % 16 == 6 : horizontal turn decision line
+- Y % 16 == 7 : horizontal lane travel center
+
+===============================================================================
+MAZE VALIDATION
+===============================================================================
+
+- 0x390D : loads target turn position
+- 0x3911 : validates requested direction against logical maze cell
+- 0x0DA2 : logical maze table used for direction-open tests
+
+===============================================================================
+TIMING AND MAIN LOOP LINKS
+===============================================================================
+
+- 0x0784..0x0888 : main gameplay loop path
+- 0x1FC7 : vblank-related timing update
+- 0x6059 : timing counter updated from 0x1FC7
+- 0x605A : slower timing counter updated from 0x1FC7
