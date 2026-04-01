@@ -7,16 +7,25 @@ using LadyBug.Gameplay.Maze;
 /// Current responsibilities in this intermediate version:
 /// - receive Level and MazeGrid references from Level
 /// - store the current logical maze cell
-/// - move one logical cell at a time
 /// - validate movement against the logical maze
-/// - update the player scene position from the logical cell
+/// - move smoothly from one logical cell to the next
+/// - update the player scene position from the logical cell target
 /// - play a matching directional animation
 ///
-/// This is a temporary validation step before restoring the more precise
-/// arcade-style pixel movement.
+/// This is still an intermediate implementation.
+/// It replaces instant cell jumps with smooth movement, but it is not yet the
+/// final arcade-accurate pixel-per-tick movement system.
 /// </summary>
 public partial class PlayerController : Node2D
 {
+    // --- Constants ----------------------------------------------------------
+
+    /// <summary>
+    /// Visual movement speed in scene pixels per second for this intermediate
+    /// cell-to-cell movement step.
+    /// </summary>
+    private const float MoveSpeed = 220.0f;
+
     // --- Nodes --------------------------------------------------------------
 
     private AnimatedSprite2D _animatedSprite;
@@ -29,17 +38,31 @@ public partial class PlayerController : Node2D
     // --- Logical State ------------------------------------------------------
 
     /// <summary>
-    /// Current logical maze cell occupied by the player.
+    /// Current logical maze cell fully reached by the player.
     /// </summary>
     private Vector2I _currentCell = Vector2I.Zero;
 
-    // --- Input State --------------------------------------------------------
+    /// <summary>
+    /// Target logical maze cell currently being approached.
+    /// </summary>
+    private Vector2I _targetCell = Vector2I.Zero;
+
+    // --- Movement State -----------------------------------------------------
 
     /// <summary>
-    /// Prevents repeated moves every frame while a key is held.
-    /// One move is triggered per new key press.
+    /// True while the player is moving toward the target cell.
     /// </summary>
-    private bool _inputLocked = false;
+    private bool _isMoving = false;
+
+    /// <summary>
+    /// Current scene position target for smooth motion.
+    /// </summary>
+    private Vector2 _targetScenePosition = Vector2.Zero;
+
+    /// <summary>
+    /// Last direction used for movement or requested facing.
+    /// </summary>
+    private Vector2I _lastDirection = Vector2I.Up;
 
     // --- Lifecycle ----------------------------------------------------------
 
@@ -58,7 +81,14 @@ public partial class PlayerController : Node2D
         if (_mazeGrid == null || _level == null)
             return;
 
-        HandleGridMovementInput();
+        if (_isMoving)
+        {
+            UpdateSmoothMovement((float)delta);
+        }
+        else
+        {
+            HandleGridMovementInput();
+        }
     }
 
     // --- Initialization -----------------------------------------------------
@@ -74,14 +104,16 @@ public partial class PlayerController : Node2D
         GD.Print($"MazeGrid found: {_mazeGrid != null}");
 
         _currentCell = level.PlayerStartCell;
+        _targetCell = _currentCell;
+
         Position = _level.LogicalCellToScenePosition(_currentCell);
+        _targetScenePosition = Position;
 
         GD.Print($"Player starting logical cell: {_currentCell}");
 
-        Vector2I testCellPosition = _currentCell;
-        MazeCell testCell = _mazeGrid.GetCell(testCellPosition);
+        MazeCell testCell = _mazeGrid.GetCell(_currentCell);
 
-        GD.Print($"Cell {testCellPosition} -> Walls = {testCell.Walls}");
+        GD.Print($"Cell {_currentCell} -> Walls = {testCell.Walls}");
         GD.Print($"Up: {testCell.HasWallUp}");
         GD.Print($"Down: {testCell.HasWallDown}");
         GD.Print($"Left: {testCell.HasWallLeft}");
@@ -90,29 +122,24 @@ public partial class PlayerController : Node2D
 
     // --- Input / Movement ---------------------------------------------------
 
+    /// <summary>
+    /// Reads the current pressed direction and tries to start a move toward the
+    /// adjacent logical cell.
+    /// </summary>
     private void HandleGridMovementInput()
     {
         Vector2I requestedDirection = ReadPressedDirection();
 
-        // Unlock when no movement key is currently pressed.
         if (requestedDirection == Vector2I.Zero)
-        {
-            _inputLocked = false;
-            return;
-        }
-
-        // Only move once per new press.
-        if (_inputLocked)
             return;
 
-        _inputLocked = true;
-
-        TryMoveToAdjacentCell(requestedDirection);
+        TryStartMoveToAdjacentCell(requestedDirection);
     }
 
     /// <summary>
-    /// Reads the current pressed direction.
-    /// Priority is resolved in a simple fixed order for this temporary version.
+    /// Reads the currently pressed direction.
+    /// Priority is resolved in a simple fixed order for this intermediate
+    /// version.
     /// </summary>
     private static Vector2I ReadPressedDirection()
     {
@@ -132,28 +159,53 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Tries to move to the adjacent logical cell in the requested direction.
+    /// Tries to start movement toward an adjacent logical cell.
     /// Movement succeeds only if the logical maze allows it.
     /// </summary>
-    private void TryMoveToAdjacentCell(Vector2I direction)
+    private void TryStartMoveToAdjacentCell(Vector2I direction)
     {
+        _lastDirection = direction;
+        UpdateAnimation(direction);
+
         if (!_mazeGrid.CanMove(_currentCell, direction))
         {
             GD.Print($"Blocked from {_currentCell} toward {direction}");
-            UpdateAnimation(direction);
             return;
         }
 
-        _currentCell += direction;
-        Position = _level.LogicalCellToScenePosition(_currentCell);
+        _targetCell = _currentCell + direction;
+        _targetScenePosition = _level.LogicalCellToScenePosition(_targetCell);
+        _isMoving = true;
 
-        GD.Print($"Moved to logical cell {_currentCell}");
+        GD.Print($"Started move from {_currentCell} to {_targetCell}");
+    }
 
-        UpdateAnimation(direction);
+    /// <summary>
+    /// Moves the player smoothly toward the current target scene position.
+    /// Once the target is reached, the target cell becomes the current cell.
+    /// </summary>
+    private void UpdateSmoothMovement(float delta)
+    {
+        Position = Position.MoveToward(_targetScenePosition, MoveSpeed * delta);
+
+        // A small tolerance is used because floating-point motion may not land
+        // exactly on the target every frame.
+        if (Position.DistanceTo(_targetScenePosition) <= 0.5f)
+        {
+            Position = _targetScenePosition;
+            _currentCell = _targetCell;
+            _isMoving = false;
+
+            GD.Print($"Reached logical cell {_currentCell}");
+        }
     }
 
     // --- Animation ----------------------------------------------------------
 
+    /// <summary>
+    /// Updates the visual animation and sprite orientation for the given
+    /// direction.
+    /// </summary>
     private void UpdateAnimation(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
