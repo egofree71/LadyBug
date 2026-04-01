@@ -11,5 +11,8 @@ public partial class Level : Node2D
     {
         _mazeGrid = MazeLoader.LoadFromJsonFile("res://data/maze.json");
         GD.Print("Logical maze loaded successfully.");
+
+        PlayerController player = GetNode<PlayerController>("Player");
+        player.Initialize(this);
     }
 }
