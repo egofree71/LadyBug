@@ -6,6 +6,7 @@
 
 [node name="Level" type="Node2D" unique_id=499888811]
 script = ExtResource("1_l1x8v")
+PlayerStartCell = Vector2i(5, 8)
 
 [node name="Maze" type="Sprite2D" parent="." unique_id=1774754904]
 texture_filter = 1
@@ -15,4 +16,4 @@ offset = Vector2(16, 24)
 
 [node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
 texture_filter = 1
-position = Vector2(48, 60)
+position = Vector2(372, 572)

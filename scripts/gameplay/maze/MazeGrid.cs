@@ -81,6 +81,15 @@ namespace LadyBug.Gameplay.Maze
             if (!IsInside(cellPosition))
                 return false;
 
+            if (direction == Vector2I.Zero)
+                return false;
+
+            Vector2I targetCell = cellPosition + direction;
+
+            // Prevent movement outside the logical maze bounds.
+            if (!IsInside(targetCell))
+                return false;
+
             return _cells[cellPosition.X, cellPosition.Y].CanMove(direction);
         }
 
