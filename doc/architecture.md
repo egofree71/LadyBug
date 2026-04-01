@@ -57,18 +57,21 @@ scripts/
 │  └─ HighScoreScreen.cs
 ├─ level/
 │  └─ Level.cs
-├─ maze/
-│  ├─ Direction.cs
-│  ├─ MazeCell.cs
-│  └─ MazeGrid.cs
-├─ actors/
-│  ├─ GridActor.cs
-│  ├─ PlayerController.cs
-│  └─ EnemyController.cs
-├─ props/
-│  ├─ Gate.cs
-│  ├─ Collectible.cs
-│  └─ BonusVegetable.cs
+├─ gameplay/
+│  ├─ maze/
+│  │  ├─ WallFlags.cs
+│  │  ├─ MazeCell.cs
+│  │  ├─ MazeDataFile.cs
+│  │  ├─ MazeGrid.cs
+│  │  └─ MazeLoader.cs
+│  ├─ actors/
+│  │  ├─ GridActor.cs
+│  │  ├─ PlayerController.cs
+│  │  └─ EnemyController.cs
+│  └─ props/
+│     ├─ Gate.cs
+│     ├─ Collectible.cs
+│     └─ BonusVegetable.cs
 ├─ ui/
 │  └─ Hud.cs
 └─ autoload/

@@ -1,11 +1,17 @@
 [gd_scene format=3 uid="uid://ddjtlt0jqsjnd"]
 
-[ext_resource type="Script" uid="uid://rylw2tli5xw7" path="res://scripts/maze/MazeGrid.cs" id="1_cne4c"]
+[ext_resource type="Texture2D" uid="uid://w328wws5ct2k" path="res://assets/images/maze_background.png" id="2_cne4c"]
 [ext_resource type="PackedScene" uid="uid://bb0ow503k3dgv" path="res://scenes/player/Player.tscn" id="2_l1x8v"]
 
 [node name="Level" type="Node2D" unique_id=499888811]
 
-[node name="MazeGrid" type="Node2D" parent="." unique_id=612234802]
-script = ExtResource("1_cne4c")
+[node name="Maze" type="Sprite2D" parent="." unique_id=1774754904]
+texture_filter = 1
+texture = ExtResource("2_cne4c")
+centered = false
+offset = Vector2(16, 24)
 
 [node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
+texture_filter = 1
+position = Vector2(372, 572)
+script = null
