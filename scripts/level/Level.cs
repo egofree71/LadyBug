@@ -1,15 +1,15 @@
 using Godot;
-using System;
+using LadyBug.Gameplay.Maze;
 
-public partial class Level : Node
+public partial class Level : Node2D
 {
-	// Called when the node enters the scene tree for the first time.
-	public override void _Ready()
-	{
-	}
+    private MazeGrid _mazeGrid;
 
-	// Called every frame. 'delta' is the elapsed time since the previous frame.
-	public override void _Process(double delta)
-	{
-	}
+    public MazeGrid MazeGrid => _mazeGrid;
+
+    public override void _Ready()
+    {
+        _mazeGrid = MazeLoader.LoadFromJsonFile("res://data/maze.json");
+        GD.Print("Logical maze loaded successfully.");
+    }
 }
