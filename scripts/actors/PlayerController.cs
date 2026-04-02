@@ -3,26 +3,20 @@ using LadyBug.Gameplay.Maze;
 
 /// <summary>
 /// Controls the player entity.
-///
-/// Current responsibilities in this intermediate version:
-/// - receive Level and MazeGrid references from Level
-/// - store the current logical maze cell
-/// - validate movement against the logical maze
-/// - move smoothly from one logical cell to the next
-/// - update the player scene position from the logical cell target
-/// - play a matching directional animation
-///
-/// This is still an intermediate implementation.
-/// It replaces instant cell jumps with smooth movement, but it is not yet the
-/// final arcade-accurate pixel-per-tick movement system.
 /// </summary>
+/// <remarks>
+/// This is an intermediate movement implementation based on smooth cell-to-cell
+/// motion. It validates movement against the logical maze, updates the player
+/// scene position, and drives the directional animation, but it does not yet
+/// reproduce the final arcade-accurate pixel-per-tick behavior.
+/// </remarks>
 public partial class PlayerController : Node2D
 {
     // --- Constants ----------------------------------------------------------
 
     /// <summary>
-    /// Visual movement speed in scene pixels per second for this intermediate
-    /// cell-to-cell movement step.
+    /// Visual movement speed, in scene pixels per second, used by the current
+    /// intermediate movement model.
     /// </summary>
     private const float MoveSpeed = 220.0f;
 
@@ -38,29 +32,29 @@ public partial class PlayerController : Node2D
     // --- Logical State ------------------------------------------------------
 
     /// <summary>
-    /// Current logical maze cell fully reached by the player.
+    /// The logical maze cell currently occupied by the player.
     /// </summary>
     private Vector2I _currentCell = Vector2I.Zero;
 
     /// <summary>
-    /// Target logical maze cell currently being approached.
+    /// The logical maze cell currently targeted by movement.
     /// </summary>
     private Vector2I _targetCell = Vector2I.Zero;
 
     // --- Movement State -----------------------------------------------------
 
     /// <summary>
-    /// True while the player is moving toward the target cell.
+    /// Indicates whether the player is currently moving toward the target cell.
     /// </summary>
     private bool _isMoving = false;
 
     /// <summary>
-    /// Current scene position target for smooth motion.
+    /// The current scene-space position target used for smooth movement.
     /// </summary>
     private Vector2 _targetScenePosition = Vector2.Zero;
 
     /// <summary>
-    /// Last direction used for movement or requested facing.
+    /// The last direction used for movement or facing.
     /// </summary>
     private Vector2I _lastDirection = Vector2I.Up;
 
@@ -70,7 +64,7 @@ public partial class PlayerController : Node2D
     {
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
 
-        // Initial visual state before runtime initialization.
+        // Set a valid default visual state before runtime initialization.
         _animatedSprite.FlipH = false;
         _animatedSprite.FlipV = false;
         _animatedSprite.Play("move_up");
@@ -94,8 +88,12 @@ public partial class PlayerController : Node2D
     // --- Initialization -----------------------------------------------------
 
     /// <summary>
-    /// Called by Level after the logical maze has been loaded.
+    /// Initializes the player from the level runtime data.
     /// </summary>
+    /// <param name="level">
+    /// The owning level, used to retrieve the logical maze, the player start
+    /// cell, and logical-to-scene position conversion.
+    /// </param>
     public void Initialize(Level level)
     {
         _level = level;
@@ -123,8 +121,8 @@ public partial class PlayerController : Node2D
     // --- Input / Movement ---------------------------------------------------
 
     /// <summary>
-    /// Reads the current pressed direction and tries to start a move toward the
-    /// adjacent logical cell.
+    /// Reads the current input direction and attempts to start movement toward
+    /// the adjacent logical cell.
     /// </summary>
     private void HandleGridMovementInput()
     {
@@ -137,10 +135,16 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Reads the currently pressed direction.
-    /// Priority is resolved in a simple fixed order for this intermediate
-    /// version.
+    /// Reads the currently pressed movement direction.
     /// </summary>
+    /// <returns>
+    /// The requested direction, or <see cref="Vector2I.Zero"/> if no movement
+    /// input is currently pressed.
+    /// </returns>
+    /// <remarks>
+    /// Direction priority is resolved using a simple fixed order in this
+    /// intermediate implementation.
+    /// </remarks>
     private static Vector2I ReadPressedDirection()
     {
         if (Input.IsActionPressed("move_left"))
@@ -159,9 +163,13 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Tries to start movement toward an adjacent logical cell.
-    /// Movement succeeds only if the logical maze allows it.
+    /// Attempts to start movement toward an adjacent logical cell.
     /// </summary>
+    /// <param name="direction">The requested movement direction.</param>
+    /// <remarks>
+    /// Movement starts only if the logical maze allows movement from the
+    /// current cell in the requested direction.
+    /// </remarks>
     private void TryStartMoveToAdjacentCell(Vector2I direction)
     {
         _lastDirection = direction;
@@ -181,9 +189,13 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Moves the player smoothly toward the current target scene position.
-    /// Once the target is reached, the target cell becomes the current cell.
+    /// Updates smooth movement toward the current target scene position.
     /// </summary>
+    /// <param name="delta">The frame delta time, in seconds.</param>
+    /// <remarks>
+    /// Once the target position is reached, the target logical cell becomes the
+    /// current logical cell.
+    /// </remarks>
     private void UpdateSmoothMovement(float delta)
     {
         Position = Position.MoveToward(_targetScenePosition, MoveSpeed * delta);
@@ -203,9 +215,10 @@ public partial class PlayerController : Node2D
     // --- Animation ----------------------------------------------------------
 
     /// <summary>
-    /// Updates the visual animation and sprite orientation for the given
+    /// Updates the visual animation and sprite orientation for the specified
     /// direction.
     /// </summary>
+    /// <param name="direction">The direction to display.</param>
     private void UpdateAnimation(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
