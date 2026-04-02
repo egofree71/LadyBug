@@ -4,9 +4,11 @@ namespace LadyBug.Gameplay.Maze
 {
     /// <summary>
     /// Represents one logical cell of the maze.
-    /// This class stores only the gameplay data needed to decide
-    /// whether movement is allowed in each direction.
     /// </summary>
+    /// <remarks>
+    /// This struct is immutable and stores only the minimal gameplay data 
+    /// required to determine valid movements in the four cardinal directions.
+    /// </remarks>
     public readonly struct MazeCell
     {
         /// <summary>
@@ -20,49 +22,46 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Returns true if the cell has a wall on its upper side.
+        /// Gets a value indicating whether this cell has a wall on its upper side.
         /// </summary>
         public bool HasWallUp => (Walls & WallFlags.Up) != 0;
 
         /// <summary>
-        /// Returns true if the cell has a wall on its lower side.
+        /// Gets a value indicating whether this cell has a wall on its lower side.
         /// </summary>
         public bool HasWallDown => (Walls & WallFlags.Down) != 0;
 
         /// <summary>
-        /// Returns true if the cell has a wall on its left side.
+        /// Gets a value indicating whether this cell has a wall on its left side.
         /// </summary>
         public bool HasWallLeft => (Walls & WallFlags.Left) != 0;
 
         /// <summary>
-        /// Returns true if the cell has a wall on its right side.
+        /// Gets a value indicating whether this cell has a wall on its right side.
         /// </summary>
         public bool HasWallRight => (Walls & WallFlags.Right) != 0;
 
         /// <summary>
-        /// Returns true if movement is allowed in the given logical direction.
-        /// Only the four cardinal directions are supported.
+        /// Determines whether movement is allowed from this cell in the specified direction.
         /// </summary>
+        /// <param name="direction">The direction to check.</param>
+        /// <returns>
+        /// <c>true</c> if movement is possible in that direction; otherwise <c>false</c>.
+        /// Only the four cardinal directions are supported.
+        /// </returns>
         public bool CanMove(Vector2I direction)
         {
-            if (direction == Vector2I.Up)
-                return !HasWallUp;
+            if (direction == Vector2I.Up)    return !HasWallUp;
+            if (direction == Vector2I.Down)  return !HasWallDown;
+            if (direction == Vector2I.Left)  return !HasWallLeft;
+            if (direction == Vector2I.Right) return !HasWallRight;
 
-            if (direction == Vector2I.Down)
-                return !HasWallDown;
-
-            if (direction == Vector2I.Left)
-                return !HasWallLeft;
-
-            if (direction == Vector2I.Right)
-                return !HasWallRight;
-
-            return false;
+            return false; // Direction non supportée
         }
 
-        public override string ToString()
-        {
-            return $"MazeCell(Walls={Walls})";
-        }
+        /// <summary>
+        /// Returns a string that represents the current cell.
+        /// </summary>
+        public override string ToString() => $"MazeCell(Walls={Walls})";
     }
 }
