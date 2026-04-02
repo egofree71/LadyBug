@@ -4,23 +4,33 @@ using Godot;
 namespace LadyBug.Gameplay.Maze
 {
     /// <summary>
-    /// Stores the logical maze as a 2D array of MazeCell.
-    /// This class is the main runtime representation used by gameplay code.
+    /// Represents the logical maze as a 2D grid of <see cref="MazeCell"/>.
     /// </summary>
+    /// <remarks>
+    /// This is the main runtime maze representation used by gameplay systems.
+    /// </remarks>
     public sealed class MazeGrid
     {
         private readonly MazeCell[,] _cells;
 
         /// <summary>
-        /// Number of logical cells horizontally.
+        /// Gets the number of logical cells horizontally.
         /// </summary>
         public int Width => _cells.GetLength(0);
 
         /// <summary>
-        /// Number of logical cells vertically.
+        /// Gets the number of logical cells vertically.
         /// </summary>
         public int Height => _cells.GetLength(1);
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MazeGrid"/> class.
+        /// </summary>
+        /// <param name="width">The maze width, in logical cells.</param>
+        /// <param name="height">The maze height, in logical cells.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// Thrown when <paramref name="width"/> or <paramref name="height"/> is less than or equal to zero.
+        /// </exception>
         public MazeGrid(int width, int height)
         {
             if (width <= 0)
@@ -33,8 +43,12 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Returns true if the given logical position is inside the maze bounds.
+        /// Determines whether the specified logical position is inside the maze bounds.
         /// </summary>
+        /// <param name="cellPosition">The logical cell position to test.</param>
+        /// <returns>
+        /// <c>true</c> if the position is inside the maze bounds; otherwise, <c>false</c>.
+        /// </returns>
         public bool IsInside(Vector2I cellPosition)
         {
             return cellPosition.X >= 0
@@ -44,9 +58,13 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Returns the cell at the given logical position.
-        /// Throws if the position is outside the maze.
+        /// Gets the cell at the specified logical position.
         /// </summary>
+        /// <param name="cellPosition">The logical position of the cell to retrieve.</param>
+        /// <returns>The <see cref="MazeCell"/> stored at the specified position.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// Thrown when <paramref name="cellPosition"/> is outside the maze bounds.
+        /// </exception>
         public MazeCell GetCell(Vector2I cellPosition)
         {
             if (!IsInside(cellPosition))
@@ -56,9 +74,13 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Writes a cell at the given logical position.
-        /// Throws if the position is outside the maze.
+        /// Sets the cell at the specified logical position.
         /// </summary>
+        /// <param name="cellPosition">The logical position of the cell to update.</param>
+        /// <param name="cell">The cell value to store at the specified position.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// Thrown when <paramref name="cellPosition"/> is outside the maze bounds.
+        /// </exception>
         public void SetCell(Vector2I cellPosition, MazeCell cell)
         {
             if (!IsInside(cellPosition))
@@ -68,14 +90,17 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Returns true if movement is allowed from the given cell
-        /// in the given direction.
-        /// 
-        /// This checks only the current cell's wall data.
-        /// It assumes the maze data is internally consistent.
-        /// For example, if a cell can move right, the neighbour cell
-        /// should also allow movement from its left side.
+        /// Determines whether movement is allowed from the specified cell in the given direction.
         /// </summary>
+        /// <param name="cellPosition">The logical position of the source cell.</param>
+        /// <param name="direction">The movement direction to test.</param>
+        /// <returns>
+        /// <c>true</c> if movement is allowed from the specified cell in that direction; otherwise, <c>false</c>.
+        /// </returns>
+        /// <remarks>
+        /// This method checks only the wall data of the current cell and assumes that
+        /// neighbouring cells are logically consistent with it.
+        /// </remarks>
         public bool CanMove(Vector2I cellPosition, Vector2I direction)
         {
             if (!IsInside(cellPosition))
@@ -86,7 +111,6 @@ namespace LadyBug.Gameplay.Maze
 
             Vector2I targetCell = cellPosition + direction;
 
-            // Prevent movement outside the logical maze bounds.
             if (!IsInside(targetCell))
                 return false;
 
@@ -94,11 +118,22 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
-        /// Builds a MazeGrid from the deserialized JSON data.
-        /// 
-        /// The JSON stores cells as a flat 1D array in row-major order:
-        /// index = y * width + x
+        /// Builds a <see cref="MazeGrid"/> from deserialized maze data.
         /// </summary>
+        /// <param name="data">The deserialized maze data.</param>
+        /// <returns>
+        /// A new <see cref="MazeGrid"/> instance initialized from the provided data.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown when <paramref name="data"/> is <c>null</c>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown when the provided maze data is invalid.
+        /// </exception>
+        /// <remarks>
+        /// The serialized cell array uses a flat row-major layout:
+        /// index = y * width + x.
+        /// </remarks>
         public static MazeGrid FromDataFile(MazeDataFile data)
         {
             if (data == null)
@@ -128,8 +163,6 @@ namespace LadyBug.Gameplay.Maze
             {
                 for (int x = 0; x < data.Width; x++)
                 {
-                    // The JSON uses a flat array, so we convert (x, y)
-                    // into a linear index using row-major layout.
                     int index = y * data.Width + x;
 
                     WallFlags walls = (WallFlags)data.Cells[index];
