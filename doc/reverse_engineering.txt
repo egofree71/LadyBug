@@ -1,0 +1,35 @@
+Screen graphics layout
+
+Video RAM starts at D080. The screen is built column by column, from bottom to top:
+
+D080–D09F -> 1st column
+D0A0–D0BF -> 2nd column
+...
+D3E0–D3FF -> last column
+
+
+Maze reconstruction
+
+The maze is not stored in a memory area and then copied into video RAM. Instead, it is built manually, tile by tile, by the routine at 215C–22D4. One logical maze cell is displayed using two vertical tiles and two horizontal tiles. To draw the fixed walls, the game uses wall tiles, but also some tiles that contain both a wall fragment and a pivot door fragment.
+
+To reconstruct a logical maze in Godot, we store for each cell whether there is a wall at the top, bottom, left, and right.
+
+In the JSON, each value is therefore stored as a bitmask in an integer:
+
+1 = top wall
+2 = bottom wall
+4 = left wall
+8 = right wall
+
+So:
+
+5 = top + left
+10 = bottom + right
+15 = all 4 walls
+
+To generate the JSON values, the following procedure is used:
+
+- Read a video RAM dump and convert the columns into rows.
+- Start with the first row, then check for value 32 (vertical wall) in the previous and next columns, and value 31 (horizontal wall) in the previous and next rows. This gives the wall values for the current cell.
+- Then move two columns to the right and repeat the same operation.
+- Once the row has been processed, move two rows down and repeat the operation until the last row is reached.
