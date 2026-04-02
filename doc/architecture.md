@@ -11,8 +11,8 @@ Goal:
 - separate application flow, gameplay, maze logic, actors, and UI
 
 The architecture is not just exploratory.
-Some elements are still empty or provisional, but the folder structure and scene
-names already reflect the intended long-term organization.
+Some systems are still missing or provisional, but the folder structure and the
+main responsibilities already reflect the intended long-term organization.
 
 ===============================================================================
 1. FOLDER STRUCTURE
@@ -82,13 +82,13 @@ docs/
 └─ movement.md
 
 data/
-└─ level_01.json
+└─ maze.json
 
 ===============================================================================
 2. GLOBAL ARCHITECTURE INTENT
 ===============================================================================
 
-The project is meant to be organized into several layers:
+The project is organized into several layers:
 
 1) Application / Screen flow
    - Main
@@ -105,10 +105,12 @@ The project is meant to be organized into several layers:
    - Collectibles
    - HUD
 
-3) Core logic
+3) Logical gameplay systems
    - MazeGrid
    - MazeCell
-   - Direction
+   - WallFlags
+   - MazeLoader
+   - MazeDataFile
    - GridActor
    - GameSession
 
@@ -147,7 +149,7 @@ Responsibilities:
 - switch to high score screen or back to title screen
 
 Important:
-- Main is NOT supposed to contain gameplay logic
+- Main must not contain gameplay logic
 - Main is the global screen orchestrator
 
 -------------------------------------------------------------------------------
@@ -275,32 +277,57 @@ Scene:
 Script:
 - scripts/level/Level.cs
 
-Expected node structure:
+Current practical node structure:
 
 Level (Node2D)
-├─ BackgroundLayer (TileMapLayer)
-├─ WallLayer (TileMapLayer)
+├─ Maze (Sprite2D)
+└─ Player (Node2D instance)
+
+Long-term target structure:
+
+Level (Node2D)
+├─ Maze (Sprite2D)
 ├─ GateContainer (Node2D)
 ├─ CollectibleContainer (Node2D)
 ├─ EnemyContainer (Node2D)
-├─ PlayerContainer (Node2D)
-├─ PlayerSpawn (Marker2D)
-├─ EnemySpawn (Marker2D)
-└─ BonusSpawn (Marker2D)
+├─ Player (Node2D instance)
+└─ BonusSpawn / other helper nodes as needed
 
 Purpose:
 - represent one playable stage
 
 Responsibilities:
-- contain the maze layout
-- instantiate the player
-- instantiate enemies
-- place collectibles and bonus items
+- own the visual maze background
+- load the logical maze from JSON
+- expose the runtime MazeGrid to gameplay actors
+- initialize the player after the maze has been loaded
+- later instantiate enemies, collectibles, gates, and bonus items
 - manage stage-specific gameplay logic
 
 Important:
-- Level is the concrete playable space
+- the fixed maze graphics are currently part of the background image
+  assets/images/maze_background.png
+- the logical maze is a separate runtime structure loaded from data/maze.json
 - Level should not handle the global application flow
+
+-------------------------------------------------------------------------------
+4.2 Visual Maze vs Logical Maze
+-------------------------------------------------------------------------------
+
+The project intentionally separates two different notions of maze:
+
+1) Visual maze
+   - currently represented by the background sprite image
+   - responsible only for visual appearance
+
+2) Logical maze
+   - loaded from JSON through MazeLoader
+   - represented at runtime by MazeGrid and MazeCell
+   - responsible for walls and allowed movement directions
+
+This separation is important because the arcade remake needs both:
+- faithful graphics
+- explicit gameplay logic
 
 ===============================================================================
 5. ACTOR SCENES
@@ -314,7 +341,7 @@ Scene:
 - scenes/player/Player.tscn
 
 Script:
-- scripts/actors/PlayerController.cs
+- scripts/gameplay/actors/PlayerController.cs
 
 Current node structure:
 
@@ -326,12 +353,13 @@ Purpose:
 
 Responsibilities:
 - read player input
-- handle player movement
-- manage current direction and wanted direction
-- update player animation
+- manage movement state
+- query the logical maze before moving
+- update player animation and facing direction
 
 Status:
-- this is currently the first implemented gameplay actor
+- this is the first implemented gameplay actor
+- it is already connected to the logical maze loaded by Level
 
 -------------------------------------------------------------------------------
 5.2 Enemy
@@ -341,7 +369,7 @@ Scene:
 - scenes/enemies/Enemy.tscn
 
 Script:
-- scripts/actors/EnemyController.cs
+- scripts/gameplay/actors/EnemyController.cs
 
 Expected node structure:
 
@@ -354,7 +382,10 @@ Purpose:
 Responsibilities:
 - follow maze movement rules
 - manage enemy behavior
-- use shared movement structure from GridActor
+- eventually use shared movement structure from GridActor
+
+Status:
+- planned, not yet implemented
 
 ===============================================================================
 6. PROP SCENES
@@ -368,7 +399,7 @@ Scene:
 - scenes/props/Gate.tscn
 
 Script:
-- scripts/props/Gate.cs
+- scripts/gameplay/props/Gate.cs
 
 Expected node structure:
 
@@ -381,7 +412,10 @@ Purpose:
 Responsibilities:
 - represent a door visually
 - rotate when pushed
-- update logical paths in the maze
+- later update logical paths in the maze
+
+Status:
+- planned, not yet implemented
 
 -------------------------------------------------------------------------------
 6.2 Collectible
@@ -391,7 +425,7 @@ Scene:
 - scenes/props/Collectible.tscn
 
 Script:
-- scripts/props/Collectible.cs
+- scripts/gameplay/props/Collectible.cs
 
 Expected node structure:
 
@@ -405,6 +439,9 @@ Responsibilities:
 - exist as a collectible gameplay element
 - notify the level when collected
 
+Status:
+- planned, not yet implemented
+
 -------------------------------------------------------------------------------
 6.3 BonusVegetable
 -------------------------------------------------------------------------------
@@ -413,7 +450,7 @@ Scene:
 - scenes/props/BonusVegetable.tscn
 
 Script:
-- scripts/props/BonusVegetable.cs
+- scripts/gameplay/props/BonusVegetable.cs
 
 Purpose:
 - represent temporary bonus items
@@ -421,6 +458,9 @@ Purpose:
 Responsibilities:
 - appear at specific moments
 - provide bonus score or stage reward
+
+Status:
+- planned, not yet implemented
 
 ===============================================================================
 7. UI
@@ -452,105 +492,155 @@ Responsibilities:
 - show lives
 - show stage number
 
+Status:
+- planned, not yet implemented
+
 ===============================================================================
-8. CORE LOGIC CLASSES
+8. CORE GAMEPLAY / LOGICAL CLASSES
 ===============================================================================
 
 -------------------------------------------------------------------------------
-8.1 MazeGrid
+8.1 WallFlags
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/maze/MazeGrid.cs
+- scripts/gameplay/maze/WallFlags.cs
 
 Purpose:
-- represent the logical structure of the maze
+- describe which walls exist around one logical cell
 
 Responsibilities:
-- define walkable paths
-- know which directions are available at a given location
-- model intersections, walls, and door states
-- provide movement constraints to player and enemies
+- encode up / down / left / right walls
+- provide a compact representation used in MazeCell and JSON data
 
 Important:
-- MazeGrid is a logical model
-- it is not just a visual tilemap
+- this replaces the idea of a generic Direction enum as the primary maze data
+  representation
 
 -------------------------------------------------------------------------------
 8.2 MazeCell
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/maze/MazeCell.cs
+- scripts/gameplay/maze/MazeCell.cs
 
 Purpose:
 - represent one logical maze cell
 
 Responsibilities:
-- store cell properties
-- indicate allowed movement directions
-- hold gameplay elements if needed
+- store wall information for one cell
+- expose movement constraints in each direction
+- serve as the smallest logical maze unit
 
 -------------------------------------------------------------------------------
-8.3 Direction
+8.3 MazeDataFile
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/maze/Direction.cs
+- scripts/gameplay/maze/MazeDataFile.cs
 
 Purpose:
-- provide a clear direction type for maze logic
+- represent the JSON data structure used to serialize the maze
 
 Responsibilities:
-- standardize movement direction values
-- avoid magic values in code
+- define the JSON format
+- separate file-format concerns from runtime maze logic
 
 -------------------------------------------------------------------------------
-8.4 GridActor
+8.4 MazeGrid
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/actors/GridActor.cs
+- scripts/gameplay/maze/MazeGrid.cs
 
 Purpose:
-- base class for moving actors
+- represent the logical structure of the maze at runtime
 
 Responsibilities:
-- handle shared movement logic
-- store position and direction information
-- provide reusable movement behavior for player and enemies
+- store the 2D array of logical cells
+- know whether a movement is allowed from a given cell
+- validate bounds
+- provide movement constraints to player and later enemies
 
-Intent:
-- avoid duplicating movement code
+Important:
+- MazeGrid is a logical model
+- it is not a visual tilemap
+- it is the gameplay source of truth for maze walls
 
 -------------------------------------------------------------------------------
-8.5 PlayerController
+8.5 MazeLoader
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/actors/PlayerController.cs
+- scripts/gameplay/maze/MazeLoader.cs
+
+Purpose:
+- load the logical maze from JSON
+
+Responsibilities:
+- read data/maze.json
+- deserialize MazeDataFile
+- construct the runtime MazeGrid
+
+Important:
+- file loading is intentionally separated from MazeGrid itself
+
+-------------------------------------------------------------------------------
+8.6 GridActor
+-------------------------------------------------------------------------------
+
+Location:
+- scripts/gameplay/actors/GridActor.cs
+
+Purpose:
+- potential base class for moving actors
+
+Responsibilities:
+- eventually centralize shared movement logic
+- store shared movement-related data
+- reduce duplication between player and enemies
+
+Current status:
+- architectural placeholder / future refactoring point
+- the current movement logic still lives directly inside PlayerController
+
+-------------------------------------------------------------------------------
+8.7 PlayerController
+-------------------------------------------------------------------------------
+
+Location:
+- scripts/gameplay/actors/PlayerController.cs
 
 Purpose:
 - handle player-specific behavior
 
 Responsibilities:
 - read player input
-- update wanted direction
-- move using arcade-style logic
-- control player animation
+- manage wanted direction and current direction
+- update movement using arcade-oriented logic
+- validate movement against the logical maze
+- control animation and visual orientation
 
 Current implementation focus:
 - fixed tick update
-- integer pixel position
+- integer arcade pixel position
 - current direction / wanted direction
-- provisional lane alignment
+- buffered direction changes
+- provisional lane alignment and lane recentering
+- turn capture based on alignment and maze validity
+- animation driven by visual movement direction
+
+Important:
+- this is not free delta-based movement
+- the current implementation is already oriented toward reproducing arcade
+  behavior rather than modern smooth movement
 
 -------------------------------------------------------------------------------
-8.6 EnemyController
+8.8 EnemyController
 -------------------------------------------------------------------------------
 
 Location:
-- scripts/actors/EnemyController.cs
+- scripts/gameplay/actors/EnemyController.cs
 
 Purpose:
 - handle enemy-specific behavior
@@ -559,6 +649,9 @@ Responsibilities:
 - use shared movement rules
 - implement enemy decision-making
 - respect maze constraints
+
+Status:
+- planned, not yet implemented
 
 ===============================================================================
 9. GLOBAL STATE
@@ -583,25 +676,48 @@ Responsibilities:
 Intended usage:
 - GameSession should be used as an AutoLoad
 
+Status:
+- planned, not yet implemented
+
 ===============================================================================
 10. CURRENT IMPLEMENTATION STATUS
 ===============================================================================
 
-Currently implemented:
+Implemented now:
 - player scene
 - animated player sprite
-- player input
-- intermediate arcade-style movement system
-- documentation
+- level scene with maze background sprite
+- logical maze JSON file
+- logical maze loading pipeline:
+  - MazeDataFile
+  - MazeLoader
+  - MazeGrid
+  - MazeCell
+  - WallFlags
+- Level initialization of the player after maze loading
+- player start positioning from level configuration
+- player movement connected to maze validation
+- intermediate arcade-oriented movement model
+- project documentation
 
-Planned but not yet fully implemented:
+Partially implemented / still evolving:
+- player movement accuracy
+- lane alignment rules
+- long-term actor base architecture through GridActor
+- exact arcade behavior reproduction
+
+Planned but not yet implemented:
 - Main screen flow
-- level scene logic
-- maze logical model
+- title screen
+- gameplay screen container
+- game over flow
+- high score flow
 - enemies
 - collectibles
 - rotating gates
-- score flow and game over sequence
+- bonus vegetables
+- score flow and HUD
+- session / stage progression systems
 
 ===============================================================================
 11. DESIGN PHILOSOPHY
@@ -614,9 +730,26 @@ It is also not trying to build a heavy architecture too early.
 The current design aims for:
 - simple structure
 - clear responsibilities
+- separation between visual data and logical gameplay data
 - future scalability
 - faithful arcade behavior
 
 In short:
 - simple enough to work with now
 - structured enough to avoid rebuilding everything later
+
+===============================================================================
+12. CURRENT DEVELOPMENT PRIORITY
+===============================================================================
+
+The current priority is not the full application flow yet.
+
+The immediate focus is:
+- establish a correct logical maze
+- establish a reliable player controller
+- progressively move from prototype behavior toward arcade-faithful behavior
+
+This means:
+- movement and maze logic are currently more important than menus and score flow
+- architecture decisions should continue to support reverse engineering findings
+- gameplay correctness takes priority over premature content expansion
