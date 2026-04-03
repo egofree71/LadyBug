@@ -199,15 +199,22 @@ public partial class PlayerController : Node2D
         // Case 1: starting or resuming from rest.
         if (_currentDir == Vector2I.Zero)
         {
+            Vector2I originalPixelPos = _arcadePixelPos;
+
             if (!CanStartOrResumeInDirection(_wantedDir))
                 return;
 
-            // Recalculate after potential snap.
             isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
 
             StepCheckResult previewStep = EvaluateOnePixelStep(_wantedDir);
             if (!previewStep.Allowed)
+            {
+                // Important:
+                // if the direction is blocked, we must cancel the temporary snap
+                // so the player keeps the exact previous resting position.
+                _arcadePixelPos = originalPixelPos;
                 return;
+            }
 
             _currentDir = _wantedDir;
             _offsetDir = _currentDir;
