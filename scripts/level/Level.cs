@@ -216,10 +216,21 @@ public partial class Level : Node2D
         if (maze == null || player == null)
             return;
 
+        // Position gameplay de l'instance Player.
         player.Position = LogicalCellToScenePosition(_playerStartCell);
 
+        // En mode éditeur, on applique aussi un offset visuel au sprite
+        // pour que l'aperçu corresponde au runtime.
         if (Engine.IsEditorHint())
         {
+            AnimatedSprite2D animatedSprite = player.GetNodeOrNull<AnimatedSprite2D>("AnimatedSprite2D");
+            if (animatedSprite != null)
+            {
+                // Même offset visuel vertical que celui utilisé au runtime au démarrage.
+                Vector2 spriteOffset = ArcadeDeltaToSceneDelta(new Vector2I(5, 7));
+                animatedSprite.Position = spriteOffset;
+            }
+
             player.NotifyPropertyListChanged();
             QueueRedraw();
         }
