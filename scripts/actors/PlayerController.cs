@@ -2,23 +2,39 @@ using Godot;
 using LadyBug.Gameplay.Maze;
 
 /// <summary>
-/// Controls the player entity.
+/// Arcade-style player controller with fixed-tick movement,
+/// buffered input (last pressed wins), rail snapping and
+/// direction-specific visual offsets / collision probes.
 /// </summary>
-/// <remarks>
-/// This is an intermediate movement implementation based on smooth cell-to-cell
-/// motion. It validates movement against the logical maze, updates the player
-/// scene position, and drives the directional animation, but it does not yet
-/// reproduce the final arcade-accurate pixel-per-tick behavior.
-/// </remarks>
 public partial class PlayerController : Node2D
 {
-    // --- Constants ----------------------------------------------------------
+    // --- Timing -------------------------------------------------------------
 
-    /// <summary>
-    /// Visual movement speed, in scene pixels per second, used by the current
-    /// intermediate movement model.
-    /// </summary>
-    private const float MoveSpeed = 220.0f;
+    private const double TickRate = 60.1145;
+    private const double TickDuration = 1.0 / TickRate;
+
+    // --- Rail snap tolerances ----------------------------------------------
+
+    private const int HorizontalRailSnapTolerance = 1;
+    private const int VerticalRailSnapTolerance = 1;
+
+    // --- Visual offsets -----------------------------------------------------
+
+    private static readonly Vector2I SpriteRenderOffsetLeftArcade = new(5, 8);
+    private static readonly Vector2I SpriteRenderOffsetRightArcade = new(4, 8);
+    private static readonly Vector2I SpriteRenderOffsetVerticalArcade = new(5, 7);
+
+    // --- Debug --------------------------------------------------------------
+
+    [Export]
+    private bool _debugDrawAnchor = false;
+
+    // --- Directional collision probe ---------------------------------------
+
+    private const int CollisionLeadLeft = 8;
+    private const int CollisionLeadRight = 6;
+    private const int CollisionLeadUp = 9;
+    private const int CollisionLeadDown = 6;
 
     // --- Nodes --------------------------------------------------------------
 
@@ -29,199 +45,417 @@ public partial class PlayerController : Node2D
     private Level _level;
     private MazeGrid _mazeGrid;
 
-    // --- Logical State ------------------------------------------------------
+    // --- Gameplay Position --------------------------------------------------
 
     /// <summary>
-    /// The logical maze cell currently occupied by the player.
+    /// Player position in original arcade pixels, relative to the maze origin.
     /// </summary>
-    private Vector2I _currentCell = Vector2I.Zero;
-
-    /// <summary>
-    /// The logical maze cell currently targeted by movement.
-    /// </summary>
-    private Vector2I _targetCell = Vector2I.Zero;
+    private Vector2I _arcadePixelPos = Vector2I.Zero;
 
     // --- Movement State -----------------------------------------------------
 
     /// <summary>
-    /// Indicates whether the player is currently moving toward the target cell.
+    /// Direction currently used by actual movement.
     /// </summary>
-    private bool _isMoving = false;
+    private Vector2I _currentDir = Vector2I.Zero;
 
     /// <summary>
-    /// The current scene-space position target used for smooth movement.
+    /// Direction currently requested by held input.
     /// </summary>
-    private Vector2 _targetScenePosition = Vector2.Zero;
+    private Vector2I _wantedDir = Vector2I.Zero;
 
     /// <summary>
-    /// The last direction used for movement or facing.
+    /// Direction currently displayed by the sprite.
+    /// This changes immediately when the player presses a direction.
     /// </summary>
-    private Vector2I _lastDirection = Vector2I.Up;
+    private Vector2I _facingDir = Vector2I.Up;
+
+    /// <summary>
+    /// Direction used to select the sprite render offset.
+    /// This changes only when movement is actually accepted.
+    /// </summary>
+    private Vector2I _offsetDir = Vector2I.Up;
+
+    /// <summary>
+    /// Accumulates frame time until one or more simulation ticks can be run.
+    /// </summary>
+    private double _accumulator = 0.0;
+
+    // --- Direction input state ---------------------------------------------
+
+    private bool _leftPressed;
+    private bool _rightPressed;
+    private bool _upPressed;
+    private bool _downPressed;
+
+    private long _leftPressOrder;
+    private long _rightPressOrder;
+    private long _upPressOrder;
+    private long _downPressOrder;
+
+    private long _pressOrderCounter;
+
+    // --- Step evaluation ----------------------------------------------------
+
+    private struct StepCheckResult
+    {
+        public bool Allowed;
+    }
 
     // --- Lifecycle ----------------------------------------------------------
 
     public override void _Ready()
     {
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
+        _animatedSprite.Position = Vector2.Zero;
 
-        // Set a valid default visual state before runtime initialization.
-        _animatedSprite.FlipH = false;
-        _animatedSprite.FlipV = false;
-        _animatedSprite.Play("move_up");
+        ApplyVisualFacing(_facingDir);
+        QueueRedraw();
     }
 
     public override void _Process(double delta)
     {
-        if (_mazeGrid == null || _level == null)
+        if (_level == null || _mazeGrid == null)
             return;
 
-        if (_isMoving)
+        _accumulator += delta;
+
+        while (_accumulator >= TickDuration)
         {
-            UpdateSmoothMovement((float)delta);
+            _accumulator -= TickDuration;
+            StepOneTick();
         }
-        else
-        {
-            HandleGridMovementInput();
-        }
+
+        // Node position = gameplay anchor in scene space
+        Position = _level.ArcadePixelToScenePosition(_arcadePixelPos);
+
+        // Sprite position = render-only offset relative to gameplay anchor
+        _animatedSprite.Position = GetSpriteRenderOffsetScene();
+
+        if (_debugDrawAnchor)
+            QueueRedraw();
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        UpdateDirectionActionState(@event, "move_left", Vector2I.Left);
+        UpdateDirectionActionState(@event, "move_right", Vector2I.Right);
+        UpdateDirectionActionState(@event, "move_up", Vector2I.Up);
+        UpdateDirectionActionState(@event, "move_down", Vector2I.Down);
     }
 
     // --- Initialization -----------------------------------------------------
 
-    /// <summary>
-    /// Initializes the player from the level runtime data.
-    /// </summary>
-    /// <param name="level">
-    /// The owning level, used to retrieve the logical maze, the player start
-    /// cell, and logical-to-scene position conversion.
-    /// </param>
     public void Initialize(Level level)
     {
         _level = level;
         _mazeGrid = level.MazeGrid;
 
-        GD.Print($"MazeGrid found: {_mazeGrid != null}");
+        _arcadePixelPos = level.LogicalCellToArcadePixel(level.PlayerStartCell);
+        _currentDir = Vector2I.Zero;
+        _wantedDir = Vector2I.Zero;
+        _accumulator = 0.0;
 
-        _currentCell = level.PlayerStartCell;
-        _targetCell = _currentCell;
+        _leftPressed = Input.IsActionPressed("move_left");
+        _rightPressed = Input.IsActionPressed("move_right");
+        _upPressed = Input.IsActionPressed("move_up");
+        _downPressed = Input.IsActionPressed("move_down");
 
-        Position = _level.LogicalCellToScenePosition(_currentCell);
-        _targetScenePosition = Position;
+        _leftPressOrder = 0;
+        _rightPressOrder = 0;
+        _upPressOrder = 0;
+        _downPressOrder = 0;
+        _pressOrderCounter = 0;
 
-        GD.Print($"Player starting logical cell: {_currentCell}");
+        Position = _level.ArcadePixelToScenePosition(_arcadePixelPos);
+        _animatedSprite.Position = GetSpriteRenderOffsetScene();
+        ApplyVisualFacing(_facingDir);
 
-        MazeCell testCell = _mazeGrid.GetCell(_currentCell);
-
-        GD.Print($"Cell {_currentCell} -> Walls = {testCell.Walls}");
-        GD.Print($"Up: {testCell.HasWallUp}");
-        GD.Print($"Down: {testCell.HasWallDown}");
-        GD.Print($"Left: {testCell.HasWallLeft}");
-        GD.Print($"Right: {testCell.HasWallRight}");
+        QueueRedraw();
     }
 
-    // --- Input / Movement ---------------------------------------------------
+    // --- Tick Simulation ----------------------------------------------------
 
-    /// <summary>
-    /// Reads the current input direction and attempts to start movement toward
-    /// the adjacent logical cell.
-    /// </summary>
-    private void HandleGridMovementInput()
+    private void StepOneTick()
     {
-        Vector2I requestedDirection = ReadPressedDirection();
+        _wantedDir = ReadPressedDirection();
 
-        if (requestedDirection == Vector2I.Zero)
+        // The direction displayed by the sprite follows the player's input immediately.
+        if (_wantedDir != Vector2I.Zero && _facingDir != _wantedDir)
+        {
+            _facingDir = _wantedDir;
+            ApplyVisualFacing(_facingDir);
+        }
+
+        // Releasing input stops movement immediately.
+        if (_wantedDir == Vector2I.Zero)
+        {
+            _currentDir = Vector2I.Zero;
             return;
+        }
 
-        TryStartMoveToAdjacentCell(requestedDirection);
+        bool isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
+
+        // Case 1: starting or resuming from rest.
+        if (_currentDir == Vector2I.Zero)
+        {
+            if (!CanStartOrResumeInDirection(_wantedDir))
+                return;
+
+            // Recalculate after potential snap.
+            isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
+
+            StepCheckResult previewStep = EvaluateOnePixelStep(_wantedDir);
+            if (!previewStep.Allowed)
+                return;
+
+            _currentDir = _wantedDir;
+            _offsetDir = _currentDir;
+        }
+        else
+        {
+            // Case 2: direction change while already moving.
+            bool wantsTurn =
+                (_currentDir.X != 0 && _wantedDir.Y != 0) ||
+                (_currentDir.Y != 0 && _wantedDir.X != 0);
+
+            if (wantsTurn)
+            {
+                StepCheckResult turnPreview = EvaluateOnePixelStep(_wantedDir);
+
+                if (isAtLogicalAnchor && turnPreview.Allowed)
+                {
+                    _currentDir = _wantedDir;
+                    _offsetDir = _currentDir;
+                }
+                else if (!turnPreview.Allowed)
+                {
+                    // If the newly requested perpendicular direction is blocked,
+                    // the player stops instead of continuing in the old direction.
+                    _currentDir = Vector2I.Zero;
+                    return;
+                }
+                else
+                {
+                    // Turn buffered: keep moving until the logical anchor.
+                }
+            }
+            else
+            {
+                _currentDir = _wantedDir;
+                _offsetDir = _currentDir;
+            }
+        }
+
+        StepCheckResult step = EvaluateOnePixelStep(_currentDir);
+
+        if (!step.Allowed)
+        {
+            _currentDir = Vector2I.Zero;
+            return;
+        }
+
+        _arcadePixelPos += _currentDir;
     }
 
-    /// <summary>
-    /// Reads the currently pressed movement direction.
-    /// </summary>
-    /// <returns>
-    /// The requested direction, or <see cref="Vector2I.Zero"/> if no movement
-    /// input is currently pressed.
-    /// </returns>
-    /// <remarks>
-    /// Direction priority is resolved using a simple fixed order in this
-    /// intermediate implementation.
-    /// </remarks>
-    private static Vector2I ReadPressedDirection()
+    // --- Movement Rules -----------------------------------------------------
+
+    private bool IsExactlyOnLogicalCellAnchor()
     {
-        if (Input.IsActionPressed("move_left"))
-            return Vector2I.Left;
+        Vector2I logicalCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
+        Vector2I anchorPixel = _level.LogicalCellToArcadePixel(logicalCell);
+        return _arcadePixelPos == anchorPixel;
+    }
 
-        if (Input.IsActionPressed("move_right"))
-            return Vector2I.Right;
+    private bool TrySnapToRailForDirection(Vector2I direction)
+    {
+        if (direction == Vector2I.Zero)
+            return false;
 
-        if (Input.IsActionPressed("move_up"))
-            return Vector2I.Up;
+        Vector2I currentCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
+        Vector2I anchor = _level.LogicalCellToArcadePixel(currentCell);
 
-        if (Input.IsActionPressed("move_down"))
-            return Vector2I.Down;
+        if (direction.X != 0)
+        {
+            int deltaY = _arcadePixelPos.Y - anchor.Y;
+            if (Mathf.Abs(deltaY) <= HorizontalRailSnapTolerance)
+            {
+                _arcadePixelPos = new Vector2I(_arcadePixelPos.X, anchor.Y);
+                return true;
+            }
+
+            return false;
+        }
+
+        if (direction.Y != 0)
+        {
+            int deltaX = _arcadePixelPos.X - anchor.X;
+            if (Mathf.Abs(deltaX) <= VerticalRailSnapTolerance)
+            {
+                _arcadePixelPos = new Vector2I(anchor.X, _arcadePixelPos.Y);
+                return true;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    private bool CanStartOrResumeInDirection(Vector2I direction)
+    {
+        return TrySnapToRailForDirection(direction);
+    }
+
+    private Vector2I GetCollisionLead(Vector2I direction)
+    {
+        if (direction == Vector2I.Left)
+            return new Vector2I(-CollisionLeadLeft, 0);
+
+        if (direction == Vector2I.Right)
+            return new Vector2I(CollisionLeadRight, 0);
+
+        if (direction == Vector2I.Up)
+            return new Vector2I(0, -CollisionLeadUp);
+
+        if (direction == Vector2I.Down)
+            return new Vector2I(0, CollisionLeadDown);
 
         return Vector2I.Zero;
     }
 
-    /// <summary>
-    /// Attempts to start movement toward an adjacent logical cell.
-    /// </summary>
-    /// <param name="direction">The requested movement direction.</param>
-    /// <remarks>
-    /// Movement starts only if the logical maze allows movement from the
-    /// current cell in the requested direction.
-    /// </remarks>
-    private void TryStartMoveToAdjacentCell(Vector2I direction)
+    private StepCheckResult EvaluateOnePixelStep(Vector2I direction)
     {
-        _lastDirection = direction;
-        UpdateAnimation(direction);
+        StepCheckResult result = new();
 
-        if (!_mazeGrid.CanMove(_currentCell, direction))
+        if (direction == Vector2I.Zero)
         {
-            GD.Print($"Blocked from {_currentCell} toward {direction}");
-            return;
+            result.Allowed = false;
+            return result;
         }
 
-        _targetCell = _currentCell + direction;
-        _targetScenePosition = _level.LogicalCellToScenePosition(_targetCell);
-        _isMoving = true;
+        Vector2I currentCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
+        Vector2I nextPixelPos = _arcadePixelPos + direction;
+        Vector2I probePixel = nextPixelPos + GetCollisionLead(direction);
+        Vector2I nextCell = _level.ArcadePixelToLogicalCell(probePixel);
 
-        GD.Print($"Started move from {_currentCell} to {_targetCell}");
+        if (!_mazeGrid.IsInside(currentCell))
+        {
+            result.Allowed = false;
+            return result;
+        }
+
+        if (nextCell == currentCell)
+        {
+            result.Allowed = true;
+            return result;
+        }
+
+        result.Allowed = _mazeGrid.CanMove(currentCell, direction);
+        return result;
     }
 
-    /// <summary>
-    /// Updates smooth movement toward the current target scene position.
-    /// </summary>
-    /// <param name="delta">The frame delta time, in seconds.</param>
-    /// <remarks>
-    /// Once the target position is reached, the target logical cell becomes the
-    /// current logical cell.
-    /// </remarks>
-    private void UpdateSmoothMovement(float delta)
+    // --- Input --------------------------------------------------------------
+
+    private void UpdateDirectionActionState(InputEvent @event, string actionName, Vector2I direction)
     {
-        Position = Position.MoveToward(_targetScenePosition, MoveSpeed * delta);
-
-        // A small tolerance is used because floating-point motion may not land
-        // exactly on the target every frame.
-        if (Position.DistanceTo(_targetScenePosition) <= 0.5f)
+        if (@event.IsActionPressed(actionName))
         {
-            Position = _targetScenePosition;
-            _currentCell = _targetCell;
-            _isMoving = false;
+            _pressOrderCounter++;
 
-            GD.Print($"Reached logical cell {_currentCell}");
+            if (direction == Vector2I.Left)
+            {
+                _leftPressed = true;
+                _leftPressOrder = _pressOrderCounter;
+            }
+            else if (direction == Vector2I.Right)
+            {
+                _rightPressed = true;
+                _rightPressOrder = _pressOrderCounter;
+            }
+            else if (direction == Vector2I.Up)
+            {
+                _upPressed = true;
+                _upPressOrder = _pressOrderCounter;
+            }
+            else if (direction == Vector2I.Down)
+            {
+                _downPressed = true;
+                _downPressOrder = _pressOrderCounter;
+            }
         }
+
+        if (@event.IsActionReleased(actionName))
+        {
+            if (direction == Vector2I.Left)
+                _leftPressed = false;
+            else if (direction == Vector2I.Right)
+                _rightPressed = false;
+            else if (direction == Vector2I.Up)
+                _upPressed = false;
+            else if (direction == Vector2I.Down)
+                _downPressed = false;
+        }
+    }
+
+    private Vector2I ReadPressedDirection()
+    {
+        Vector2I bestDirection = Vector2I.Zero;
+        long bestOrder = long.MinValue;
+
+        if (_leftPressed && _leftPressOrder > bestOrder)
+        {
+            bestOrder = _leftPressOrder;
+            bestDirection = Vector2I.Left;
+        }
+
+        if (_rightPressed && _rightPressOrder > bestOrder)
+        {
+            bestOrder = _rightPressOrder;
+            bestDirection = Vector2I.Right;
+        }
+
+        if (_upPressed && _upPressOrder > bestOrder)
+        {
+            bestOrder = _upPressOrder;
+            bestDirection = Vector2I.Up;
+        }
+
+        if (_downPressed && _downPressOrder > bestOrder)
+        {
+            bestOrder = _downPressOrder;
+            bestDirection = Vector2I.Down;
+        }
+
+        return bestDirection;
+    }
+
+    // --- Rendering ----------------------------------------------------------
+
+    private Vector2I GetCurrentSpriteRenderOffsetArcade()
+    {
+        if (_offsetDir == Vector2I.Left)
+            return SpriteRenderOffsetLeftArcade;
+
+        if (_offsetDir == Vector2I.Right)
+            return SpriteRenderOffsetRightArcade;
+
+        return SpriteRenderOffsetVerticalArcade;
+    }
+
+    private Vector2 GetSpriteRenderOffsetScene()
+    {
+        if (_level == null)
+            return Vector2.Zero;
+
+        return _level.ArcadeDeltaToSceneDelta(GetCurrentSpriteRenderOffsetArcade());
     }
 
     // --- Animation ----------------------------------------------------------
 
-    /// <summary>
-    /// Updates the visual animation and sprite orientation for the specified
-    /// direction.
-    /// </summary>
-    /// <param name="direction">The direction to display.</param>
-    private void UpdateAnimation(Vector2I direction)
+    private void ApplyVisualFacing(Vector2I direction)
     {
-        if (direction == Vector2I.Zero)
+        if (direction == Vector2I.Zero || _animatedSprite == null)
             return;
 
         _animatedSprite.FlipH = false;
