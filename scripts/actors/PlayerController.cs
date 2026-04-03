@@ -2,101 +2,132 @@ using Godot;
 using LadyBug.Gameplay.Maze;
 
 /// <summary>
-/// Arcade-style player controller with fixed-tick movement,
-/// buffered input (last pressed wins), rail snapping and
-/// direction-specific visual offsets / collision probes.
+/// Controls the player using an arcade-style movement model.
 /// </summary>
+/// <remarks>
+/// This controller currently combines:
+/// input state tracking, fixed-tick movement simulation,
+/// rail snapping, collision probing, and visual sprite updates.
+///
+/// The movement model is intentionally tuned to match the current
+/// Lady Bug remake prototype:
+/// - fixed tick rate
+/// - integer arcade-pixel gameplay position
+/// - rail-aligned movement inside 16x16 logical cells
+/// - last pressed direction wins when several inputs are held
+/// - immediate facing update on input
+/// - visual sprite offset changes only when movement is truly accepted
+///
+/// The controller uses:
+/// - _wantedDir for the current input intention
+/// - _currentDir for the direction effectively used by movement
+/// - _facingDir for the direction displayed by the sprite
+/// - _offsetDir for the direction used to choose the visual sprite offset
+/// </remarks>
 public partial class PlayerController : Node2D
 {
     // --- Timing -------------------------------------------------------------
 
+    // Fixed simulation frequency used by the current prototype.
     private const double TickRate = 60.1145;
+
+    // Duration of one simulation tick.
     private const double TickDuration = 1.0 / TickRate;
 
     // --- Rail snap tolerances ----------------------------------------------
 
+    // Maximum vertical deviation tolerated when starting/resuming horizontal movement.
     private const int HorizontalRailSnapTolerance = 1;
+
+    // Maximum horizontal deviation tolerated when starting/resuming vertical movement.
     private const int VerticalRailSnapTolerance = 1;
 
     // --- Visual offsets -----------------------------------------------------
 
+    // Render offset used while the player is effectively moving left.
     private static readonly Vector2I SpriteRenderOffsetLeftArcade = new(5, 8);
+
+    // Render offset used while the player is effectively moving right.
     private static readonly Vector2I SpriteRenderOffsetRightArcade = new(4, 8);
+
+    // Render offset used while the player is effectively moving vertically.
     private static readonly Vector2I SpriteRenderOffsetVerticalArcade = new(5, 7);
 
     // --- Debug --------------------------------------------------------------
 
+    // Draw the cyan gameplay anchor in the scene.
     [Export]
     private bool _debugDrawAnchor = false;
 
     // --- Directional collision probe ---------------------------------------
 
+    // Forward probe distance used when moving left.
     private const int CollisionLeadLeft = 8;
+
+    // Forward probe distance used when moving right.
     private const int CollisionLeadRight = 6;
+
+    // Forward probe distance used when moving up.
     private const int CollisionLeadUp = 9;
+
+    // Forward probe distance used when moving down.
     private const int CollisionLeadDown = 6;
 
     // --- Nodes --------------------------------------------------------------
 
+    // Animated sprite that visually represents the player.
     private AnimatedSprite2D _animatedSprite;
 
     // --- References ---------------------------------------------------------
 
+    // Owning level. Provides maze access and coordinate conversion helpers.
     private Level _level;
+
+    // Runtime logical maze used for movement legality checks.
     private MazeGrid _mazeGrid;
 
     // --- Gameplay Position --------------------------------------------------
 
-    /// <summary>
-    /// Player position in original arcade pixels, relative to the maze origin.
-    /// </summary>
+    // True gameplay position, expressed in original arcade pixels relative to the maze origin.
     private Vector2I _arcadePixelPos = Vector2I.Zero;
 
     // --- Movement State -----------------------------------------------------
 
-    /// <summary>
-    /// Direction currently used by actual movement.
-    /// </summary>
+    // Direction currently used by effective movement.
     private Vector2I _currentDir = Vector2I.Zero;
 
-    /// <summary>
-    /// Direction currently requested by held input.
-    /// </summary>
+    // Direction currently requested by held input.
     private Vector2I _wantedDir = Vector2I.Zero;
 
-    /// <summary>
-    /// Direction currently displayed by the sprite.
-    /// This changes immediately when the player presses a direction.
-    /// </summary>
+    // Direction currently shown by the sprite.
     private Vector2I _facingDir = Vector2I.Up;
 
-    /// <summary>
-    /// Direction used to select the sprite render offset.
-    /// This changes only when movement is actually accepted.
-    /// </summary>
+    // Direction used to select the current sprite render offset.
     private Vector2I _offsetDir = Vector2I.Up;
 
-    /// <summary>
-    /// Accumulates frame time until one or more simulation ticks can be run.
-    /// </summary>
+    // Accumulates real frame time until one or more simulation ticks can run.
     private double _accumulator = 0.0;
 
     // --- Direction input state ---------------------------------------------
 
+    // Raw pressed-state tracking for each cardinal direction.
     private bool _leftPressed;
     private bool _rightPressed;
     private bool _upPressed;
     private bool _downPressed;
 
+    // Press order values used to decide which held direction wins.
     private long _leftPressOrder;
     private long _rightPressOrder;
     private long _upPressOrder;
     private long _downPressOrder;
 
+    // Monotonic counter incremented each time a direction is pressed.
     private long _pressOrderCounter;
 
     // --- Step evaluation ----------------------------------------------------
 
+    // Minimal result used when testing whether one pixel of movement is allowed.
     private struct StepCheckResult
     {
         public bool Allowed;
@@ -104,6 +135,9 @@ public partial class PlayerController : Node2D
 
     // --- Lifecycle ----------------------------------------------------------
 
+    /// <summary>
+    /// Retrieves the sprite node and applies the initial visual facing.
+    /// </summary>
     public override void _Ready()
     {
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
@@ -113,6 +147,10 @@ public partial class PlayerController : Node2D
         QueueRedraw();
     }
 
+    /// <summary>
+    /// Advances the fixed-tick simulation and updates the rendered transforms.
+    /// </summary>
+    /// <param name="delta">Frame delta time in seconds.</param>
     public override void _Process(double delta)
     {
         if (_level == null || _mazeGrid == null)
@@ -126,16 +164,17 @@ public partial class PlayerController : Node2D
             StepOneTick();
         }
 
-        // Node position = gameplay anchor in scene space
         Position = _level.ArcadePixelToScenePosition(_arcadePixelPos);
-
-        // Sprite position = render-only offset relative to gameplay anchor
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
 
         if (_debugDrawAnchor)
             QueueRedraw();
     }
 
+    /// <summary>
+    /// Receives input events and updates directional pressed-state / press order.
+    /// </summary>
+    /// <param name="event">Input event received from Godot.</param>
     public override void _Input(InputEvent @event)
     {
         UpdateDirectionActionState(@event, "move_left", Vector2I.Left);
@@ -146,6 +185,10 @@ public partial class PlayerController : Node2D
 
     // --- Initialization -----------------------------------------------------
 
+    /// <summary>
+    /// Initializes the controller once the owning level and logical maze exist.
+    /// </summary>
+    /// <param name="level">Owning level that provides maze access and coordinate conversion.</param>
     public void Initialize(Level level)
     {
         _level = level;
@@ -176,18 +219,27 @@ public partial class PlayerController : Node2D
 
     // --- Tick Simulation ----------------------------------------------------
 
+    /// <summary>
+    /// Executes exactly one movement simulation tick.
+    /// </summary>
+    /// <remarks>
+    /// Order:
+    /// 1) read wanted direction
+    /// 2) update immediate facing
+    /// 3) handle stop / resume / turn rules
+    /// 4) validate one-pixel movement
+    /// 5) move if legal
+    /// </remarks>
     private void StepOneTick()
     {
         _wantedDir = ReadPressedDirection();
 
-        // The direction displayed by the sprite follows the player's input immediately.
         if (_wantedDir != Vector2I.Zero && _facingDir != _wantedDir)
         {
             _facingDir = _wantedDir;
             ApplyVisualFacing(_facingDir);
         }
 
-        // Releasing input stops movement immediately.
         if (_wantedDir == Vector2I.Zero)
         {
             _currentDir = Vector2I.Zero;
@@ -196,7 +248,6 @@ public partial class PlayerController : Node2D
 
         bool isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
 
-        // Case 1: starting or resuming from rest.
         if (_currentDir == Vector2I.Zero)
         {
             Vector2I originalPixelPos = _arcadePixelPos;
@@ -209,9 +260,6 @@ public partial class PlayerController : Node2D
             StepCheckResult previewStep = EvaluateOnePixelStep(_wantedDir);
             if (!previewStep.Allowed)
             {
-                // Important:
-                // if the direction is blocked, we must cancel the temporary snap
-                // so the player keeps the exact previous resting position.
                 _arcadePixelPos = originalPixelPos;
                 return;
             }
@@ -221,7 +269,6 @@ public partial class PlayerController : Node2D
         }
         else
         {
-            // Case 2: direction change while already moving.
             bool wantsTurn =
                 (_currentDir.X != 0 && _wantedDir.Y != 0) ||
                 (_currentDir.Y != 0 && _wantedDir.X != 0);
@@ -237,14 +284,12 @@ public partial class PlayerController : Node2D
                 }
                 else if (!turnPreview.Allowed)
                 {
-                    // If the newly requested perpendicular direction is blocked,
-                    // the player stops instead of continuing in the old direction.
                     _currentDir = Vector2I.Zero;
                     return;
                 }
                 else
                 {
-                    // Turn buffered: keep moving until the logical anchor.
+                    // Buffered turn: keep current direction until the anchor.
                 }
             }
             else
@@ -267,6 +312,13 @@ public partial class PlayerController : Node2D
 
     // --- Movement Rules -----------------------------------------------------
 
+    /// <summary>
+    /// Returns whether the gameplay position exactly matches the logical anchor
+    /// of its current cell.
+    /// </summary>
+    /// <returns>
+    /// True when the player is exactly on the current cell anchor; otherwise false.
+    /// </returns>
     private bool IsExactlyOnLogicalCellAnchor()
     {
         Vector2I logicalCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
@@ -274,6 +326,14 @@ public partial class PlayerController : Node2D
         return _arcadePixelPos == anchorPixel;
     }
 
+    /// <summary>
+    /// Attempts to snap the player to the movement rail required by the given direction.
+    /// </summary>
+    /// <param name="direction">Direction the player wants to start or resume.</param>
+    /// <returns>
+    /// True if the player was close enough to the required rail and was snapped
+    /// successfully; otherwise false.
+    /// </returns>
     private bool TrySnapToRailForDirection(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
@@ -309,11 +369,23 @@ public partial class PlayerController : Node2D
         return false;
     }
 
+    /// <summary>
+    /// Determines whether movement can start or resume in the requested direction.
+    /// </summary>
+    /// <param name="direction">Requested direction.</param>
+    /// <returns>
+    /// True if movement can start or resume; otherwise false.
+    /// </returns>
     private bool CanStartOrResumeInDirection(Vector2I direction)
     {
         return TrySnapToRailForDirection(direction);
     }
 
+    /// <summary>
+    /// Returns the directional collision probe offset used for step validation.
+    /// </summary>
+    /// <param name="direction">Direction being tested.</param>
+    /// <returns>Arcade-pixel offset applied to the forward collision probe.</returns>
     private Vector2I GetCollisionLead(Vector2I direction)
     {
         if (direction == Vector2I.Left)
@@ -331,6 +403,17 @@ public partial class PlayerController : Node2D
         return Vector2I.Zero;
     }
 
+    /// <summary>
+    /// Tests whether one pixel of movement is currently legal.
+    /// </summary>
+    /// <param name="direction">Direction to test.</param>
+    /// <returns>
+    /// A step evaluation result indicating whether movement is allowed.
+    /// </returns>
+    /// <remarks>
+    /// Legality is decided using a forward probe point, not just the next gameplay
+    /// pixel, in order to better approximate the visible body.
+    /// </remarks>
     private StepCheckResult EvaluateOnePixelStep(Vector2I direction)
     {
         StepCheckResult result = new();
@@ -364,6 +447,12 @@ public partial class PlayerController : Node2D
 
     // --- Input --------------------------------------------------------------
 
+    /// <summary>
+    /// Updates raw directional pressed-state and press order for one input action.
+    /// </summary>
+    /// <param name="event">Input event to inspect.</param>
+    /// <param name="actionName">Godot action name.</param>
+    /// <param name="direction">Direction associated with that action.</param>
     private void UpdateDirectionActionState(InputEvent @event, string actionName, Vector2I direction)
     {
         if (@event.IsActionPressed(actionName))
@@ -405,6 +494,13 @@ public partial class PlayerController : Node2D
         }
     }
 
+    /// <summary>
+    /// Returns the currently active intended direction.
+    /// </summary>
+    /// <returns>
+    /// The last pressed direction that is still held, or Vector2I.Zero
+    /// if no movement input is active.
+    /// </returns>
     private Vector2I ReadPressedDirection()
     {
         Vector2I bestDirection = Vector2I.Zero;
@@ -439,6 +535,11 @@ public partial class PlayerController : Node2D
 
     // --- Rendering ----------------------------------------------------------
 
+    /// <summary>
+    /// Selects the sprite render offset according to the currently effective
+    /// movement direction.
+    /// </summary>
+    /// <returns>Arcade-pixel render offset for the current effective direction.</returns>
     private Vector2I GetCurrentSpriteRenderOffsetArcade()
     {
         if (_offsetDir == Vector2I.Left)
@@ -450,6 +551,13 @@ public partial class PlayerController : Node2D
         return SpriteRenderOffsetVerticalArcade;
     }
 
+    /// <summary>
+    /// Converts the current render offset from arcade pixels to scene pixels.
+    /// </summary>
+    /// <returns>
+    /// Scene-space sprite offset relative to the gameplay anchor.
+    /// Returns Vector2.Zero if the level is not yet initialized.
+    /// </returns>
     private Vector2 GetSpriteRenderOffsetScene()
     {
         if (_level == null)
@@ -460,6 +568,10 @@ public partial class PlayerController : Node2D
 
     // --- Animation ----------------------------------------------------------
 
+    /// <summary>
+    /// Applies the current facing to the animated sprite.
+    /// </summary>
+    /// <param name="direction">Direction to display.</param>
     private void ApplyVisualFacing(Vector2I direction)
     {
         if (direction == Vector2I.Zero || _animatedSprite == null)
@@ -486,5 +598,20 @@ public partial class PlayerController : Node2D
             _animatedSprite.Play("move_up");
             _animatedSprite.FlipV = true;
         }
+    }
+
+    // --- Debug Draw ---------------------------------------------------------
+
+    /// <summary>
+    /// Draws the gameplay anchor when debug drawing is enabled.
+    /// </summary>
+    public override void _Draw()
+    {
+        if (!_debugDrawAnchor)
+            return;
+
+        DrawLine(new Vector2(-6, 0), new Vector2(6, 0), Colors.Cyan, 1.5f);
+        DrawLine(new Vector2(0, -6), new Vector2(0, 6), Colors.Cyan, 1.5f);
+        DrawCircle(Vector2.Zero, 2.0f, Colors.Cyan);
     }
 }
