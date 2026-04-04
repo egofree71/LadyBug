@@ -34,10 +34,6 @@ public sealed class PlayerInputState
     /// <summary>
     /// Rebuilds the input state from the movement actions currently held.
     /// </summary>
-    /// <remarks>
-    /// This is mainly useful when the controller is initialized while one or
-    /// more movement keys are already held.
-    /// </remarks>
     public void InitializeFromCurrentInput()
     {
         _leftPressed = Input.IsActionPressed("move_left");
