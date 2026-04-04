@@ -1,4 +1,3 @@
-
 using Godot;
 using LadyBug.Gameplay.Maze;
 
@@ -141,6 +140,8 @@ public sealed class PlayerMovementMotor
         }
 
         _arcadePixelPos += _currentDir;
+        RecenterOnCurrentRail();
+
         return BuildStepResult(previousPixelPos, previousDirection);
     }
 
@@ -148,6 +149,9 @@ public sealed class PlayerMovementMotor
     /// Returns whether the gameplay position exactly matches the logical anchor
     /// of its current cell.
     /// </summary>
+    /// <returns>
+    /// True when the player is exactly on the current cell anchor; otherwise false.
+    /// </returns>
     private bool IsExactlyOnLogicalCellAnchor()
     {
         Vector2I logicalCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
@@ -158,6 +162,11 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Attempts to snap the player to the movement rail required by the given direction.
     /// </summary>
+    /// <param name="direction">Direction the player wants to start or resume.</param>
+    /// <returns>
+    /// True if the player was close enough to the required rail and was snapped
+    /// successfully; otherwise false.
+    /// </returns>
     private bool TrySnapToRailForDirection(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
@@ -196,6 +205,10 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Determines whether movement can start or resume in the requested direction.
     /// </summary>
+    /// <param name="direction">Requested direction.</param>
+    /// <returns>
+    /// True if movement can start or resume; otherwise false.
+    /// </returns>
     private bool CanStartOrResumeInDirection(Vector2I direction)
     {
         return TrySnapToRailForDirection(direction);
@@ -204,6 +217,8 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Returns the directional collision probe offset used for step validation.
     /// </summary>
+    /// <param name="direction">Direction being tested.</param>
+    /// <returns>Arcade-pixel offset applied to the forward collision probe.</returns>
     private Vector2I GetCollisionLead(Vector2I direction)
     {
         if (direction == Vector2I.Left)
@@ -224,6 +239,10 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Tests whether one pixel of movement is currently legal.
     /// </summary>
+    /// <param name="direction">Direction to test.</param>
+    /// <returns>
+    /// A maze step result indicating whether movement is allowed.
+    /// </returns>
     private MazeStepResult EvaluateOnePixelStep(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
@@ -237,8 +256,47 @@ public sealed class PlayerMovementMotor
     }
 
     /// <summary>
+    /// Re-centers the gameplay position on the current rail after a successful step.
+    /// </summary>
+    /// <remarks>
+    /// This is intentionally conservative.
+    /// It only snaps the orthogonal axis when the deviation from the current
+    /// rail anchor is already within the existing rail snap tolerance.
+    ///
+    /// The goal is not to introduce new movement behavior, but to stabilize
+    /// the actor on its lane during straight movement.
+    /// </remarks>
+    private void RecenterOnCurrentRail()
+    {
+        if (_currentDir == Vector2I.Zero)
+            return;
+
+        Vector2I currentCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
+        Vector2I anchor = _level.LogicalCellToArcadePixel(currentCell);
+
+        if (_currentDir.X != 0)
+        {
+            int deltaY = _arcadePixelPos.Y - anchor.Y;
+            if (Mathf.Abs(deltaY) <= PlayerMovementTuning.HorizontalRailSnapTolerance)
+                _arcadePixelPos = new Vector2I(_arcadePixelPos.X, anchor.Y);
+
+            return;
+        }
+
+        if (_currentDir.Y != 0)
+        {
+            int deltaX = _arcadePixelPos.X - anchor.X;
+            if (Mathf.Abs(deltaX) <= PlayerMovementTuning.VerticalRailSnapTolerance)
+                _arcadePixelPos = new Vector2I(anchor.X, _arcadePixelPos.Y);
+        }
+    }
+
+    /// <summary>
     /// Builds the structured result for the tick that just completed.
     /// </summary>
+    /// <param name="previousPixelPos">Gameplay position before the tick.</param>
+    /// <param name="previousDirection">Effective movement direction before the tick.</param>
+    /// <returns>A structured result describing the changes of the tick.</returns>
     private PlayerMovementStepResult BuildStepResult(Vector2I previousPixelPos, Vector2I previousDirection)
     {
         bool moved = _arcadePixelPos != previousPixelPos;
