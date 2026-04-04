@@ -4,7 +4,7 @@ using Godot;
 namespace LadyBug.Gameplay.Maze
 {
     /// <summary>
-    /// Represents the logical maze as a 2D grid of <see cref="MazeCell"/>.
+    /// Represents the logical maze as a 2D grid of maze cells.
     /// </summary>
     /// <remarks>
     /// This is the main runtime maze representation used by gameplay systems.
@@ -47,14 +47,12 @@ namespace LadyBug.Gameplay.Maze
         /// </summary>
         /// <param name="cellPosition">The logical cell position to test.</param>
         /// <returns>
-        /// <c>true</c> if the position is inside the maze bounds; otherwise, <c>false</c>.
+        /// True if the position is inside the maze bounds; otherwise false.
         /// </returns>
         public bool IsInside(Vector2I cellPosition)
         {
-            return cellPosition.X >= 0
-                && cellPosition.X < Width
-                && cellPosition.Y >= 0
-                && cellPosition.Y < Height;
+            return cellPosition.X >= 0 && cellPosition.X < Width
+                && cellPosition.Y >= 0 && cellPosition.Y < Height;
         }
 
         /// <summary>
@@ -95,7 +93,7 @@ namespace LadyBug.Gameplay.Maze
         /// <param name="cellPosition">The logical position of the source cell.</param>
         /// <param name="direction">The movement direction to test.</param>
         /// <returns>
-        /// <c>true</c> if movement is allowed from the specified cell in that direction; otherwise, <c>false</c>.
+        /// True if movement is allowed from the specified cell in that direction; otherwise false.
         /// </returns>
         /// <remarks>
         /// This method checks only the wall data of the current cell and assumes that
@@ -110,7 +108,6 @@ namespace LadyBug.Gameplay.Maze
                 return false;
 
             Vector2I targetCell = cellPosition + direction;
-
             if (!IsInside(targetCell))
                 return false;
 
@@ -118,18 +115,53 @@ namespace LadyBug.Gameplay.Maze
         }
 
         /// <summary>
+        /// Evaluates whether one arcade-pixel movement step is currently legal.
+        /// </summary>
+        /// <param name="arcadePixelPos">Current gameplay position in arcade pixels.</param>
+        /// <param name="direction">Movement direction to test.</param>
+        /// <param name="collisionLead">Forward probe offset used by the caller.</param>
+        /// <param name="arcadePixelToLogicalCell">
+        /// Function converting an arcade-pixel gameplay position into a logical cell.
+        /// </param>
+        /// <returns>
+        /// A <see cref="MazeStepResult"/> describing whether the step is allowed and
+        /// which logical cells are involved.
+        /// </returns>
+        /// <remarks>
+        /// This helper keeps the pixel-to-cell step evaluation close to the maze logic,
+        /// while still letting <c>Level</c> remain the source of truth for coordinate conversion.
+        /// </remarks>
+        public MazeStepResult EvaluateArcadePixelStep(
+            Vector2I arcadePixelPos,
+            Vector2I direction,
+            Vector2I collisionLead,
+            Func<Vector2I, Vector2I> arcadePixelToLogicalCell)
+        {
+            if (direction == Vector2I.Zero || arcadePixelToLogicalCell == null)
+                return new MazeStepResult(false, Vector2I.Zero, Vector2I.Zero);
+
+            Vector2I currentCell = arcadePixelToLogicalCell(arcadePixelPos);
+            Vector2I nextPixelPos = arcadePixelPos + direction;
+            Vector2I probePixel = nextPixelPos + collisionLead;
+            Vector2I nextCell = arcadePixelToLogicalCell(probePixel);
+
+            if (!IsInside(currentCell))
+                return new MazeStepResult(false, currentCell, nextCell);
+
+            if (nextCell == currentCell)
+                return new MazeStepResult(true, currentCell, nextCell);
+
+            bool allowed = CanMove(currentCell, direction);
+            return new MazeStepResult(allowed, currentCell, nextCell);
+        }
+
+        /// <summary>
         /// Builds a <see cref="MazeGrid"/> from deserialized maze data.
         /// </summary>
         /// <param name="data">The deserialized maze data.</param>
-        /// <returns>
-        /// A new <see cref="MazeGrid"/> instance initialized from the provided data.
-        /// </returns>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown when <paramref name="data"/> is <c>null</c>.
-        /// </exception>
-        /// <exception cref="ArgumentException">
-        /// Thrown when the provided maze data is invalid.
-        /// </exception>
+        /// <returns>A new <see cref="MazeGrid"/> instance initialized from the provided data.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="data"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when the provided maze data is invalid.</exception>
         /// <remarks>
         /// The serialized cell array uses a flat row-major layout:
         /// index = y * width + x.
@@ -149,7 +181,6 @@ namespace LadyBug.Gameplay.Maze
                 throw new ArgumentException("Maze cell array cannot be null.", nameof(data));
 
             int expectedCellCount = data.Width * data.Height;
-
             if (data.Cells.Length != expectedCellCount)
             {
                 throw new ArgumentException(
@@ -164,10 +195,8 @@ namespace LadyBug.Gameplay.Maze
                 for (int x = 0; x < data.Width; x++)
                 {
                     int index = y * data.Width + x;
-
                     WallFlags walls = (WallFlags)data.Cells[index];
                     MazeCell cell = new MazeCell(walls);
-
                     grid.SetCell(new Vector2I(x, y), cell);
                 }
             }

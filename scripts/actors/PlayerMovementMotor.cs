@@ -52,7 +52,6 @@ public sealed class PlayerMovementMotor
     {
         _level = level;
         _mazeGrid = level.MazeGrid;
-
         _arcadePixelPos = level.LogicalCellToArcadePixel(level.PlayerStartCell);
         _currentDir = Vector2I.Zero;
         _offsetDir = Vector2I.Up;
@@ -246,24 +245,13 @@ public sealed class PlayerMovementMotor
             return result;
         }
 
-        Vector2I currentCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
-        Vector2I nextPixelPos = _arcadePixelPos + direction;
-        Vector2I probePixel = nextPixelPos + GetCollisionLead(direction);
-        Vector2I nextCell = _level.ArcadePixelToLogicalCell(probePixel);
+        MazeStepResult mazeStep = _mazeGrid.EvaluateArcadePixelStep(
+            _arcadePixelPos,
+            direction,
+            GetCollisionLead(direction),
+            _level.ArcadePixelToLogicalCell);
 
-        if (!_mazeGrid.IsInside(currentCell))
-        {
-            result.Allowed = false;
-            return result;
-        }
-
-        if (nextCell == currentCell)
-        {
-            result.Allowed = true;
-            return result;
-        }
-
-        result.Allowed = _mazeGrid.CanMove(currentCell, direction);
+        result.Allowed = mazeStep.Allowed;
         return result;
     }
 
