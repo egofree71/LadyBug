@@ -1,13 +1,13 @@
+
 using Godot;
-using LadyBug.Gameplay.Maze;
 
 /// <summary>
 /// Controls the player node and orchestrates input, movement and rendering.
 /// </summary>
 /// <remarks>
-/// This class is intentionally lighter than before.
+/// This class is intentionally light.
 ///
-/// It now mainly does three things:
+/// It mainly does three things:
 /// - read the current intended direction from the input state
 /// - advance the movement motor by fixed ticks
 /// - apply sprite facing and rendering based on the resulting gameplay state
@@ -23,7 +23,7 @@ public partial class PlayerController : Node2D
     // Animated sprite that visually represents the player.
     private AnimatedSprite2D _animatedSprite;
 
-    // Owning level. Provides maze access and coordinate conversion helpers.
+    // Owning level. Provides coordinate conversion helpers.
     private Level _level;
 
     // Last-pressed directional input state.
@@ -105,11 +105,6 @@ public partial class PlayerController : Node2D
     /// <summary>
     /// Executes exactly one controller tick.
     /// </summary>
-    /// <remarks>
-    /// The controller reads the current intended direction, updates the
-    /// immediate facing if necessary, then delegates gameplay movement to
-    /// the movement motor.
-    /// </remarks>
     private void RunOneTick()
     {
         Vector2I wantedDir = _inputState.ReadPressedDirection();
@@ -120,14 +115,18 @@ public partial class PlayerController : Node2D
             ApplyVisualFacing(_facingDir);
         }
 
-        _movementMotor.Step(wantedDir);
+        PlayerMovementStepResult stepResult = _movementMotor.Step(wantedDir);
+
+        // The structured tick result is currently kept for future animation,
+        // sound or gameplay hooks. The current controller does not need to
+        // react to it yet beyond reading the motor state.
+        _ = stepResult;
     }
 
     /// <summary>
     /// Selects the sprite render offset according to the currently effective
     /// movement direction used by the motor.
     /// </summary>
-    /// <returns>Arcade-pixel render offset for the current effective direction.</returns>
     private Vector2I GetCurrentSpriteRenderOffsetArcade()
     {
         if (_movementMotor.OffsetDir == Vector2I.Left)
@@ -142,10 +141,6 @@ public partial class PlayerController : Node2D
     /// <summary>
     /// Converts the current render offset from arcade pixels to scene pixels.
     /// </summary>
-    /// <returns>
-    /// Scene-space sprite offset relative to the gameplay anchor.
-    /// Returns Vector2.Zero if the level is not yet initialized.
-    /// </returns>
     private Vector2 GetSpriteRenderOffsetScene()
     {
         if (_level == null)
@@ -157,7 +152,6 @@ public partial class PlayerController : Node2D
     /// <summary>
     /// Applies the current facing to the animated sprite.
     /// </summary>
-    /// <param name="direction">Direction to display.</param>
     private void ApplyVisualFacing(Vector2I direction)
     {
         if (direction == Vector2I.Zero || _animatedSprite == null)
