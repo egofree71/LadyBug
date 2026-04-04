@@ -13,5 +13,27 @@
 	0, 3, 2, 0, 1, 0, 1, 0, 2, 3, 0,
 	8, 5, 1, 2, 8, 12, 4, 2, 1, 9, 4,
 	0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0
+  ],
+  "gates": [
+	{ "id": 0,  "pivot": { "x": 2,  "y": 1  }, "initialOrientation": "horizontal" },
+	{ "id": 1,  "pivot": { "x": 9,  "y": 1  }, "initialOrientation": "horizontal" },
+	{ "id": 2,  "pivot": { "x": 4,  "y": 2  }, "initialOrientation": "vertical" },
+	{ "id": 3,  "pivot": { "x": 7,  "y": 2  }, "initialOrientation": "vertical" },
+	{ "id": 4,  "pivot": { "x": 1,  "y": 3  }, "initialOrientation": "vertical" },
+	{ "id": 5,  "pivot": { "x": 3,  "y": 3  }, "initialOrientation": "horizontal" },
+	{ "id": 6,  "pivot": { "x": 8,  "y": 3  }, "initialOrientation": "horizontal" },
+	{ "id": 7,  "pivot": { "x": 10, "y": 3  }, "initialOrientation": "vertical" },
+	{ "id": 8,  "pivot": { "x": 4,  "y": 4  }, "initialOrientation": "horizontal" },
+	{ "id": 9,  "pivot": { "x": 7,  "y": 4  }, "initialOrientation": "horizontal" },
+	{ "id": 10, "pivot": { "x": 3,  "y": 6  }, "initialOrientation": "vertical" },
+	{ "id": 11, "pivot": { "x": 8,  "y": 6  }, "initialOrientation": "vertical" },
+	{ "id": 12, "pivot": { "x": 2,  "y": 7  }, "initialOrientation": "vertical" },
+	{ "id": 13, "pivot": { "x": 4,  "y": 7  }, "initialOrientation": "vertical" },
+	{ "id": 14, "pivot": { "x": 7,  "y": 7  }, "initialOrientation": "vertical" },
+	{ "id": 15, "pivot": { "x": 9,  "y": 7  }, "initialOrientation": "vertical" },
+	{ "id": 16, "pivot": { "x": 4,  "y": 9  }, "initialOrientation": "horizontal" },
+	{ "id": 17, "pivot": { "x": 7,  "y": 9  }, "initialOrientation": "horizontal" },
+	{ "id": 18, "pivot": { "x": 2,  "y": 10 }, "initialOrientation": "horizontal" },
+	{ "id": 19, "pivot": { "x": 9,  "y": 10 }, "initialOrientation": "horizontal" }
   ]
 }
