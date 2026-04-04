@@ -6,7 +6,7 @@ using LadyBug.Gameplay.Maze;
 /// </summary>
 /// <remarks>
 /// This controller currently combines:
-/// input state tracking, fixed-tick movement simulation,
+/// input interpretation, fixed-tick movement simulation,
 /// rail snapping, collision probing, and visual sprite updates.
 ///
 /// The movement model is intentionally tuned to match the current
@@ -14,15 +14,14 @@ using LadyBug.Gameplay.Maze;
 /// - fixed tick rate
 /// - integer arcade-pixel gameplay position
 /// - rail-aligned movement inside 16x16 logical cells
-/// - last pressed direction wins when several inputs are held
 /// - immediate facing update on input
 /// - visual sprite offset changes only when movement is truly accepted
 ///
 /// The controller uses:
-/// - _wantedDir for the current input intention
-/// - _currentDir for the direction effectively used by movement
-/// - _facingDir for the direction displayed by the sprite
-/// - _offsetDir for the direction used to choose the visual sprite offset
+/// - <c>_wantedDir</c> for the current input intention
+/// - <c>_currentDir</c> for the direction effectively used by movement
+/// - <c>_facingDir</c> for the direction displayed by the sprite
+/// - <c>_offsetDir</c> for the direction used to choose the visual sprite offset
 /// </remarks>
 public partial class PlayerController : Node2D
 {
@@ -36,10 +35,10 @@ public partial class PlayerController : Node2D
 
     // --- Rail snap tolerances ----------------------------------------------
 
-    // Maximum vertical deviation tolerated when starting/resuming horizontal movement.
+    // Maximum vertical deviation tolerated when starting or resuming horizontal movement.
     private const int HorizontalRailSnapTolerance = 1;
 
-    // Maximum horizontal deviation tolerated when starting/resuming vertical movement.
+    // Maximum horizontal deviation tolerated when starting or resuming vertical movement.
     private const int VerticalRailSnapTolerance = 1;
 
     // --- Visual offsets -----------------------------------------------------
@@ -108,22 +107,8 @@ public partial class PlayerController : Node2D
     // Accumulates real frame time until one or more simulation ticks can run.
     private double _accumulator = 0.0;
 
-    // --- Direction input state ---------------------------------------------
-
-    // Raw pressed-state tracking for each cardinal direction.
-    private bool _leftPressed;
-    private bool _rightPressed;
-    private bool _upPressed;
-    private bool _downPressed;
-
-    // Press order values used to decide which held direction wins.
-    private long _leftPressOrder;
-    private long _rightPressOrder;
-    private long _upPressOrder;
-    private long _downPressOrder;
-
-    // Monotonic counter incremented each time a direction is pressed.
-    private long _pressOrderCounter;
+    // Last-pressed directional input state.
+    private readonly PlayerInputState _inputState = new();
 
     // --- Step evaluation ----------------------------------------------------
 
@@ -172,15 +157,12 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Receives input events and updates directional pressed-state / press order.
+    /// Receives input events and forwards them to the player input state.
     /// </summary>
     /// <param name="event">Input event received from Godot.</param>
     public override void _Input(InputEvent @event)
     {
-        UpdateDirectionActionState(@event, "move_left", Vector2I.Left);
-        UpdateDirectionActionState(@event, "move_right", Vector2I.Right);
-        UpdateDirectionActionState(@event, "move_up", Vector2I.Up);
-        UpdateDirectionActionState(@event, "move_down", Vector2I.Down);
+        _inputState.Update(@event);
     }
 
     // --- Initialization -----------------------------------------------------
@@ -199,16 +181,7 @@ public partial class PlayerController : Node2D
         _wantedDir = Vector2I.Zero;
         _accumulator = 0.0;
 
-        _leftPressed = Input.IsActionPressed("move_left");
-        _rightPressed = Input.IsActionPressed("move_right");
-        _upPressed = Input.IsActionPressed("move_up");
-        _downPressed = Input.IsActionPressed("move_down");
-
-        _leftPressOrder = 0;
-        _rightPressOrder = 0;
-        _upPressOrder = 0;
-        _downPressOrder = 0;
-        _pressOrderCounter = 0;
+        _inputState.InitializeFromCurrentInput();
 
         Position = _level.ArcadePixelToScenePosition(_arcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
@@ -232,7 +205,7 @@ public partial class PlayerController : Node2D
     /// </remarks>
     private void StepOneTick()
     {
-        _wantedDir = ReadPressedDirection();
+        _wantedDir = _inputState.ReadPressedDirection();
 
         if (_wantedDir != Vector2I.Zero && _facingDir != _wantedDir)
         {
@@ -443,94 +416,6 @@ public partial class PlayerController : Node2D
 
         result.Allowed = _mazeGrid.CanMove(currentCell, direction);
         return result;
-    }
-
-    // --- Input --------------------------------------------------------------
-
-    /// <summary>
-    /// Updates raw directional pressed-state and press order for one input action.
-    /// </summary>
-    /// <param name="event">Input event to inspect.</param>
-    /// <param name="actionName">Godot action name.</param>
-    /// <param name="direction">Direction associated with that action.</param>
-    private void UpdateDirectionActionState(InputEvent @event, string actionName, Vector2I direction)
-    {
-        if (@event.IsActionPressed(actionName))
-        {
-            _pressOrderCounter++;
-
-            if (direction == Vector2I.Left)
-            {
-                _leftPressed = true;
-                _leftPressOrder = _pressOrderCounter;
-            }
-            else if (direction == Vector2I.Right)
-            {
-                _rightPressed = true;
-                _rightPressOrder = _pressOrderCounter;
-            }
-            else if (direction == Vector2I.Up)
-            {
-                _upPressed = true;
-                _upPressOrder = _pressOrderCounter;
-            }
-            else if (direction == Vector2I.Down)
-            {
-                _downPressed = true;
-                _downPressOrder = _pressOrderCounter;
-            }
-        }
-
-        if (@event.IsActionReleased(actionName))
-        {
-            if (direction == Vector2I.Left)
-                _leftPressed = false;
-            else if (direction == Vector2I.Right)
-                _rightPressed = false;
-            else if (direction == Vector2I.Up)
-                _upPressed = false;
-            else if (direction == Vector2I.Down)
-                _downPressed = false;
-        }
-    }
-
-    /// <summary>
-    /// Returns the currently active intended direction.
-    /// </summary>
-    /// <returns>
-    /// The last pressed direction that is still held, or Vector2I.Zero
-    /// if no movement input is active.
-    /// </returns>
-    private Vector2I ReadPressedDirection()
-    {
-        Vector2I bestDirection = Vector2I.Zero;
-        long bestOrder = long.MinValue;
-
-        if (_leftPressed && _leftPressOrder > bestOrder)
-        {
-            bestOrder = _leftPressOrder;
-            bestDirection = Vector2I.Left;
-        }
-
-        if (_rightPressed && _rightPressOrder > bestOrder)
-        {
-            bestOrder = _rightPressOrder;
-            bestDirection = Vector2I.Right;
-        }
-
-        if (_upPressed && _upPressOrder > bestOrder)
-        {
-            bestOrder = _upPressOrder;
-            bestDirection = Vector2I.Up;
-        }
-
-        if (_downPressed && _downPressOrder > bestOrder)
-        {
-            bestOrder = _downPressOrder;
-            bestDirection = Vector2I.Down;
-        }
-
-        return bestDirection;
     }
 
     // --- Rendering ----------------------------------------------------------
