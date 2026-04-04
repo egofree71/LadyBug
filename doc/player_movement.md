@@ -6,9 +6,9 @@ Project: Lady Bug remake in Godot 4.6.1 (.NET) with C#
 
 Purpose of this document:
 - describe the current movement model used for the player
-- document what has already been inferred from reverse engineering
-- separate confirmed behavior from provisional assumptions
-- keep a clear reference for future refinements
+- document what has already been implemented
+- distinguish validated behavior from still-provisional assumptions
+- keep a clear reference for future reverse-engineering refinements
 
 ===============================================================================
 1. GENERAL GOAL
@@ -16,17 +16,18 @@ Purpose of this document:
 
 The goal is NOT to use a modern free-movement system such as:
 
-	Position += direction * Speed * delta;
+    Position += direction * Speed * delta;
 
 Instead, the goal is to reproduce the original arcade behavior as closely as
 possible.
 
 The movement system is therefore designed around:
 - fixed tick updates
-- integer pixel position
+- integer arcade-pixel gameplay position
 - 1 pixel movement per tick
 - buffered direction changes
 - internal lane alignment inside 16x16 cells
+- maze validation for each attempted pixel step
 
 ===============================================================================
 2. PREVIOUS APPROACH (ABANDONED)
@@ -39,7 +40,7 @@ Previous prototype movement used:
 
 Example:
 
-	Position += _moveDirection * Speed * delta;
+    Position += _moveDirection * Speed * delta;
 
 Problems with this approach:
 - not faithful to the arcade logic
@@ -53,18 +54,25 @@ This approach was useful for early testing only.
 3. CURRENT MOVEMENT MODEL
 ===============================================================================
 
-The current movement model is an intermediate arcade-style implementation.
+The current movement model is an arcade-oriented implementation built around
+small dedicated helpers:
 
-It is based on the following ideas:
+- PlayerController
+- PlayerInputState
+- PlayerMovementMotor
+- PlayerMovementTuning
+- MazeGrid / MazeStepResult
 
-1) fixed tick timing
-2) integer pixel coordinates
-3) one pixel moved per tick
-4) current direction + wanted direction
-5) direction changes only when allowed
-6) alignment handled explicitly
+The design is now split as follows:
 
-This is closer to the original game than a free delta-based movement system.
+1) PlayerController orchestrates input, movement ticks and rendering
+2) PlayerInputState resolves movement intention using "last pressed wins"
+3) PlayerMovementMotor owns the gameplay movement state and applies one tick
+4) PlayerMovementTuning centralizes calibrated constants
+5) MazeGrid evaluates whether an attempted pixel step is legal
+
+This is more faithful to the arcade structure than a modern free movement model,
+while remaining easy to refine.
 
 ===============================================================================
 4. FIXED TICK RATE
@@ -72,20 +80,20 @@ This is closer to the original game than a free delta-based movement system.
 
 Movement is updated at a fixed tick rate:
 
-	TickRate = 60.1145 Hz
+    TickRate = 60.1145 Hz
 
 And:
 
-	TickDuration = 1.0 / TickRate
+    TickDuration = 1.0 / TickRate
 
 The update loop uses an accumulator:
 
-	_accumulator += delta;
-	while (_accumulator >= TickDuration)
-	{
-		_accumulator -= TickDuration;
-		StepOneTick();
-	}
+    _accumulator += delta;
+    while (_accumulator >= TickDuration)
+    {
+        _accumulator -= TickDuration;
+        RunOneTick();
+    }
 
 Purpose:
 - reproduce hardware-style movement timing
@@ -93,23 +101,23 @@ Purpose:
 - update movement in discrete simulation steps
 
 ===============================================================================
-5. INTEGER PIXEL POSITION
+5. INTEGER ARCADE-PIXEL GAMEPLAY POSITION
 ===============================================================================
 
-The player position is stored as integer pixel coordinates:
+The gameplay position is stored as integer arcade-pixel coordinates:
 
-	Vector2I _pixelPos;
+    Vector2I _arcadePixelPos;
 
 Purpose:
 - avoid floating-point drift
 - match original arcade-style movement
-- support exact bitwise alignment checks
-
-Visual position is synchronized from _pixelPos after simulation.
+- support exact lane and cell alignment checks
 
 Important:
-The gameplay logic is based on integer pixel positions, not on a floating-point
-continuous position.
+The gameplay logic is based on integer arcade-pixel positions, not on
+floating-point scene positions.
+
+Rendering is synchronized from the gameplay position after the simulation step.
 
 ===============================================================================
 6. MOVEMENT SPEED
@@ -121,7 +129,7 @@ Current movement assumption:
 
 Example:
 
-	_pixelPos += _currentDir;
+    _arcadePixelPos += _currentDir;
 
 This means:
 - movement is discrete
@@ -129,40 +137,61 @@ This means:
 - movement is not expressed as "pixels per second" in the gameplay model
 
 Status:
-- this is currently used as the intermediate implementation
-- it appears much closer to the original than free delta-based motion
-- further reverse engineering may still refine some details
+- this is currently the implemented model
+- it appears much closer to the original game than free delta-based motion
+- further reverse engineering may still refine timing details
 
 ===============================================================================
 7. DIRECTION MODEL
 ===============================================================================
 
-Two directions are tracked:
+The current code distinguishes several movement-related directions.
 
 -------------------------------------------------------------------------------
-7.1 Current Direction
+7.1 Wanted Direction
 -------------------------------------------------------------------------------
 
-	_currentDir
+    wantedDir / _wantedDir
 
 Meaning:
-- the direction the player is actually moving right now
+- the direction currently intended by the player
+- resolved from buffered input using "last pressed wins"
 
 -------------------------------------------------------------------------------
-7.2 Wanted Direction
+7.2 Current Direction
 -------------------------------------------------------------------------------
 
-	_wantedDir
+    _currentDir
 
 Meaning:
-- the direction requested by the player input
+- the direction actually used by effective gameplay movement
 
-Purpose of this separation:
-- allow direction buffering
-- allow the player to press a direction slightly before an intersection
-- only apply the turn when the turn is allowed
+-------------------------------------------------------------------------------
+7.3 Facing Direction
+-------------------------------------------------------------------------------
 
-This is a classic arcade maze-game behavior.
+    _facingDir
+
+Meaning:
+- the direction currently shown by the sprite
+
+Important:
+Facing may update immediately when the player changes input, even before the
+movement motor has accepted that direction.
+
+-------------------------------------------------------------------------------
+7.4 Offset Direction
+-------------------------------------------------------------------------------
+
+    _offsetDir
+
+Meaning:
+- the direction used to choose the sprite render offset
+
+Important:
+This is intentionally separate from facing.
+The sprite may visually point toward the wanted direction while the render
+offset still follows the effective movement direction.
 
 ===============================================================================
 8. INPUT HANDLING
@@ -175,36 +204,41 @@ Current input actions:
 - move_up
 - move_down
 
-Input does not directly change the actual movement direction.
-It only updates _wantedDir.
+Input is handled by PlayerInputState.
 
-This means:
-- input is buffered
-- movement logic decides when the wanted direction can become current
+It tracks:
+- which directions are currently held
+- the relative order in which they were pressed
+
+Rule used:
+- if several directions are held at once, the most recently pressed one wins
+
+So input does not directly move the player.
+It produces the current intended direction that the movement motor will try
+to apply.
 
 ===============================================================================
 9. DIRECTION CHANGE LOGIC
 ===============================================================================
 
-A turn is not applied immediately.
+A turn is not always applied immediately.
 
 The current logic is:
 
-1) read player input
-2) update _wantedDir
-3) at each tick, try to apply _wantedDir
-4) only switch if turning is allowed
-5) otherwise continue moving in _currentDir
+1) read current intended direction
+2) if no input is held, stop immediately
+3) if stopped, try to start or resume in the wanted direction
+4) if already moving:
+   - same-axis change is applied immediately
+   - perpendicular change is accepted only if alignment and maze legality allow it
+5) if a perpendicular requested direction is blocked, the actor stops instead
+   of continuing in the old direction
 
-In simplified form:
-
-	if wanted direction is allowed
-		align if needed
-		current direction = wanted direction
-	else
-		continue in current direction
-
-This is one of the key differences from a free movement model.
+This last point is important:
+the current implementation is no longer the old intermediate rule
+"otherwise continue moving in _currentDir".
+It now behaves more strictly when the newly requested perpendicular path is
+blocked.
 
 ===============================================================================
 10. ALIGNMENT INSIDE 16x16 CELLS
@@ -213,22 +247,22 @@ This is one of the key differences from a free movement model.
 Important finding:
 movement does not simply happen from tile center to tile center.
 
-The player appears to move along internal "lanes" inside each 16x16 cell.
+The player moves along internal lanes inside each 16x16 maze cell.
 
 This means:
-- the maze is based on 16x16 cells
-- but movement rails exist at specific offsets inside those cells
-- turning depends on lane alignment, not just cell coordinates
+- the maze is based on 16x16 logical cells
+- but movement rails exist at specific internal offsets
+- turning depends on lane alignment, not just generic cell centers
 
 ===============================================================================
-11. BITWISE ALIGNMENT CHECKS
+11. BITWISE ALIGNMENT CHECKS FROM REVERSE ENGINEERING
 ===============================================================================
 
 Reverse engineering suggests checks of the form:
 
-	X & 0x0F == 0x08
-	Y & 0x0F == 0x06
-	Y & 0x0F == 0x07
+    X & 0x0F == 0x08
+    Y & 0x0F == 0x06
+    Y & 0x0F == 0x07
 
 Interpretation:
 - 0x0F corresponds to 15
@@ -243,7 +277,7 @@ So the game is checking sub-cell alignment.
 
 Observed condition:
 
-	X & 0x0F == 0x08
+    X & 0x0F == 0x08
 
 Interpretation:
 - vertical movement or vertical turning appears to depend on X being aligned
@@ -255,84 +289,179 @@ Interpretation:
 
 Observed conditions:
 
-	Y & 0x0F == 0x06
-	Y & 0x0F == 0x07
+    Y & 0x0F == 0x06
+    Y & 0x0F == 0x07
 
 Interpretation:
 - horizontal movement or horizontal turning appears to depend on Y alignment
-- the exact meaning of 0x06 / 0x07 is not fully confirmed yet
+- the exact meaning of 0x06 / 0x07 is still not fully confirmed
 
 ===============================================================================
 12. CURRENT PROVISIONAL ALIGNMENT RULES
 ===============================================================================
 
-The current intermediate implementation uses the following assumptions:
+The current implementation uses the following working assumptions:
 
 For vertical movement / turning:
 - align to X = cell base + 0x08
 
 For horizontal movement / turning:
-- treat Y = cell base + 0x06 or 0x07 as valid
-- currently snap horizontally to Y = cell base + 0x07
+- use Y = cell base + 0x07 as the current travel lane center
+
+In practice, the gameplay anchor currently used by Level is:
+
+    GameplayAnchorArcade = new(8, 7)
+
+And the movement tuning currently uses:
+- horizontal rail snap tolerance = 1
+- vertical rail snap tolerance = 1
 
 Purpose:
 - approximate the observed arcade lane behavior
-- keep alignment logic isolated and easy to refine later
+- keep alignment logic explicit and easy to refine later
 
 Important:
 This is still provisional.
-It is a useful intermediate model, not a final claim about the original code.
+It is a validated intermediate implementation, not yet a final claim about
+the original ROM logic.
 
 ===============================================================================
-13. LANE SNAP
+13. LANE SNAP AND RECENTERING
 ===============================================================================
 
-When a turn is accepted, the player may be aligned to the corresponding lane.
+The current movement model uses two related ideas:
+
+1) rail snap when starting, resuming or turning
+2) conservative straight-line recentering after a successful step
 
 Current idea:
-- if turning vertically, snap X to the vertical lane
-- if turning horizontally, snap Y to the horizontal lane
+- if movement resumes horizontally, snap Y to the horizontal rail if already close
+- if movement resumes vertically, snap X to the vertical rail if already close
+- after a valid straight movement step, re-center on the current rail if the
+  orthogonal deviation is still within the existing snap tolerance
 
 Purpose:
 - keep the actor on the internal movement rails
 - avoid accumulating off-lane drift
-- mimic the original game's path-following behavior
+- stay conservative instead of introducing aggressive auto-correction
 
 Status:
-- lane snap is implemented in an intermediate form
-- exact original behavior still needs deeper confirmation
+- implemented
+- intentionally cautious
+- still open to refinement if later reverse engineering shows a stronger or
+  different recentering behavior in the arcade original
 
 ===============================================================================
-14. CURRENT IMPLEMENTATION STATUS
+14. MAZE VALIDATION
 ===============================================================================
 
-The current PlayerController already includes:
+Movement legality is now connected directly to the logical maze.
+
+The current path is:
+
+- PlayerMovementMotor requests an attempted pixel step
+- MazeGrid.EvaluateArcadePixelStep(...) evaluates that step
+- the maze helper:
+  - converts arcade-pixel positions to logical cells
+  - applies the directional collision probe
+  - checks whether the step remains inside the current cell
+  - if the probe crosses into another cell, validates the move through CanMove(...)
+
+So movement legality is no longer just "alignment-only".
+It is now:
+
+    pixel-step legality = alignment + probe-based maze validation
+
+This is an important milestone compared to the older intermediate versions.
+
+===============================================================================
+15. RELATION TO THE MAZE SYSTEM
+===============================================================================
+
+The movement model is now actively connected to the logical maze system.
+
+Current integration:
+- MazeGrid defines legal logical exits from each cell
+- MazeGrid.EvaluateArcadePixelStep(...) evaluates one attempted pixel step
+- PlayerMovementMotor uses this helper for movement legality
+
+What is still missing:
+- dynamic interaction with rotating gates
+- any gate-specific override of movement legality
+
+So at the moment, the movement rule is approximately:
+
+    step allowed = lane/alignment state + maze legality
+
+And later it will need to become:
+
+    step allowed = lane/alignment state + maze legality + gate state
+
+===============================================================================
+16. RELATION TO ANIMATION AND VISUAL FACING
+===============================================================================
+
+Current visual setup:
+- base horizontal animation: move_right
+- base vertical animation: move_up
+- FlipH used for left
+- FlipV used for down
+
+Important:
+Animation is no longer driven purely by _currentDir.
+
+The current behavior is:
+- facing follows the current intended direction immediately
+- sprite render offset follows the effective movement direction
+
+This separation was introduced deliberately to get two useful properties:
+- the sprite can "point" toward a requested direction before the turn is accepted
+- the render offset remains consistent with the actual movement rail
+
+So visually:
+- facing follows input
+- offset follows effective movement
+
+===============================================================================
+17. CURRENT IMPLEMENTATION STATUS
+===============================================================================
+
+The current implementation includes:
 
 - fixed tick update
-- integer pixel position
+- integer arcade-pixel gameplay position
 - one pixel per tick movement
-- current direction / wanted direction
-- provisional alignment checks
-- provisional lane snap
-- animation update based on current direction
+- buffered input with "last pressed wins"
+- current direction / wanted direction separation
+- explicit facing direction
+- explicit render-offset direction
+- provisional lane alignment
+- lane snap
+- conservative straight-line recentering
+- maze validation for each attempted pixel step
+- refactored movement architecture using helpers
 
-This is already much closer to the arcade logic than the previous prototype.
+The implementation is no longer just a monolithic PlayerController.
+It is now split into dedicated helpers and is much closer to a maintainable
+arcade-style structure.
 
 ===============================================================================
-15. WHAT IS ALREADY BELIEVED TO BE CORRECT
+18. WHAT IS ALREADY BELIEVED TO BE CORRECT
 ===============================================================================
 
 The following points are considered strong working assumptions:
 
 - movement should use a fixed tick system
-- movement should use integer pixel positions
+- movement should use integer arcade-pixel positions
 - movement should advance in small discrete steps
 - direction changes should be buffered
+- the most recently pressed held direction should drive intention
 - turning depends on alignment
 - the player moves on internal lanes, not just generic tile centers
+- maze legality should be checked at the per-step level, not only at high level
 
 ===============================================================================
-16. WHAT IS STILL UNCERTAIN
+19. WHAT IS STILL UNCERTAIN
 ===============================================================================
 
 The following points still require more reverse engineering:
@@ -343,48 +472,18 @@ The following points still require more reverse engineering:
   - two accepted rows
   - sprite offset compensation
   - another internal rule
-- exact snap behavior when turning
-- exact turn acceptance rules
-- exact collision checks with walls
-- exact interaction with rotating gates
+- the exact original turn acceptance rules
+- the exact original turn-window tables in final gameplay use
+- the exact collision checks used by the original ROM
+- whether the current collision leads match the original checks or are only a
+  practical approximation
+- the exact interaction with rotating gates
 - whether movement ever uses a repeating sub-pattern instead of a strict constant
+- whether straight-line recentering in the arcade original is identical to the
+  current conservative implementation
 
 ===============================================================================
-17. RELATION TO THE MAZE SYSTEM
-===============================================================================
-
-This movement model is only one part of the final gameplay logic.
-
-It will later need to connect to a logical maze representation.
-
-Planned integration:
-- MazeGrid will define legal paths
-- turning will require BOTH:
-  - correct alignment
-  - a valid open path in the maze
-- gates will dynamically affect movement possibilities
-
-So the final movement rule will be:
-
-    turn allowed = alignment condition + maze condition
-
-===============================================================================
-18. RELATION TO ANIMATION
-===============================================================================
-
-Animation is currently driven by _currentDir.
-
-Current visual setup:
-- base horizontal animation: move_right
-- base vertical animation: move_up
-- FlipH used for left
-- FlipV used for down
-
-Important:
-Animation follows actual movement direction, not just player input.
-
-===============================================================================
-19. DESIGN PHILOSOPHY
+20. DESIGN PHILOSOPHY
 ===============================================================================
 
 The goal is not to implement a modern clean-room movement system first and then
@@ -395,26 +494,36 @@ Instead, the goal is:
 2) reproduce its structure
 3) refine the details progressively
 
-This document is therefore meant to preserve reasoning and assumptions while the
-reverse engineering continues.
+The current codebase now reflects that philosophy better than before:
+- input is separated
+- tuning is centralized
+- movement logic is isolated
+- maze legality is explicit
 
 ===============================================================================
-20. SUMMARY
+21. SUMMARY
 ===============================================================================
 
 Current player movement is based on:
 
 - fixed tick timing
-- integer pixel position
+- integer arcade-pixel gameplay position
 - 1 pixel per tick
-- buffered direction changes
-- alignment checks inside 16x16 cells
-- provisional lane snap
+- buffered input using "last pressed wins"
+- explicit current / wanted / facing / offset directions
+- lane alignment inside 16x16 cells
+- rail snap
+- conservative straight-line recentering
+- maze validation for each attempted pixel step
 
-This is an intermediate but already arcade-oriented implementation.
+This is no longer just an intermediate sketch.
+It is now a structured arcade-oriented implementation with clear extension
+points for future refinement.
 
-The exact details of turning, horizontal lane alignment, and maze interaction
-still need further reverse engineering.
+The biggest remaining gameplay-specific unknowns are:
+- exact turn-window details
+- exact collision details from the original code
+- rotating gate interaction
 
 ===============================================================================
 PLAYER ROUTINE INDEX

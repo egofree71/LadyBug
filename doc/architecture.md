@@ -4,29 +4,121 @@ PROJECT ARCHITECTURE
 
 Project: Lady Bug remake in Godot 4.6.1 (.NET) with C#
 
-Goal:
-- recreate the arcade game Lady Bug
-- keep the project simple enough to understand
-- already prepare a structure that can scale cleanly
-- separate application flow, gameplay, maze logic, actors, and UI
+Purpose of this document:
+- describe the intended long-term architecture of the project
+- show how all major game systems are expected to fit together
+- keep a clear separation between:
+  1) the final target architecture
+  2) the currently implemented foundation
 
-The architecture is not just exploratory.
-Some systems are still missing or provisional, but the folder structure and the
-main responsibilities already reflect the intended long-term organization.
+Important:
+This document is intentionally more future-oriented than
+current_implementation.md.
+
+- current_implementation.md = what already exists in the codebase now
+- architecture.md = the global target structure of the whole game
 
 ===============================================================================
-1. FOLDER STRUCTURE
+1. ARCHITECTURE GOAL
 ===============================================================================
+
+The goal is not only to reproduce Lady Bug visually.
+The goal is to build a structure that supports:
+
+- faithful arcade movement
+- enemies and their AI / path logic
+- rotating gates
+- collectibles and bonus items
+- score / lives / stage progression
+- screen flow (title, gameplay, game over, high score)
+- future reverse-engineering refinements without turning the codebase into a
+  monolithic prototype
+
+The architecture should remain:
+- simple enough to understand
+- modular enough to grow
+- explicit about the difference between gameplay logic and rendering
+
+===============================================================================
+2. HIGH-LEVEL ARCHITECTURE
+===============================================================================
+
+The final project architecture is intended to have these major layers:
+
+1) Application / Screen Flow
+   - Main
+   - TitleScreen
+   - GameplayScreen
+   - GameOverScreen
+   - HighScoreScreen
+
+2) Gameplay Session / Global State
+   - GameSession
+   - score
+   - lives
+   - current stage
+   - high scores
+   - progression between screens and levels
+
+3) Level Runtime
+   - Level
+   - maze background
+   - runtime logical maze
+   - player instance
+   - enemy instances
+   - rotating gate instances
+   - collectibles / bonus items
+   - HUD integration
+
+4) Actor Systems
+   - PlayerController and its helpers
+   - EnemyController and its helpers
+   - future shared movement / maze helper services where useful
+
+5) Logical Gameplay Systems
+   - MazeGrid
+   - dynamic gate state
+   - item / pickup rules
+   - score / bonus logic
+   - enemy target / movement logic
+
+6) Rendering / UI
+   - HUD
+   - title/game over/high-score screens
+   - animations
+   - sprite flipping / visual offsets
+
+===============================================================================
+3. TARGET FOLDER STRUCTURE
+===============================================================================
+
+The current repository does not contain all these files yet.
+This section describes the intended long-term structure.
 
 assets/
-├─ sprites/
+├─ images/
+│  ├─ maze/
 │  ├─ player/
 │  ├─ enemies/
 │  ├─ props/
 │  └─ ui/
-├─ tilesets/
 ├─ audio/
+│  ├─ music/
+│  └─ sfx/
 └─ fonts/
+
+data/
+├─ maze.json
+├─ stage_config.json
+├─ items.json
+└─ high_scores.json
+
+doc/
+├─ architecture.md
+├─ current_implementation.md
+├─ player_movement.md
+├─ enemy_movement.md
+└─ gates.md
 
 scenes/
 ├─ Main.tscn
@@ -40,11 +132,15 @@ scenes/
 ├─ player/
 │  └─ Player.tscn
 ├─ enemies/
-│  └─ Enemy.tscn
+│  ├─ Enemy.tscn
+│  ├─ Soldier.tscn
+│  ├─ Bulldozer.tscn
+│  └─ OtherEnemyVariants.tscn
 ├─ props/
-│  ├─ Gate.tscn
+│  ├─ RotatingGate.tscn
 │  ├─ Collectible.tscn
-│  └─ BonusVegetable.tscn
+│  ├─ BonusVegetable.tscn
+│  └─ BonusLetter.tscn
 └─ ui/
    └─ Hud.tscn
 
@@ -57,699 +153,468 @@ scripts/
 │  └─ HighScoreScreen.cs
 ├─ level/
 │  └─ Level.cs
+├─ actors/
+│  ├─ PlayerController.cs
+│  ├─ PlayerInputState.cs
+│  ├─ PlayerMovementMotor.cs
+│  ├─ PlayerMovementStepResult.cs
+│  ├─ PlayerMovementTuning.cs
+│  ├─ EnemyController.cs
+│  ├─ EnemyAiState.cs
+│  ├─ EnemyMovementMotor.cs
+│  └─ EnemyMovementStepResult.cs
 ├─ gameplay/
 │  ├─ maze/
 │  │  ├─ WallFlags.cs
 │  │  ├─ MazeCell.cs
 │  │  ├─ MazeDataFile.cs
 │  │  ├─ MazeGrid.cs
-│  │  └─ MazeLoader.cs
-│  ├─ actors/
-│  │  ├─ GridActor.cs
-│  │  ├─ PlayerController.cs
-│  │  └─ EnemyController.cs
-│  └─ props/
-│     ├─ Gate.cs
-│     ├─ Collectible.cs
-│     └─ BonusVegetable.cs
+│  │  ├─ MazeLoader.cs
+│  │  └─ MazeStepResult.cs
+│  ├─ gates/
+│  │  ├─ RotatingGateController.cs
+│  │  ├─ RotatingGateState.cs
+│  │  └─ GateInteractionResult.cs
+│  ├─ items/
+│  │  ├─ CollectibleController.cs
+│  │  ├─ BonusVegetableController.cs
+│  │  ├─ BonusLetterController.cs
+│  │  └─ ItemSpawnLogic.cs
+│  ├─ scoring/
+│  │  ├─ ScoreService.cs
+│  │  ├─ BonusRules.cs
+│  │  └─ HighScoreEntry.cs
+│  └─ session/
+│     ├─ StageDefinition.cs
+│     ├─ StageFlowController.cs
+│     └─ LifeState.cs
 ├─ ui/
-│  └─ Hud.cs
+│  └─ HudController.cs
 └─ autoload/
    └─ GameSession.cs
 
-docs/
-├─ architecture.md
-└─ movement.md
-
-data/
-└─ maze.json
-
 ===============================================================================
-2. GLOBAL ARCHITECTURE INTENT
-===============================================================================
-
-The project is organized into several layers:
-
-1) Application / Screen flow
-   - Main
-   - TitleScreen
-   - GameplayScreen
-   - GameOverScreen
-   - HighScoreScreen
-
-2) Gameplay / Level
-   - Level
-   - Player
-   - Enemy
-   - Gates
-   - Collectibles
-   - HUD
-
-3) Logical gameplay systems
-   - MazeGrid
-   - MazeCell
-   - WallFlags
-   - MazeLoader
-   - MazeDataFile
-   - GridActor
-   - GameSession
-
-The goal is:
-- not a one-scene / one-script prototype
-- not an overly complex architecture either
-- but a clean base that can evolve toward a faithful arcade remake
-
-===============================================================================
-3. MAIN SCENES
+4. MAIN APPLICATION FLOW
 ===============================================================================
 
 -------------------------------------------------------------------------------
-3.1 Main
+4.1 Main
 -------------------------------------------------------------------------------
 
 Scene:
 - scenes/Main.tscn
 
-Script:
-- scripts/Main.cs
-
-Expected node structure:
-
-Main (Node)
-└─ ScreenContainer (Node)
-
-Purpose:
-- root scene of the whole application
-- entry point of the game
+Role:
+- global root scene of the whole application
+- owner of screen switching
 
 Responsibilities:
-- load the title screen at startup
-- switch from title screen to gameplay
-- switch from gameplay to game over
-- switch to high score screen or back to title screen
+- start on title screen
+- switch to gameplay
+- switch to game over / high score screens
+- return to title screen when needed
 
 Important:
-- Main must not contain gameplay logic
-- Main is the global screen orchestrator
+Main should not contain gameplay logic.
 
 -------------------------------------------------------------------------------
-3.2 TitleScreen
+4.2 TitleScreen
 -------------------------------------------------------------------------------
 
-Scene:
-- scenes/screens/TitleScreen.tscn
-
-Script:
-- scripts/screens/TitleScreen.cs
-
-Expected node structure:
-
-TitleScreen (Control)
-├─ Background
-├─ TitleLabel
-├─ InfoLabel
-├─ AnimatedLadybug
-└─ StartPrompt
-
-Purpose:
+Role:
 - title / attract screen
 
 Responsibilities:
 - show the game title
-- show introductory information
-- show a small ladybug animation
-- wait for player input to start the game
+- show prompt to start
+- optionally show a small animated demo or visual attract loop
+- transition to gameplay
 
 -------------------------------------------------------------------------------
-3.3 GameplayScreen
+4.3 GameplayScreen
 -------------------------------------------------------------------------------
 
-Scene:
-- scenes/screens/GameplayScreen.tscn
-
-Script:
-- scripts/screens/GameplayScreen.cs
-
-Expected node structure:
-
-GameplayScreen (Node)
-├─ LevelContainer (Node)
-└─ Hud (CanvasLayer)
-
-Purpose:
-- contain one active gameplay session
+Role:
+- container for one active gameplay session
 
 Responsibilities:
 - instantiate the current level
-- connect level and HUD
-- react to win / lose conditions
-- manage gameplay-related transitions
-
-Important:
-- GameplayScreen is the container for active play
-- it is not the level logic itself
+- instantiate the HUD
+- connect level events with GameSession
+- react to loss / stage complete / bonus flow
+- transition to game over or next stage
 
 -------------------------------------------------------------------------------
-3.4 GameOverScreen
+4.4 GameOverScreen
 -------------------------------------------------------------------------------
 
-Scene:
-- scenes/screens/GameOverScreen.tscn
-
-Script:
-- scripts/screens/GameOverScreen.cs
-
-Expected node structure:
-
-GameOverScreen (Control)
-├─ Background
-├─ GameOverLabel
-├─ ScoreLabel
-├─ NamePromptLabel
-├─ NameInput
-└─ ConfirmLabel
-
-Purpose:
-- display game over and allow player name entry
+Role:
+- present game over state
+- optionally allow entering initials / name for high score
 
 Responsibilities:
 - show final score
-- allow player to enter initials or a name
-- store a score entry
-- transition to the next screen
+- store a new high-score entry if needed
+- transition to high-score or title screen
 
 -------------------------------------------------------------------------------
-3.5 HighScoreScreen
+4.5 HighScoreScreen
 -------------------------------------------------------------------------------
 
-Scene:
-- scenes/screens/HighScoreScreen.tscn
-
-Script:
-- scripts/screens/HighScoreScreen.cs
-
-Expected node structure:
-
-HighScoreScreen (Control)
-├─ Background
-├─ TitleLabel
-├─ ScoresContainer
-└─ ContinueLabel
-
-Purpose:
-- display the high score table
+Role:
+- display the saved high-score table
 
 Responsibilities:
-- show stored scores
-- return to title screen or continue the flow
+- load and display score entries
+- return to title screen or attract loop
 
 ===============================================================================
-4. LEVEL SCENE
+5. GAME SESSION ARCHITECTURE
 ===============================================================================
 
--------------------------------------------------------------------------------
-4.1 Level
--------------------------------------------------------------------------------
+The game needs a session-level model that lives above a single Level instance.
 
-Scene:
-- scenes/level/Level.tscn
-
-Script:
-- scripts/level/Level.cs
-
-Current practical node structure:
-
-Level (Node2D)
-├─ Maze (Sprite2D)
-└─ Player (Node2D instance)
-
-Long-term target structure:
-
-Level (Node2D)
-├─ Maze (Sprite2D)
-├─ GateContainer (Node2D)
-├─ CollectibleContainer (Node2D)
-├─ EnemyContainer (Node2D)
-├─ Player (Node2D instance)
-└─ BonusSpawn / other helper nodes as needed
-
-Purpose:
-- represent one playable stage
-
-Responsibilities:
-- own the visual maze background
-- load the logical maze from JSON
-- expose the runtime MazeGrid to gameplay actors
-- initialize the player after the maze has been loaded
-- later instantiate enemies, collectibles, gates, and bonus items
-- manage stage-specific gameplay logic
-
-Important:
-- the fixed maze graphics are currently part of the background image
-  assets/images/maze_background.png
-- the logical maze is a separate runtime structure loaded from data/maze.json
-- Level should not handle the global application flow
-
--------------------------------------------------------------------------------
-4.2 Visual Maze vs Logical Maze
--------------------------------------------------------------------------------
-
-The project intentionally separates two different notions of maze:
-
-1) Visual maze
-   - currently represented by the background sprite image
-   - responsible only for visual appearance
-
-2) Logical maze
-   - loaded from JSON through MazeLoader
-   - represented at runtime by MazeGrid and MazeCell
-   - responsible for walls and allowed movement directions
-
-This separation is important because the arcade remake needs both:
-- faithful graphics
-- explicit gameplay logic
-
-===============================================================================
-5. ACTOR SCENES
-===============================================================================
-
--------------------------------------------------------------------------------
-5.1 Player
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/player/Player.tscn
-
-Script:
-- scripts/gameplay/actors/PlayerController.cs
-
-Current node structure:
-
-Player (Node2D)
-└─ AnimatedSprite2D
-
-Purpose:
-- represent the player entity
-
-Responsibilities:
-- read player input
-- manage movement state
-- query the logical maze before moving
-- update player animation and facing direction
-
-Status:
-- this is the first implemented gameplay actor
-- it is already connected to the logical maze loaded by Level
-
--------------------------------------------------------------------------------
-5.2 Enemy
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/enemies/Enemy.tscn
-
-Script:
-- scripts/gameplay/actors/EnemyController.cs
-
-Expected node structure:
-
-Enemy (Node2D)
-└─ AnimatedSprite2D
-
-Purpose:
-- represent one enemy entity
-
-Responsibilities:
-- follow maze movement rules
-- manage enemy behavior
-- eventually use shared movement structure from GridActor
-
-Status:
-- planned, not yet implemented
-
-===============================================================================
-6. PROP SCENES
-===============================================================================
-
--------------------------------------------------------------------------------
-6.1 Gate
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/props/Gate.tscn
-
-Script:
-- scripts/gameplay/props/Gate.cs
-
-Expected node structure:
-
-Gate (Node2D)
-└─ Sprite2D or AnimatedSprite2D
-
-Purpose:
-- represent one rotating gate in the maze
-
-Responsibilities:
-- represent a door visually
-- rotate when pushed
-- later update logical paths in the maze
-
-Status:
-- planned, not yet implemented
-
--------------------------------------------------------------------------------
-6.2 Collectible
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/props/Collectible.tscn
-
-Script:
-- scripts/gameplay/props/Collectible.cs
-
-Expected node structure:
-
-Collectible (Node2D)
-└─ Sprite2D
-
-Purpose:
-- represent flowers, hearts, letters, or other collectible items
-
-Responsibilities:
-- exist as a collectible gameplay element
-- notify the level when collected
-
-Status:
-- planned, not yet implemented
-
--------------------------------------------------------------------------------
-6.3 BonusVegetable
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/props/BonusVegetable.tscn
-
-Script:
-- scripts/gameplay/props/BonusVegetable.cs
-
-Purpose:
-- represent temporary bonus items
-
-Responsibilities:
-- appear at specific moments
-- provide bonus score or stage reward
-
-Status:
-- planned, not yet implemented
-
-===============================================================================
-7. UI
-===============================================================================
-
--------------------------------------------------------------------------------
-7.1 Hud
--------------------------------------------------------------------------------
-
-Scene:
-- scenes/ui/Hud.tscn
-
-Script:
-- scripts/ui/Hud.cs
-
-Expected node structure:
-
-Hud (CanvasLayer)
-└─ Root (Control)
-   ├─ ScoreLabel
-   ├─ LivesLabel
-   └─ StageLabel
-
-Purpose:
-- display gameplay information
-
-Responsibilities:
-- show score
-- show lives
-- show stage number
-
-Status:
-- planned, not yet implemented
-
-===============================================================================
-8. CORE GAMEPLAY / LOGICAL CLASSES
-===============================================================================
-
--------------------------------------------------------------------------------
-8.1 WallFlags
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/maze/WallFlags.cs
-
-Purpose:
-- describe which walls exist around one logical cell
-
-Responsibilities:
-- encode up / down / left / right walls
-- provide a compact representation used in MazeCell and JSON data
-
-Important:
-- this replaces the idea of a generic Direction enum as the primary maze data
-  representation
-
--------------------------------------------------------------------------------
-8.2 MazeCell
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/maze/MazeCell.cs
-
-Purpose:
-- represent one logical maze cell
-
-Responsibilities:
-- store wall information for one cell
-- expose movement constraints in each direction
-- serve as the smallest logical maze unit
-
--------------------------------------------------------------------------------
-8.3 MazeDataFile
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/maze/MazeDataFile.cs
-
-Purpose:
-- represent the JSON data structure used to serialize the maze
-
-Responsibilities:
-- define the JSON format
-- separate file-format concerns from runtime maze logic
-
--------------------------------------------------------------------------------
-8.4 MazeGrid
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/maze/MazeGrid.cs
-
-Purpose:
-- represent the logical structure of the maze at runtime
-
-Responsibilities:
-- store the 2D array of logical cells
-- know whether a movement is allowed from a given cell
-- validate bounds
-- provide movement constraints to player and later enemies
-
-Important:
-- MazeGrid is a logical model
-- it is not a visual tilemap
-- it is the gameplay source of truth for maze walls
-
--------------------------------------------------------------------------------
-8.5 MazeLoader
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/maze/MazeLoader.cs
-
-Purpose:
-- load the logical maze from JSON
-
-Responsibilities:
-- read data/maze.json
-- deserialize MazeDataFile
-- construct the runtime MazeGrid
-
-Important:
-- file loading is intentionally separated from MazeGrid itself
-
--------------------------------------------------------------------------------
-8.6 GridActor
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/actors/GridActor.cs
-
-Purpose:
-- potential base class for moving actors
-
-Responsibilities:
-- eventually centralize shared movement logic
-- store shared movement-related data
-- reduce duplication between player and enemies
-
-Current status:
-- architectural placeholder / future refactoring point
-- the current movement logic still lives directly inside PlayerController
-
--------------------------------------------------------------------------------
-8.7 PlayerController
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/actors/PlayerController.cs
-
-Purpose:
-- handle player-specific behavior
-
-Responsibilities:
-- read player input
-- manage wanted direction and current direction
-- update movement using arcade-oriented logic
-- validate movement against the logical maze
-- control animation and visual orientation
-
-Current implementation focus:
-- fixed tick update
-- integer arcade pixel position
-- current direction / wanted direction
-- buffered direction changes
-- provisional lane alignment and lane recentering
-- turn capture based on alignment and maze validity
-- animation driven by visual movement direction
-
-Important:
-- this is not free delta-based movement
-- the current implementation is already oriented toward reproducing arcade
-  behavior rather than modern smooth movement
-
--------------------------------------------------------------------------------
-8.8 EnemyController
--------------------------------------------------------------------------------
-
-Location:
-- scripts/gameplay/actors/EnemyController.cs
-
-Purpose:
-- handle enemy-specific behavior
-
-Responsibilities:
-- use shared movement rules
-- implement enemy decision-making
-- respect maze constraints
-
-Status:
-- planned, not yet implemented
-
-===============================================================================
-9. GLOBAL STATE
-===============================================================================
-
--------------------------------------------------------------------------------
-9.1 GameSession
--------------------------------------------------------------------------------
-
-Location:
-- scripts/autoload/GameSession.cs
-
-Purpose:
-- store global session state
-
-Responsibilities:
+Expected global state:
 - current score
-- lives
-- current stage
-- game state data shared across screens
+- lives remaining
+- current stage number
+- number of collected letters / bonuses
+- high score table
+- current game state (title / gameplay / game over / high score)
 
-Intended usage:
-- GameSession should be used as an AutoLoad
+Proposed location:
+- autoload/GameSession.cs
 
-Status:
-- planned, not yet implemented
+GameSession should be responsible for:
+- persistent session data during play
+- transitions between stages
+- saving / loading high scores
+- exposing global state to screens and HUD
+
+Level should NOT own long-term session state.
+Level should only manage one active playfield runtime.
 
 ===============================================================================
-10. CURRENT IMPLEMENTATION STATUS
+6. LEVEL ARCHITECTURE
 ===============================================================================
 
-Implemented now:
-- player scene
-- animated player sprite
-- level scene with maze background sprite
-- logical maze JSON file
-- logical maze loading pipeline:
-  - MazeDataFile
-  - MazeLoader
-  - MazeGrid
-  - MazeCell
-  - WallFlags
-- Level initialization of the player after maze loading
-- player start positioning from level configuration
-- player movement connected to maze validation
-- intermediate arcade-oriented movement model
-- project documentation
+-------------------------------------------------------------------------------
+6.1 Level scene role
+-------------------------------------------------------------------------------
 
-Partially implemented / still evolving:
-- player movement accuracy
-- lane alignment rules
-- long-term actor base architecture through GridActor
-- exact arcade behavior reproduction
+Level is intended to represent one active gameplay board.
 
-Planned but not yet implemented:
-- Main screen flow
-- title screen
-- gameplay screen container
-- game over flow
-- high score flow
-- enemies
-- collectibles
-- rotating gates
+Responsibilities:
+- load the logical maze
+- expose coordinate conversion helpers
+- instantiate and connect runtime actors
+- own the active rotating gates of the level
+- own the active collectibles / bonus items of the level
+- expose the current runtime playfield state
+
+Level should remain the source of truth for:
+- logical cell <-> arcade-pixel conversion
+- arcade-pixel <-> scene-space conversion
+- active board objects belonging to the level
+
+-------------------------------------------------------------------------------
+6.2 Level node structure (target)
+-------------------------------------------------------------------------------
+
+Level (Node2D)
+├─ MazeBackground (Sprite2D)
+├─ Gates (Node2D)
+│  └─ RotatingGate instances
+├─ Items (Node2D)
+│  ├─ Collectible instances
+│  ├─ BonusVegetable instances
+│  └─ BonusLetter instances
+├─ Actors (Node2D)
+│  ├─ Player
+│  └─ Enemy instances
+└─ Effects (Node2D)
+
+Notes:
+- the static maze background remains a Sprite2D
+- moving / interactive objects should remain separate from the static background
+
+===============================================================================
+7. PLAYER ARCHITECTURE
+===============================================================================
+
+The player movement subsystem is already the most advanced subsystem in the codebase.
+
+Long-term player architecture:
+
+PlayerController
+- orchestrates input, movement ticks and rendering
+
+PlayerInputState
+- resolves intended movement direction
+
+PlayerMovementMotor
+- applies movement rules per fixed tick
+
+PlayerMovementStepResult
+- describes tick outcomes
+
+PlayerMovementTuning
+- centralizes movement constants
+
+Future possible additions:
+- PlayerAnimationState
+- PlayerDeathState
+- PlayerPickupHandler
+- PlayerScoringHooks
+
+The player should remain split into:
+- orchestration
+- movement rules
+- input policy
+- rendering / animation concerns
+- item / score interactions
+
+===============================================================================
+8. ENEMY ARCHITECTURE
+===============================================================================
+
+The final game will need one or more enemy systems that stay compatible with
+the same maze and coordinate model as the player.
+
+Expected enemy architecture:
+
+EnemyController
+- high-level orchestration of one enemy
+
+EnemyMovementMotor
+- effective movement logic on the maze
+
+EnemyAiState
+- target choice / chase logic / patrol logic / home logic
+
+EnemyMovementStepResult
+- structured tick result, similar in spirit to the player motor
+
+Possible shared concepts:
+- same arcade-pixel coordinate system
+- same maze validation helper
+- same gate interaction framework
+- similar tick-based movement structure
+
+Important:
+Enemy logic should probably reuse the same maze-step legality model, but not
+necessarily the exact same player movement rules.
+
+===============================================================================
+9. ROTATING GATE ARCHITECTURE
+===============================================================================
+
+Rotating gates are one of the most important missing gameplay systems.
+
+They should not be treated as a visual-only feature.
+
+Expected architecture:
+
+RotatingGateController
+- own the gate's current state and animation
+
+RotatingGateState
+- represent orientation and movement-blocking consequences
+
+GateInteractionResult
+- describe what happens when player or enemy interacts with a gate
+
+Level / Maze integration:
+- gates should influence movement legality
+- the static MazeGrid should remain the base maze
+- dynamic gate state should be applied as an additional movement constraint
+  on top of the static maze
+
+In practice, long-term movement legality should become something like:
+
+    static maze legality
+    + lane / alignment legality
+    + dynamic rotating gate legality
+
+This is the big next gameplay architecture step after the current player work.
+
+===============================================================================
+10. ITEM / COLLECTIBLE ARCHITECTURE
+===============================================================================
+
+The final game should include several categories of items and pickups.
+
+Expected item families:
+- standard collectibles
+- flowers / hearts / letters if relevant to game behavior
 - bonus vegetables
-- score flow and HUD
-- session / stage progression systems
+- special score items
+
+Expected responsibilities:
+- placement / visibility
+- pickup rules
+- score contribution
+- bonus progression
+
+Possible architecture:
+
+CollectibleController
+- base logic for common collectible behavior
+
+BonusVegetableController
+- logic specific to bonus vegetable appearance / lifetime / score
+
+BonusLetterController
+- logic specific to letter collection or bonus progression
+
+ItemSpawnLogic
+- stage-specific appearance and timing rules
 
 ===============================================================================
-11. DESIGN PHILOSOPHY
+11. HUD / UI ARCHITECTURE
 ===============================================================================
 
-This project is not using a minimal "everything in one script" structure.
+HudController should eventually represent the gameplay HUD.
 
-It is also not trying to build a heavy architecture too early.
+Expected HUD responsibilities:
+- display current score
+- display remaining lives
+- display stage / bonus information
+- optionally display letters / collected bonus state
 
-The current design aims for:
-- simple structure
-- clear responsibilities
-- separation between visual data and logical gameplay data
-- future scalability
-- faithful arcade behavior
-
-In short:
-- simple enough to work with now
-- structured enough to avoid rebuilding everything later
+Important:
+HUD is not the owner of session data.
+It should observe GameSession and/or GameplayScreen.
 
 ===============================================================================
-12. CURRENT DEVELOPMENT PRIORITY
+12. LOGICAL MAZE ARCHITECTURE
 ===============================================================================
 
-The current priority is not the full application flow yet.
+The logical maze system already has a good foundation and should remain central.
 
-The immediate focus is:
-- establish a correct logical maze
-- establish a reliable player controller
-- progressively move from prototype behavior toward arcade-faithful behavior
+Core pieces:
+- WallFlags
+- MazeCell
+- MazeDataFile
+- MazeGrid
+- MazeLoader
+- MazeStepResult
 
-This means:
-- movement and maze logic are currently more important than menus and score flow
-- architecture decisions should continue to support reverse engineering findings
-- gameplay correctness takes priority over premature content expansion
+MazeGrid should remain responsible for:
+- storing logical cell data
+- validating static maze legality
+- evaluating pixel-step movement against the static maze
+
+Dynamic gameplay systems should be added around it, not by turning MazeGrid
+into a giant all-purpose gameplay object.
+
+In other words:
+- MazeGrid = static maze truth
+- rotating gates = dynamic movement overlay
+- actors = movement clients
+- Level = runtime coordinator
+
+===============================================================================
+13. COORDINATE SYSTEM DESIGN
+===============================================================================
+
+A central architectural principle of the whole project is the separation between:
+
+1) logical cell coordinates
+2) gameplay arcade-pixel coordinates
+3) scene-space rendering coordinates
+
+This must remain true for:
+- player
+- enemies
+- gates
+- pickups
+- hit / interaction checks
+
+Why this matters:
+- gameplay logic should stay independent of scene-space float rendering
+- reverse-engineering findings are naturally expressed in arcade-pixel terms
+- visual offsets should not corrupt gameplay coordinates
+
+===============================================================================
+14. CURRENT IMPLEMENTED FOUNDATION
+===============================================================================
+
+The following part of the target architecture is already implemented now:
+
+- Main scene
+- Level scene
+- Player scene
+- logical maze loading from JSON
+- MazeGrid / MazeCell / WallFlags / MazeLoader
+- PlayerController
+- PlayerInputState
+- PlayerMovementMotor
+- PlayerMovementStepResult
+- PlayerMovementTuning
+- MazeStepResult
+- pixel-step maze validation
+- fixed tick player movement
+- lane snap and conservative recentering
+
+This section is intentionally short.
+For the detailed current state, see:
+- current_implementation.md
+
+===============================================================================
+15. MAIN SYSTEMS STILL TO IMPLEMENT
+===============================================================================
+
+The largest remaining systems are:
+
+- TitleScreen
+- GameplayScreen
+- GameOverScreen
+- HighScoreScreen
+- GameSession
+- EnemyController and enemy runtime logic
+- enemy AI / movement helpers
+- rotating gate runtime logic
+- dynamic gate interaction with movement legality
+- collectibles / letters / bonus vegetables
+- score service and high-score persistence
+- gameplay HUD
+- stage progression / stage flow controller
+
+===============================================================================
+16. ARCHITECTURAL GUIDING PRINCIPLES
+===============================================================================
+
+The architecture should continue to follow these rules:
+
+1) Keep scenes simple and readable
+2) Keep gameplay state separated from rendering state
+3) Keep static maze logic separated from dynamic gate logic
+4) Keep controllers as orchestrators when possible
+5) Prefer small helper classes over giant monolithic scripts
+6) Add systems only when they have a clear responsibility
+7) Stay close to reverse-engineered arcade behavior where it matters
+
+===============================================================================
+17. SUMMARY
+===============================================================================
+
+The final architecture is intended to support the whole game, not only the
+player movement subsystem.
+
+It should ultimately contain:
+- screen flow
+- session state
+- level runtime
+- player
+- enemies
+- rotating gates
+- collectibles and bonus systems
+- scoring and high scores
+- HUD and other UI
+
+The project already has a solid movement and maze foundation.
+The next major architectural expansion should now happen around:
+- rotating gates
+- enemies
+- session / screen flow
