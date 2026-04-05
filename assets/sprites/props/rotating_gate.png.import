@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dp8dgal7wjab1"
-path="res://.godot/imported/rotating_gate.png-a164335e71c82e98b05a31bdefa60746.ctex"
+path="res://.godot/imported/rotating_gate.png-44314aa76654a87160ea5ff87e57e812.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/rotating_gate.png"
-dest_files=["res://.godot/imported/rotating_gate.png-a164335e71c82e98b05a31bdefa60746.ctex"]
+source_file="res://assets/sprites/props/rotating_gate.png"
+dest_files=["res://.godot/imported/rotating_gate.png-44314aa76654a87160ea5ff87e57e812.ctex"]
 
 [params]
 
