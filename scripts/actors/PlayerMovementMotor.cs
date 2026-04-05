@@ -1,6 +1,7 @@
 using Godot;
-using LadyBug.Gameplay.Maze;
 using LadyBug.Gameplay;
+using LadyBug.Gameplay.Gates;
+using LadyBug.Gameplay.Maze;
 
 namespace LadyBug.Actors;
 
@@ -23,8 +24,8 @@ namespace LadyBug.Actors;
 public sealed class PlayerMovementMotor
 {
     // Owning level. Provides coordinate conversion helpers.
-    private Level _level;
-    
+    private Level _level = null!;
+
     // True gameplay position, expressed in original arcade pixels relative to the maze origin.
     private Vector2I _arcadePixelPos = Vector2I.Zero;
 
@@ -52,7 +53,9 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Initializes the movement motor from the owning level.
     /// </summary>
-    /// <param name="level">Owning level that provides maze access and coordinate conversion.</param>
+    /// <param name="level">
+    /// Owning level that provides maze access and coordinate conversion.
+    /// </param>
     public void Initialize(Level level)
     {
         _level = level;
@@ -94,7 +97,11 @@ public sealed class PlayerMovementMotor
             {
                 if (previewStep.Kind == PlayfieldStepKind.BlockedByGate &&
                     previewStep.GateId.HasValue &&
-                    _level.TryPushGate(previewStep.GateId.Value, wantedDir))
+                    previewStep.ContactHalf.HasValue &&
+                    _level.TryPushGate(
+                        previewStep.GateId.Value,
+                        wantedDir,
+                        previewStep.ContactHalf.Value))
                 {
                     previewStep = EvaluateOnePixelStep(wantedDir);
                 }
@@ -123,7 +130,11 @@ public sealed class PlayerMovementMotor
                 {
                     if (turnPreview.Kind == PlayfieldStepKind.BlockedByGate &&
                         turnPreview.GateId.HasValue &&
-                        _level.TryPushGate(turnPreview.GateId.Value, wantedDir))
+                        turnPreview.ContactHalf.HasValue &&
+                        _level.TryPushGate(
+                            turnPreview.GateId.Value,
+                            wantedDir,
+                            turnPreview.ContactHalf.Value))
                     {
                         turnPreview = EvaluateOnePixelStep(wantedDir);
                     }
@@ -157,7 +168,11 @@ public sealed class PlayerMovementMotor
         {
             if (step.Kind == PlayfieldStepKind.BlockedByGate &&
                 step.GateId.HasValue &&
-                _level.TryPushGate(step.GateId.Value, _currentDir))
+                step.ContactHalf.HasValue &&
+                _level.TryPushGate(
+                    step.GateId.Value,
+                    _currentDir,
+                    step.ContactHalf.Value))
             {
                 step = EvaluateOnePixelStep(_currentDir);
             }
@@ -236,9 +251,7 @@ public sealed class PlayerMovementMotor
     /// Determines whether movement can start or resume in the requested direction.
     /// </summary>
     /// <param name="direction">Requested direction.</param>
-    /// <returns>
-    /// True if movement can start or resume; otherwise false.
-    /// </returns>
+    /// <returns>True if movement can start or resume; otherwise false.</returns>
     private bool CanStartOrResumeInDirection(Vector2I direction)
     {
         return TrySnapToRailForDirection(direction);
@@ -271,7 +284,7 @@ public sealed class PlayerMovementMotor
     /// </summary>
     /// <param name="direction">Direction to test.</param>
     /// <returns>
-    /// A maze step result indicating whether movement is allowed.
+    /// A combined playfield result indicating whether movement is allowed.
     /// </returns>
     private PlayfieldStepResult EvaluateOnePixelStep(Vector2I direction)
     {
@@ -329,7 +342,9 @@ public sealed class PlayerMovementMotor
     /// <param name="previousPixelPos">Gameplay position before the tick.</param>
     /// <param name="previousDirection">Effective movement direction before the tick.</param>
     /// <returns>A structured result describing the changes of the tick.</returns>
-    private PlayerMovementStepResult BuildStepResult(Vector2I previousPixelPos, Vector2I previousDirection)
+    private PlayerMovementStepResult BuildStepResult(
+        Vector2I previousPixelPos,
+        Vector2I previousDirection)
     {
         bool moved = _arcadePixelPos != previousPixelPos;
         bool directionChanged = _currentDir != previousDirection;

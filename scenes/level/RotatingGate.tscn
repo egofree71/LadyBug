@@ -3,9 +3,17 @@
 [ext_resource type="Script" uid="uid://deha8blcq48ko" path="res://scripts/level/RotatingGateView.cs" id="1_0u8hq"]
 [ext_resource type="Texture2D" uid="uid://dp8dgal7wjab1" path="res://assets/sprites/props/rotating_gate.png" id="1_egnw4"]
 
+[sub_resource type="AtlasTexture" id="AtlasTexture_cv1av"]
+atlas = ExtResource("1_egnw4")
+region = Rect2(256, 0, 128, 128)
+
 [sub_resource type="AtlasTexture" id="AtlasTexture_egnw4"]
 atlas = ExtResource("1_egnw4")
 region = Rect2(0, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_pmi48"]
+atlas = ExtResource("1_egnw4")
+region = Rect2(384, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_0u8hq"]
 atlas = ExtResource("1_egnw4")
@@ -15,10 +23,26 @@ region = Rect2(128, 0, 128, 128)
 animations = [{
 "frames": [{
 "duration": 1.0,
+"texture": SubResource("AtlasTexture_cv1av")
+}],
+"loop": true,
+"name": &"backslash",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
 "texture": SubResource("AtlasTexture_egnw4")
 }],
 "loop": true,
 "name": &"horizontal",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_pmi48")
+}],
+"loop": true,
+"name": &"slash",
 "speed": 5.0
 }, {
 "frames": [{
@@ -36,5 +60,5 @@ script = ExtResource("1_0u8hq")
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=931006194]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_pmi48")
-animation = &"horizontal"
+animation = &"backslash"
 offset = Vector2(20, 28)

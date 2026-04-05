@@ -105,20 +105,22 @@ public sealed class GateSystem
     }
 
     /// <summary>
-    /// Attempts to push one gate using the attempted gameplay movement direction.
+    /// Attempts to push one gate using the attempted gameplay movement direction
+    /// and contacted half.
     /// </summary>
     /// <param name="gateId">Identifier of the gate to push.</param>
     /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
+    /// <param name="contactHalf">Half of the gate that is being pushed.</param>
     /// <returns>
     /// True if the push is accepted and the gate begins rotating;
     /// otherwise false.
     /// </returns>
-    public bool TryPush(int gateId, Vector2I moveDir)
+    public bool TryPush(int gateId, Vector2I moveDir, GateContactHalf contactHalf)
     {
         if (!TryGetGateById(gateId, out RotatingGateRuntimeState gate))
             return false;
 
-        return gate.TryBeginPush(moveDir);
+        return gate.TryBeginPush(moveDir, contactHalf);
     }
 
     /// <summary>

@@ -9,10 +9,9 @@ namespace LadyBug.Gameplay.Gates;
 /// This class represents the mutable gameplay state of a gate:
 /// - its logical blocking axis
 /// - its visual state
+/// - the diagonal turning visual currently used
 /// - whether it is currently locked in rotation
 /// - and how many ticks remain before the turning visual ends
-///
-/// It is intentionally separate from the serialized JSON data.
 /// </remarks>
 public sealed class RotatingGateRuntimeState
 {
@@ -37,6 +36,11 @@ public sealed class RotatingGateRuntimeState
     public GateVisualState VisualState { get; private set; }
 
     /// <summary>
+    /// Gets the diagonal turning visual currently used while the gate rotates.
+    /// </summary>
+    public GateTurningVisual TurningVisual { get; private set; }
+
+    /// <summary>
     /// Gets whether the gate is currently locked in a short rotation phase.
     /// </summary>
     public bool IsRotating { get; private set; }
@@ -58,6 +62,7 @@ public sealed class RotatingGateRuntimeState
         Pivot = pivot;
         LogicalState = logicalState;
         VisualState = GateVisualState.Stable;
+        TurningVisual = GateTurningVisual.Slash;
         IsRotating = false;
         RotationTicksRemaining = 0;
     }
@@ -91,19 +96,14 @@ public sealed class RotatingGateRuntimeState
     }
 
     /// <summary>
-    /// Determines whether the gate could be pushed by a movement step
-    /// in the given direction.
+    /// Determines whether the gate currently blocks movement in the given direction.
     /// </summary>
-    /// <param name="moveDir">Attempted one-pixel movement direction.</param>
+    /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
     /// <returns>
-    /// True if the gate currently blocks that movement axis and is not already rotating;
-    /// otherwise false.
+    /// True if the gate blocks that movement axis; otherwise false.
     /// </returns>
-    public bool CanBePushedBy(Vector2I moveDir)
+    public bool BlocksMovement(Vector2I moveDir)
     {
-        if (IsRotating)
-            return false;
-
         if (moveDir == Vector2I.Zero)
             return false;
 
@@ -119,9 +119,27 @@ public sealed class RotatingGateRuntimeState
     }
 
     /// <summary>
-    /// Attempts to begin a gate push from the given movement direction.
+    /// Determines whether the gate could be pushed by a movement step
+    /// in the given direction.
     /// </summary>
     /// <param name="moveDir">Attempted one-pixel movement direction.</param>
+    /// <returns>
+    /// True if the gate currently blocks that movement axis and is not already rotating;
+    /// otherwise false.
+    /// </returns>
+    public bool CanBePushedBy(Vector2I moveDir)
+    {
+        if (IsRotating)
+            return false;
+
+        return BlocksMovement(moveDir);
+    }
+
+    /// <summary>
+    /// Attempts to begin a gate push from the given movement direction and contacted half.
+    /// </summary>
+    /// <param name="moveDir">Attempted one-pixel movement direction.</param>
+    /// <param name="contactHalf">Half of the gate that is being pushed.</param>
     /// <returns>
     /// True if the push is accepted and the gate state changes immediately;
     /// otherwise false.
@@ -130,11 +148,12 @@ public sealed class RotatingGateRuntimeState
     /// The logical blocking state toggles immediately when the push is accepted.
     /// The visual state then remains in Turning for a short number of ticks.
     /// </remarks>
-    public bool TryBeginPush(Vector2I moveDir)
+    public bool TryBeginPush(Vector2I moveDir, GateContactHalf contactHalf)
     {
         if (!CanBePushedBy(moveDir))
             return false;
 
+        TurningVisual = ComputeTurningVisual(LogicalState, moveDir, contactHalf);
         LogicalState = Toggle(LogicalState);
         VisualState = GateVisualState.Turning;
         IsRotating = true;
@@ -160,34 +179,66 @@ public sealed class RotatingGateRuntimeState
             VisualState = GateVisualState.Stable;
         }
     }
-    
-    /// <summary>
-    /// Determines whether the gate currently blocks movement in the given direction.
-    /// </summary>
-    /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
-    /// <returns>
-    /// True if the gate blocks that movement axis; otherwise false.
-    /// </returns>
-    public bool BlocksMovement(Vector2I moveDir)
-    {
-        if (moveDir == Vector2I.Zero)
-            return false;
 
-        bool horizontalMove = moveDir.X != 0;
-        bool verticalMove = moveDir.Y != 0;
-
-        return LogicalState switch
-        {
-            GateLogicalState.BlocksHorizontal => horizontalMove,
-            GateLogicalState.BlocksVertical => verticalMove,
-            _ => false
-        };
-    }
-    
     private static GateLogicalState Toggle(GateLogicalState state)
     {
         return state == GateLogicalState.BlocksHorizontal
             ? GateLogicalState.BlocksVertical
             : GateLogicalState.BlocksHorizontal;
+    }
+
+    private static GateTurningVisual ComputeTurningVisual(
+        GateLogicalState logicalState,
+        Vector2I moveDir,
+        GateContactHalf contactHalf)
+    {
+        return logicalState switch
+        {
+            GateLogicalState.BlocksVertical => ComputeTurningVisualFromHorizontalGate(moveDir, contactHalf),
+            GateLogicalState.BlocksHorizontal => ComputeTurningVisualFromVerticalGate(moveDir, contactHalf),
+            _ => GateTurningVisual.Slash
+        };
+    }
+
+    private static GateTurningVisual ComputeTurningVisualFromHorizontalGate(
+        Vector2I moveDir,
+        GateContactHalf contactHalf)
+    {
+        if (moveDir.Y < 0)
+        {
+            return contactHalf == GateContactHalf.Right
+                ? GateTurningVisual.Slash
+                : GateTurningVisual.Backslash;
+        }
+
+        if (moveDir.Y > 0)
+        {
+            return contactHalf == GateContactHalf.Right
+                ? GateTurningVisual.Backslash
+                : GateTurningVisual.Slash;
+        }
+
+        return GateTurningVisual.Slash;
+    }
+
+    private static GateTurningVisual ComputeTurningVisualFromVerticalGate(
+        Vector2I moveDir,
+        GateContactHalf contactHalf)
+    {
+        if (moveDir.X > 0)
+        {
+            return contactHalf == GateContactHalf.Top
+                ? GateTurningVisual.Slash
+                : GateTurningVisual.Backslash;
+        }
+
+        if (moveDir.X < 0)
+        {
+            return contactHalf == GateContactHalf.Top
+                ? GateTurningVisual.Backslash
+                : GateTurningVisual.Slash;
+        }
+
+        return GateTurningVisual.Slash;
     }
 }

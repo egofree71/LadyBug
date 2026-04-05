@@ -1,4 +1,5 @@
 using Godot;
+using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
 
 namespace LadyBug.Gameplay;
@@ -30,6 +31,12 @@ public readonly struct PlayfieldStepResult
     public int? GateId { get; }
 
     /// <summary>
+    /// Gets the contacted half of the blocking gate when relevant.
+    /// Otherwise null.
+    /// </summary>
+    public GateContactHalf? ContactHalf { get; }
+
+    /// <summary>
     /// Gets whether the attempted step is allowed.
     /// </summary>
     public bool Allowed => Kind == PlayfieldStepKind.Allowed;
@@ -50,11 +57,17 @@ public readonly struct PlayfieldStepResult
     /// <param name="kind">High-level outcome kind.</param>
     /// <param name="mazeStep">Underlying static maze evaluation.</param>
     /// <param name="gateId">Blocking gate identifier if relevant.</param>
-    public PlayfieldStepResult(PlayfieldStepKind kind, MazeStepResult mazeStep, int? gateId = null)
+    /// <param name="contactHalf">Contacted gate half if relevant.</param>
+    public PlayfieldStepResult(
+        PlayfieldStepKind kind,
+        MazeStepResult mazeStep,
+        int? gateId = null,
+        GateContactHalf? contactHalf = null)
     {
         Kind = kind;
         MazeStep = mazeStep;
         GateId = gateId;
+        ContactHalf = contactHalf;
     }
 
     /// <summary>
@@ -76,9 +89,16 @@ public readonly struct PlayfieldStepResult
     /// <summary>
     /// Creates a gate-blocked playfield step result.
     /// </summary>
-    public static PlayfieldStepResult BlockedByGate(MazeStepResult mazeStep, int gateId)
+    public static PlayfieldStepResult BlockedByGate(
+        MazeStepResult mazeStep,
+        int gateId,
+        GateContactHalf contactHalf)
     {
-        return new PlayfieldStepResult(PlayfieldStepKind.BlockedByGate, mazeStep, gateId);
+        return new PlayfieldStepResult(
+            PlayfieldStepKind.BlockedByGate,
+            mazeStep,
+            gateId,
+            contactHalf);
     }
 
     /// <summary>
