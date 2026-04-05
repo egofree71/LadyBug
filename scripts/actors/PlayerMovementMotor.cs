@@ -23,7 +23,7 @@ namespace LadyBug.Actors;
 /// </remarks>
 public sealed class PlayerMovementMotor
 {
-    // Owning level. Provides coordinate conversion helpers.
+    // Owning level. Provides coordinate conversion helpers and playfield queries.
     private Level _level = null!;
 
     // True gameplay position, expressed in original arcade pixels relative to the maze origin.
@@ -54,7 +54,7 @@ public sealed class PlayerMovementMotor
     /// Initializes the movement motor from the owning level.
     /// </summary>
     /// <param name="level">
-    /// Owning level that provides maze access and coordinate conversion.
+    /// Owning level that provides playfield access and coordinate conversion.
     /// </param>
     public void Initialize(Level level)
     {
@@ -92,20 +92,7 @@ public sealed class PlayerMovementMotor
             isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
 
             PlayfieldStepResult previewStep = EvaluateOnePixelStep(wantedDir);
-
-            if (!previewStep.Allowed)
-            {
-                if (previewStep.Kind == PlayfieldStepKind.BlockedByGate &&
-                    previewStep.GateId.HasValue &&
-                    previewStep.ContactHalf.HasValue &&
-                    _level.TryPushGate(
-                        previewStep.GateId.Value,
-                        wantedDir,
-                        previewStep.ContactHalf.Value))
-                {
-                    previewStep = EvaluateOnePixelStep(wantedDir);
-                }
-            }
+            previewStep = ResolveGatePushIfNeeded(previewStep, wantedDir);
 
             if (!previewStep.Allowed)
             {
@@ -125,20 +112,7 @@ public sealed class PlayerMovementMotor
             if (wantsTurn)
             {
                 PlayfieldStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
-
-                if (!turnPreview.Allowed)
-                {
-                    if (turnPreview.Kind == PlayfieldStepKind.BlockedByGate &&
-                        turnPreview.GateId.HasValue &&
-                        turnPreview.ContactHalf.HasValue &&
-                        _level.TryPushGate(
-                            turnPreview.GateId.Value,
-                            wantedDir,
-                            turnPreview.ContactHalf.Value))
-                    {
-                        turnPreview = EvaluateOnePixelStep(wantedDir);
-                    }
-                }
+                turnPreview = ResolveGatePushIfNeeded(turnPreview, wantedDir);
 
                 if (isAtLogicalAnchor && turnPreview.Allowed)
                 {
@@ -163,20 +137,7 @@ public sealed class PlayerMovementMotor
         }
 
         PlayfieldStepResult step = EvaluateOnePixelStep(_currentDir);
-
-        if (!step.Allowed)
-        {
-            if (step.Kind == PlayfieldStepKind.BlockedByGate &&
-                step.GateId.HasValue &&
-                step.ContactHalf.HasValue &&
-                _level.TryPushGate(
-                    step.GateId.Value,
-                    _currentDir,
-                    step.ContactHalf.Value))
-            {
-                step = EvaluateOnePixelStep(_currentDir);
-            }
-        }
+        step = ResolveGatePushIfNeeded(step, _currentDir);
 
         if (!step.Allowed)
         {
@@ -284,7 +245,8 @@ public sealed class PlayerMovementMotor
     /// </summary>
     /// <param name="direction">Direction to test.</param>
     /// <returns>
-    /// A combined playfield result indicating whether movement is allowed.
+    /// A combined playfield result indicating whether movement is allowed,
+    /// blocked by the static maze, or blocked by a rotating gate.
     /// </returns>
     private PlayfieldStepResult EvaluateOnePixelStep(Vector2I direction)
     {
@@ -298,6 +260,38 @@ public sealed class PlayerMovementMotor
             _arcadePixelPos,
             direction,
             GetCollisionLead(direction));
+    }
+
+    /// <summary>
+    /// Attempts to resolve a gate-blocked step by pushing the blocking gate,
+    /// then immediately reevaluating the same step.
+    /// </summary>
+    /// <param name="step">Current playfield step result.</param>
+    /// <param name="direction">Attempted movement direction.</param>
+    /// <returns>
+    /// The original step if no push is possible or needed; otherwise the
+    /// reevaluated step after a successful push.
+    /// </returns>
+    private PlayfieldStepResult ResolveGatePushIfNeeded(PlayfieldStepResult step, Vector2I direction)
+    {
+        if (step.Allowed)
+            return step;
+
+        if (step.Kind != PlayfieldStepKind.BlockedByGate)
+            return step;
+
+        if (!step.GateId.HasValue || !step.ContactHalf.HasValue)
+            return step;
+
+        bool pushed = _level.TryPushGate(
+            step.GateId.Value,
+            direction,
+            step.ContactHalf.Value);
+
+        if (!pushed)
+            return step;
+
+        return EvaluateOnePixelStep(direction);
     }
 
     /// <summary>
