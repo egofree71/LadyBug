@@ -108,6 +108,8 @@ public partial class PlayerController : Node2D
     /// </summary>
     private void RunOneTick()
     {
+        _level.AdvanceGateSimulationOneTick();
+
         Vector2I wantedDir = _inputState.ReadPressedDirection();
 
         if (wantedDir != Vector2I.Zero && _facingDir != wantedDir)
@@ -118,9 +120,6 @@ public partial class PlayerController : Node2D
 
         PlayerMovementStepResult stepResult = _movementMotor.Step(wantedDir);
 
-        // The structured tick result is currently kept for future animation,
-        // sound or gameplay hooks. The current controller does not need to
-        // react to it yet beyond reading the motor state.
         _ = stepResult;
     }
 

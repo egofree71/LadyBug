@@ -5,6 +5,8 @@ using System.Text.Json;
 using LadyBug.Gameplay.Maze;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Actors;
+using LadyBug.Gameplay;
+using System.Collections.Generic;
 
 /// <summary>
 /// Represents one playable level of the game.
@@ -26,12 +28,21 @@ using LadyBug.Actors;
 [Tool]
 public partial class Level : Node2D
 {
+    private GateSystem _gateSystem = null!;
+
+    /// <summary>
+    /// Gets the runtime rotating gate system used by the level.
+    /// </summary>
+    public GateSystem GateSystem => _gateSystem;
+    
     private const string MazeJsonPath = "res://data/maze.json";
     private const string RotatingGateScenePath = "res://scenes/level/RotatingGate.tscn";
 
     private Node2D _gatesNode = null!;
     private readonly PackedScene _rotatingGateScene = GD.Load<PackedScene>(RotatingGateScenePath);
 
+    private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
+    
     // --- Constants ----------------------------------------------------------
 
     // Size of one logical maze cell in original arcade pixels.
@@ -101,6 +112,9 @@ public partial class Level : Node2D
 
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
 
+        MazeDataFile mazeData = LoadMazeDataFile();
+        _gateSystem = GateSystem.FromDataFiles(mazeData.Gates);
+
         SpawnRotatingGates();
 
         PlayerController player = GetNodeOrNull<PlayerController>("Player");
@@ -125,14 +139,15 @@ public partial class Level : Node2D
             child.QueueFree();
         }
 
-        MazeDataFile mazeData = LoadMazeDataFile();
+        _gateViewsById.Clear();
 
-        foreach (RotatingGateDataFile gateData in mazeData.Gates)
+        foreach (RotatingGateRuntimeState gateState in _gateSystem.Gates)
         {
-            RotatingGateView gate = _rotatingGateScene.Instantiate<RotatingGateView>();
-            gate.Position = GetGateScenePosition(gateData.Pivot);
-            _gatesNode.AddChild(gate);
-            gate.SetOrientation(gateData.GetOrientation());
+            RotatingGateView gateView = _rotatingGateScene.Instantiate<RotatingGateView>();
+            gateView.Position = GetGateScenePosition(gateState.Pivot);
+            _gatesNode.AddChild(gateView);
+            gateView.SetOrientation(gateState.GetStableOrientation());
+            _gateViewsById.Add(gateState.Id, gateView);
         }
     }
 
@@ -170,7 +185,7 @@ public partial class Level : Node2D
     /// Gate pivot coordinates are expressed on a grid aligned with 16 arcade-pixel steps.
     /// The visual sprite offset is handled locally inside RotatingGate.tscn.
     /// </remarks>
-    private Vector2 GetGateScenePosition(PivotDataFile pivot)
+    private Vector2 GetGateScenePosition(Vector2I pivot)
     {
         Vector2I pivotArcade = new(pivot.X * 16, pivot.Y * 16);
         return ArcadePixelToScenePosition(pivotArcade);
@@ -316,6 +331,212 @@ public partial class Level : Node2D
 
             player.NotifyPropertyListChanged();
             QueueRedraw();
+        }
+    }
+    /// <summary>
+    /// Evaluates one attempted arcade-pixel step against the active playfield:
+    /// static maze plus dynamic rotating gates.
+    /// </summary>
+    /// <param name="arcadePixelPos">Current gameplay position in arcade pixels.</param>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="collisionLead">Directional collision probe offset.</param>
+    /// <returns>
+    /// A combined playfield result describing whether the step is allowed,
+    /// blocked by a fixed wall, or blocked by a rotating gate.
+    /// </returns>
+    public PlayfieldStepResult EvaluateArcadePixelStepWithGates(
+        Vector2I arcadePixelPos,
+        Vector2I direction,
+        Vector2I collisionLead)
+    {
+        MazeStepResult mazeStep = _mazeGrid.EvaluateArcadePixelStep(
+            arcadePixelPos,
+            direction,
+            collisionLead,
+            ArcadePixelToLogicalCell);
+
+        if (!mazeStep.Allowed)
+            return PlayfieldStepResult.BlockedByFixedWall(mazeStep);
+
+        if (mazeStep.NextCell == mazeStep.CurrentCell)
+            return PlayfieldStepResult.AllowedStep(mazeStep);
+
+        if (TryGetBlockingGateIdForStep(mazeStep, direction, out int gateId))
+            return PlayfieldStepResult.BlockedByGate(mazeStep, gateId);
+
+        return PlayfieldStepResult.AllowedStep(mazeStep);
+    }
+    
+    /// <summary>
+    /// Tries to find whether the evaluated step is blocked by one rotating gate.
+    /// </summary>
+    /// <param name="mazeStep">Underlying static maze step result.</param>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="gateId">Returned blocking gate identifier if found.</param>
+    /// <returns>True if a blocking gate is found; otherwise false.</returns>
+    private bool TryGetBlockingGateIdForStep(
+        MazeStepResult mazeStep,
+        Vector2I direction,
+        out int gateId)
+    {
+        gateId = -1;
+
+        if (direction == Vector2I.Zero)
+            return false;
+
+        if (mazeStep.NextCell == mazeStep.CurrentCell)
+            return false;
+
+        if (direction.X != 0)
+        {
+            return TryGetBlockingGateIdAcrossVerticalBoundary(
+                mazeStep.CurrentCell,
+                mazeStep.NextCell,
+                direction,
+                out gateId);
+        }
+
+        if (direction.Y != 0)
+        {
+            return TryGetBlockingGateIdAcrossHorizontalBoundary(
+                mazeStep.CurrentCell,
+                mazeStep.NextCell,
+                direction,
+                out gateId);
+        }
+
+        return false;
+    }
+    
+    /// <summary>
+    /// Tries to find a blocking gate when movement crosses a vertical cell boundary,
+    /// that is, during a left/right movement step.
+    /// </summary>
+    /// <param name="currentCell">Logical cell containing the current position.</param>
+    /// <param name="nextCell">Logical cell reached by the forward probe.</param>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="gateId">Returned blocking gate identifier if found.</param>
+    /// <returns>True if a blocking gate is found; otherwise false.</returns>
+    private bool TryGetBlockingGateIdAcrossVerticalBoundary(
+        Vector2I currentCell,
+        Vector2I nextCell,
+        Vector2I direction,
+        out int gateId)
+    {
+        gateId = -1;
+
+        int boundaryX = Math.Max(currentCell.X, nextCell.X);
+
+        Vector2I pivotA = new(boundaryX, currentCell.Y);
+        Vector2I pivotB = new(boundaryX, currentCell.Y + 1);
+
+        return TryGetBlockingGateIdAtCandidatePivots(direction, pivotA, pivotB, out gateId);
+    }
+    
+    /// <summary>
+    /// Tries to find a blocking gate when movement crosses a horizontal cell boundary,
+    /// that is, during an up/down movement step.
+    /// </summary>
+    /// <param name="currentCell">Logical cell containing the current position.</param>
+    /// <param name="nextCell">Logical cell reached by the forward probe.</param>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="gateId">Returned blocking gate identifier if found.</param>
+    /// <returns>True if a blocking gate is found; otherwise false.</returns>
+    private bool TryGetBlockingGateIdAcrossHorizontalBoundary(
+        Vector2I currentCell,
+        Vector2I nextCell,
+        Vector2I direction,
+        out int gateId)
+    {
+        gateId = -1;
+
+        int boundaryY = Math.Max(currentCell.Y, nextCell.Y);
+
+        Vector2I pivotA = new(currentCell.X, boundaryY);
+        Vector2I pivotB = new(currentCell.X + 1, boundaryY);
+
+        return TryGetBlockingGateIdAtCandidatePivots(direction, pivotA, pivotB, out gateId);
+    }
+    
+    /// <summary>
+    /// Tests two candidate gate pivots and returns the first gate that blocks
+    /// the attempted movement direction.
+    /// </summary>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="pivotA">First candidate pivot.</param>
+    /// <param name="pivotB">Second candidate pivot.</param>
+    /// <param name="gateId">Returned blocking gate identifier if found.</param>
+    /// <returns>True if a blocking gate is found; otherwise false.</returns>
+    private bool TryGetBlockingGateIdAtCandidatePivots(
+        Vector2I direction,
+        Vector2I pivotA,
+        Vector2I pivotB,
+        out int gateId)
+    {
+        gateId = -1;
+
+        if (_gateSystem.TryGetGateByPivot(pivotA, out RotatingGateRuntimeState gateA) &&
+            gateA.BlocksMovement(direction))
+        {
+            gateId = gateA.Id;
+            return true;
+        }
+
+        if (_gateSystem.TryGetGateByPivot(pivotB, out RotatingGateRuntimeState gateB) &&
+            gateB.BlocksMovement(direction))
+        {
+            gateId = gateB.Id;
+            return true;
+        }
+
+        return false;
+    }
+    
+    /// <summary>
+    /// Advances the rotating-gate runtime timers by one simulation tick
+    /// and refreshes their current visual state.
+    /// </summary>
+    public void AdvanceGateSimulationOneTick()
+    {
+        _gateSystem.AdvanceOneTick();
+        SyncGateViewsFromRuntimeState();
+    }
+
+    /// <summary>
+    /// Attempts to push one rotating gate using the attempted gameplay direction.
+    /// </summary>
+    /// <param name="gateId">Identifier of the gate to push.</param>
+    /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
+    /// <returns>
+    /// True if the push is accepted; otherwise false.
+    /// </returns>
+    public bool TryPushGate(int gateId, Vector2I moveDir)
+    {
+        bool pushed = _gateSystem.TryPush(gateId, moveDir);
+
+        if (pushed)
+            SyncGateViewsFromRuntimeState();
+
+        return pushed;
+    }
+
+    /// <summary>
+    /// Refreshes the gate views so they match the current runtime logical state.
+    /// </summary>
+    /// <remarks>
+    /// For now, this keeps the visual model intentionally simple:
+    /// the view jumps directly to the new stable orientation.
+    /// The short Turning state already exists in runtime and will be used later
+    /// once the diagonal transition visuals are wired.
+    /// </remarks>
+    private void SyncGateViewsFromRuntimeState()
+    {
+        foreach (RotatingGateRuntimeState gateState in _gateSystem.Gates)
+        {
+            if (_gateViewsById.TryGetValue(gateState.Id, out RotatingGateView gateView))
+            {
+                gateView.SetOrientation(gateState.GetStableOrientation());
+            }
         }
     }
 }

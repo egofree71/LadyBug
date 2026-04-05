@@ -1,5 +1,6 @@
 using Godot;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay;
 
 namespace LadyBug.Actors;
 
@@ -23,10 +24,7 @@ public sealed class PlayerMovementMotor
 {
     // Owning level. Provides coordinate conversion helpers.
     private Level _level;
-
-    // Runtime logical maze used for movement legality checks.
-    private MazeGrid _mazeGrid;
-
+    
     // True gameplay position, expressed in original arcade pixels relative to the maze origin.
     private Vector2I _arcadePixelPos = Vector2I.Zero;
 
@@ -58,7 +56,6 @@ public sealed class PlayerMovementMotor
     public void Initialize(Level level)
     {
         _level = level;
-        _mazeGrid = level.MazeGrid;
         _arcadePixelPos = level.LogicalCellToArcadePixel(level.PlayerStartCell);
         _currentDir = Vector2I.Zero;
         _offsetDir = Vector2I.Up;
@@ -91,7 +88,18 @@ public sealed class PlayerMovementMotor
 
             isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
 
-            MazeStepResult previewStep = EvaluateOnePixelStep(wantedDir);
+            PlayfieldStepResult previewStep = EvaluateOnePixelStep(wantedDir);
+
+            if (!previewStep.Allowed)
+            {
+                if (previewStep.Kind == PlayfieldStepKind.BlockedByGate &&
+                    previewStep.GateId.HasValue &&
+                    _level.TryPushGate(previewStep.GateId.Value, wantedDir))
+                {
+                    previewStep = EvaluateOnePixelStep(wantedDir);
+                }
+            }
+
             if (!previewStep.Allowed)
             {
                 _arcadePixelPos = originalPixelPos;
@@ -109,7 +117,17 @@ public sealed class PlayerMovementMotor
 
             if (wantsTurn)
             {
-                MazeStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
+                PlayfieldStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
+
+                if (!turnPreview.Allowed)
+                {
+                    if (turnPreview.Kind == PlayfieldStepKind.BlockedByGate &&
+                        turnPreview.GateId.HasValue &&
+                        _level.TryPushGate(turnPreview.GateId.Value, wantedDir))
+                    {
+                        turnPreview = EvaluateOnePixelStep(wantedDir);
+                    }
+                }
 
                 if (isAtLogicalAnchor && turnPreview.Allowed)
                 {
@@ -133,7 +151,17 @@ public sealed class PlayerMovementMotor
             }
         }
 
-        MazeStepResult step = EvaluateOnePixelStep(_currentDir);
+        PlayfieldStepResult step = EvaluateOnePixelStep(_currentDir);
+
+        if (!step.Allowed)
+        {
+            if (step.Kind == PlayfieldStepKind.BlockedByGate &&
+                step.GateId.HasValue &&
+                _level.TryPushGate(step.GateId.Value, _currentDir))
+            {
+                step = EvaluateOnePixelStep(_currentDir);
+            }
+        }
 
         if (!step.Allowed)
         {
@@ -245,16 +273,18 @@ public sealed class PlayerMovementMotor
     /// <returns>
     /// A maze step result indicating whether movement is allowed.
     /// </returns>
-    private MazeStepResult EvaluateOnePixelStep(Vector2I direction)
+    private PlayfieldStepResult EvaluateOnePixelStep(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
-            return new MazeStepResult(false, Vector2I.Zero, Vector2I.Zero);
+        {
+            MazeStepResult blockedMazeStep = new(false, Vector2I.Zero, Vector2I.Zero);
+            return PlayfieldStepResult.BlockedByFixedWall(blockedMazeStep);
+        }
 
-        return _mazeGrid.EvaluateArcadePixelStep(
+        return _level.EvaluateArcadePixelStepWithGates(
             _arcadePixelPos,
             direction,
-            GetCollisionLead(direction),
-            _level.ArcadePixelToLogicalCell);
+            GetCollisionLead(direction));
     }
 
     /// <summary>
