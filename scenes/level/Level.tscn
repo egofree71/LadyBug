@@ -16,4 +16,6 @@ offset = Vector2(16, 24)
 
 [node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
 texture_filter = 1
-position = Vector2(372, 572)
+position = Vector2(352, 540)
+
+[node name="Gates" type="Node2D" parent="." unique_id=349879493]

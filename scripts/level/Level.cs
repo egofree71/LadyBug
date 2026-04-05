@@ -1,4 +1,7 @@
 using Godot;
+using System;
+using System.IO;
+using System.Text.Json;
 using LadyBug.Gameplay.Maze;
 
 /// <summary>
@@ -21,6 +24,12 @@ using LadyBug.Gameplay.Maze;
 [Tool]
 public partial class Level : Node2D
 {
+    private const string MazeJsonPath = "res://data/maze.json";
+    private const string RotatingGateScenePath = "res://scenes/level/RotatingGate.tscn";
+
+    private Node2D _gatesNode = null!;
+    private readonly PackedScene _rotatingGateScene = GD.Load<PackedScene>(RotatingGateScenePath);
+    
     // --- Constants ----------------------------------------------------------
 
     // Size of one logical maze cell in original arcade pixels.
@@ -80,6 +89,10 @@ public partial class Level : Node2D
     /// </remarks>
     public override void _Ready()
     {
+        _gatesNode = GetNode<Node2D>("Gates");
+        
+        SpawnRotatingGates();
+        
         if (Engine.IsEditorHint())
         {
             UpdatePlayerPositionFromLogicalCell();
@@ -93,6 +106,54 @@ public partial class Level : Node2D
             player.Initialize(this);
     }
 
+    private void SpawnRotatingGates()
+    {
+        foreach (Node child in _gatesNode.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        MazeDataFile mazeData = LoadMazeDataFile();
+
+        foreach (RotatingGateDataFile gateData in mazeData.Gates)
+        {
+            RotatingGateView gate = _rotatingGateScene.Instantiate<RotatingGateView>();
+            gate.Position = GetGateScenePosition(gateData.Pivot);
+            _gatesNode.AddChild(gate);
+            gate.SetOrientation(gateData.GetOrientation());
+        }
+    }
+
+    private MazeDataFile LoadMazeDataFile()
+    {
+        string absolutePath = ProjectSettings.GlobalizePath(MazeJsonPath);
+        string json = File.ReadAllText(absolutePath);
+
+        JsonSerializerOptions options = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        MazeDataFile? data = JsonSerializer.Deserialize<MazeDataFile>(json, options);
+
+        if (data is null)
+        {
+            throw new InvalidOperationException("Failed to deserialize maze.json.");
+        }
+
+        return data;
+    }
+
+    private Vector2 GetGateScenePosition(PivotDataFile pivot)
+    {
+        // Hypothèse simple et logique :
+        // le pivot d’une porte est sur la grille des multiples de 16 pixels arcade.
+        Vector2I pivotArcade = new(pivot.X * 16, pivot.Y * 16);
+
+        // Remplace ce nom par ton helper exact si nécessaire.
+        return ArcadePixelToScenePosition(pivotArcade);
+    }
+    
     // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>

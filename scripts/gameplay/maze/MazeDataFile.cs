@@ -1,3 +1,6 @@
+using System;
+using System.Text.Json.Serialization;
+
 namespace LadyBug.Gameplay.Maze
 {
     /// <summary>
@@ -23,5 +26,8 @@ namespace LadyBug.Gameplay.Maze
         /// Each value represents the wall bitmask of one maze cell.
         /// </summary>
         public int[] Cells { get; set; } = [];
+        
+        [JsonPropertyName("gates")]
+        public RotatingGateDataFile[] Gates { get; set; } = Array.Empty<RotatingGateDataFile>();
     }
 }
