@@ -16,7 +16,7 @@ Purpose of this document:
 
 The goal is NOT to use a modern free-movement system such as:
 
-	Position += direction * Speed * delta;
+    Position += direction * Speed * delta;
 
 Instead, the goal is to reproduce the original arcade behavior as closely as
 possible.
@@ -28,6 +28,7 @@ The movement system is therefore designed around:
 - buffered direction changes
 - internal lane alignment inside 16x16 cells
 - maze validation for each attempted pixel step
+- dynamic rotating-gate validation layered on top of the static maze
 
 ===============================================================================
 2. PREVIOUS APPROACH (ABANDONED)
@@ -40,7 +41,7 @@ Previous prototype movement used:
 
 Example:
 
-	Position += _moveDirection * Speed * delta;
+    Position += _moveDirection * Speed * delta;
 
 Problems with this approach:
 - not faithful to the arcade logic
@@ -62,6 +63,8 @@ small dedicated helpers:
 - PlayerMovementMotor
 - PlayerMovementTuning
 - MazeGrid / MazeStepResult
+- PlayfieldStepResult
+- Level runtime gate evaluation
 
 The design is now split as follows:
 
@@ -69,7 +72,8 @@ The design is now split as follows:
 2) PlayerInputState resolves movement intention using "last pressed wins"
 3) PlayerMovementMotor owns the gameplay movement state and applies one tick
 4) PlayerMovementTuning centralizes calibrated constants
-5) MazeGrid evaluates whether an attempted pixel step is legal
+5) MazeGrid evaluates static maze legality
+6) Level combines static maze legality with dynamic rotating-gate legality
 
 This is more faithful to the arcade structure than a modern free movement model,
 while remaining easy to refine.
@@ -80,20 +84,20 @@ while remaining easy to refine.
 
 Movement is updated at a fixed tick rate:
 
-	TickRate = 60.1145 Hz
+    TickRate = 60.1145 Hz
 
 And:
 
-	TickDuration = 1.0 / TickRate
+    TickDuration = 1.0 / TickRate
 
 The update loop uses an accumulator:
 
-	_accumulator += delta;
-	while (_accumulator >= TickDuration)
-	{
-		_accumulator -= TickDuration;
-		RunOneTick();
-	}
+    _accumulator += delta;
+    while (_accumulator >= TickDuration)
+    {
+        _accumulator -= TickDuration;
+        RunOneTick();
+    }
 
 Purpose:
 - reproduce hardware-style movement timing
@@ -106,7 +110,7 @@ Purpose:
 
 The gameplay position is stored as integer arcade-pixel coordinates:
 
-	Vector2I _arcadePixelPos;
+    Vector2I _arcadePixelPos;
 
 Purpose:
 - avoid floating-point drift
@@ -129,7 +133,7 @@ Current movement assumption:
 
 Example:
 
-	_arcadePixelPos += _currentDir;
+    _arcadePixelPos += _currentDir;
 
 This means:
 - movement is discrete
@@ -151,7 +155,7 @@ The current code distinguishes several movement-related directions.
 7.1 Wanted Direction
 -------------------------------------------------------------------------------
 
-	wantedDir / _wantedDir
+    wantedDir / _wantedDir
 
 Meaning:
 - the direction currently intended by the player
@@ -161,7 +165,7 @@ Meaning:
 7.2 Current Direction
 -------------------------------------------------------------------------------
 
-	_currentDir
+    _currentDir
 
 Meaning:
 - the direction actually used by effective gameplay movement
@@ -170,7 +174,7 @@ Meaning:
 7.3 Facing Direction
 -------------------------------------------------------------------------------
 
-	_facingDir
+    _facingDir
 
 Meaning:
 - the direction currently shown by the sprite
@@ -183,7 +187,7 @@ movement motor has accepted that direction.
 7.4 Offset Direction
 -------------------------------------------------------------------------------
 
-	_offsetDir
+    _offsetDir
 
 Meaning:
 - the direction used to choose the sprite render offset
@@ -230,15 +234,17 @@ The current logic is:
 3) if stopped, try to start or resume in the wanted direction
 4) if already moving:
    - same-axis change is applied immediately
-   - perpendicular change is accepted only if alignment and maze legality allow it
+   - perpendicular change is accepted only if alignment and playfield legality allow it
 5) if a perpendicular requested direction is blocked, the actor stops instead
    of continuing in the old direction
 
-This last point is important:
-the current implementation is no longer the old intermediate rule
-"otherwise continue moving in _currentDir".
-It now behaves more strictly when the newly requested perpendicular path is
-blocked.
+Important:
+the exact acceptance window for perpendicular turns is still not considered
+final.
+
+The current implementation already avoids some previously observed gate-related
+bugs by not attempting certain perpendicular turns too early, but the precise
+arcade turn window still needs more reverse engineering.
 
 ===============================================================================
 10. ALIGNMENT INSIDE 16x16 CELLS
@@ -260,9 +266,9 @@ This means:
 
 Reverse engineering suggests checks of the form:
 
-	X & 0x0F == 0x08
-	Y & 0x0F == 0x06
-	Y & 0x0F == 0x07
+    X & 0x0F == 0x08
+    Y & 0x0F == 0x06
+    Y & 0x0F == 0x07
 
 Interpretation:
 - 0x0F corresponds to 15
@@ -277,7 +283,7 @@ So the game is checking sub-cell alignment.
 
 Observed condition:
 
-	X & 0x0F == 0x08
+    X & 0x0F == 0x08
 
 Interpretation:
 - vertical movement or vertical turning appears to depend on X being aligned
@@ -289,8 +295,8 @@ Interpretation:
 
 Observed conditions:
 
-	Y & 0x0F == 0x06
-	Y & 0x0F == 0x07
+    Y & 0x0F == 0x06
+    Y & 0x0F == 0x07
 
 Interpretation:
 - horizontal movement or horizontal turning appears to depend on Y alignment
@@ -310,7 +316,7 @@ For horizontal movement / turning:
 
 In practice, the gameplay anchor currently used by Level is:
 
-	GameplayAnchorArcade = new(8, 7)
+    GameplayAnchorArcade = new(8, 7)
 
 And the movement tuning currently uses:
 - horizontal rail snap tolerance = 1
@@ -352,12 +358,12 @@ Status:
   different recentering behavior in the arcade original
 
 ===============================================================================
-14. MAZE VALIDATION
+14. STATIC MAZE VALIDATION
 ===============================================================================
 
-Movement legality is now connected directly to the logical maze.
+Movement legality is connected directly to the logical maze.
 
-The current path is:
+The static path is:
 
 - PlayerMovementMotor requests an attempted pixel step
 - MazeGrid.EvaluateArcadePixelStep(...) evaluates that step
@@ -368,34 +374,33 @@ The current path is:
   - if the probe crosses into another cell, validates the move through CanMove(...)
 
 So movement legality is no longer just "alignment-only".
-It is now:
-
-	pixel-step legality = alignment + probe-based maze validation
-
-This is an important milestone compared to the older intermediate versions.
+It includes a probe-based validation against the static maze.
 
 ===============================================================================
-15. RELATION TO THE MAZE SYSTEM
+15. ROTATING GATE INTEGRATION
 ===============================================================================
 
-The movement model is now actively connected to the logical maze system.
+The movement model is now also connected to the rotating-gate system.
 
 Current integration:
-- MazeGrid defines legal logical exits from each cell
-- MazeGrid.EvaluateArcadePixelStep(...) evaluates one attempted pixel step
-- PlayerMovementMotor uses this helper for movement legality
+- Level owns the runtime GateSystem
+- PlayerMovementMotor requests one attempted step from the active playfield
+- Level combines:
+  - static MazeGrid legality
+  - probe-based gate blocking
+  - boundary-crossing gate blocking
+- if a step is blocked by a gate and the gate can be pushed from the contacted
+  half:
+  - the gate logical state toggles immediately
+  - the attempted step is re-evaluated in the same tick
+- gate visual turning is kept briefly through a separate runtime timer
 
-What is still missing:
-- dynamic interaction with rotating gates
-- any gate-specific override of movement legality
+In practice, the current movement rule is approximately:
 
-So at the moment, the movement rule is approximately:
+    step allowed = lane/alignment state + maze legality + gate state
 
-	step allowed = lane/alignment state + maze legality
-
-And later it will need to become:
-
-	step allowed = lane/alignment state + maze legality + gate state
+This is now implemented.
+Rotating gates are no longer just a planned extension.
 
 ===============================================================================
 16. RELATION TO ANIMATION AND VISUAL FACING
@@ -438,7 +443,10 @@ The current implementation includes:
 - provisional lane alignment
 - lane snap
 - conservative straight-line recentering
-- maze validation for each attempted pixel step
+- static maze validation for each attempted pixel step
+- dynamic rotating-gate validation layered on top of the static maze
+- immediate gate push resolution and same-tick step re-evaluation
+- short rotating-gate turning visual state
 - refactored movement architecture using helpers
 
 The implementation is no longer just a monolithic PlayerController.
@@ -458,7 +466,11 @@ The following points are considered strong working assumptions:
 - the most recently pressed held direction should drive intention
 - turning depends on alignment
 - the player moves on internal lanes, not just generic tile centers
-- maze legality should be checked at the per-step level, not only at high level
+- static maze legality should be checked at the per-step level, not only at high level
+- rotating-gate interaction belongs in the step-validation chain, not in a purely
+  visual script
+- a successful gate push should toggle the logical gate state immediately and
+  re-evaluate the attempted step in the same tick
 
 ===============================================================================
 19. WHAT IS STILL UNCERTAIN
@@ -477,7 +489,9 @@ The following points still require more reverse engineering:
 - the exact collision checks used by the original ROM
 - whether the current collision leads match the original checks or are only a
   practical approximation
-- the exact interaction with rotating gates
+- the exact acceptance window for perpendicular turns in real gameplay
+- whether the current gate probe/boundary combination matches the original code path
+  exactly or is still an approximation
 - whether movement ever uses a repeating sub-pattern instead of a strict constant
 - whether straight-line recentering in the arcade original is identical to the
   current conservative implementation
@@ -498,7 +512,8 @@ The current codebase now reflects that philosophy better than before:
 - input is separated
 - tuning is centralized
 - movement logic is isolated
-- maze legality is explicit
+- static maze legality is explicit
+- dynamic rotating-gate legality is explicit
 
 ===============================================================================
 21. SUMMARY
@@ -514,16 +529,18 @@ Current player movement is based on:
 - lane alignment inside 16x16 cells
 - rail snap
 - conservative straight-line recentering
-- maze validation for each attempted pixel step
+- per-step static maze validation
+- per-step rotating-gate validation
+- same-tick gate push resolution and re-evaluation
 
 This is no longer just an intermediate sketch.
 It is now a structured arcade-oriented implementation with clear extension
 points for future refinement.
 
-The biggest remaining gameplay-specific unknowns are:
+The biggest remaining movement-specific unknowns are now mainly:
 - exact turn-window details
 - exact collision details from the original code
-- rotating gate interaction
+- final arcade-accurate alignment acceptance rules
 
 ===============================================================================
 PLAYER ROUTINE INDEX
