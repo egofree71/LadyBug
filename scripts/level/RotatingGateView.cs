@@ -1,6 +1,8 @@
 using Godot;
 using LadyBug.Gameplay.Gates;
 
+namespace LadyBug.Gameplay.Gates;
+
 /// <summary>
 /// Visual scene instance used to display one rotating gate in the level.
 /// </summary>
