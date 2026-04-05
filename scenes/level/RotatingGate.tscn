@@ -60,5 +60,5 @@ script = ExtResource("1_0u8hq")
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=931006194]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_pmi48")
-animation = &"backslash"
+animation = &"horizontal"
 offset = Vector2(20, 28)
