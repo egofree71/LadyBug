@@ -9,8 +9,12 @@ namespace LadyBug.Gameplay;
 /// through the active level playfield.
 /// </summary>
 /// <remarks>
-/// This wraps the existing static MazeStepResult and adds the possibility
-/// that a step is blocked by a dynamic rotating gate.
+/// This wraps the existing static <see cref="MazeStepResult"/> and adds the
+/// possibility that a step is blocked by a dynamic rotating gate.
+///
+/// When a gate is blocked at its pivot dead zone, <see cref="ContactHalf"/>
+/// is null: the step is blocked, but the gate cannot be pushed from that exact
+/// contact point.
 /// </remarks>
 public readonly struct PlayfieldStepResult
 {
@@ -57,7 +61,9 @@ public readonly struct PlayfieldStepResult
     /// <param name="kind">High-level outcome kind.</param>
     /// <param name="mazeStep">Underlying static maze evaluation.</param>
     /// <param name="gateId">Blocking gate identifier if relevant.</param>
-    /// <param name="contactHalf">Contacted gate half if relevant.</param>
+    /// <param name="contactHalf">
+    /// Contacted gate half if relevant; otherwise null.
+    /// </param>
     public PlayfieldStepResult(
         PlayfieldStepKind kind,
         MazeStepResult mazeStep,
@@ -92,7 +98,7 @@ public readonly struct PlayfieldStepResult
     public static PlayfieldStepResult BlockedByGate(
         MazeStepResult mazeStep,
         int gateId,
-        GateContactHalf contactHalf)
+        GateContactHalf? contactHalf)
     {
         return new PlayfieldStepResult(
             PlayfieldStepKind.BlockedByGate,

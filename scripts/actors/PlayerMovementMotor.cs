@@ -80,16 +80,12 @@ public sealed class PlayerMovementMotor
             return BuildStepResult(previousPixelPos, previousDirection);
         }
 
-        bool isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
-
         if (_currentDir == Vector2I.Zero)
         {
             Vector2I originalPixelPos = _arcadePixelPos;
 
             if (!CanStartOrResumeInDirection(wantedDir))
                 return BuildStepResult(previousPixelPos, previousDirection);
-
-            isAtLogicalAnchor = IsExactlyOnLogicalCellAnchor();
 
             PlayfieldStepResult previewStep = EvaluateOnePixelStep(wantedDir);
             previewStep = ResolveGatePushIfNeeded(previewStep, wantedDir);
@@ -111,22 +107,29 @@ public sealed class PlayerMovementMotor
 
             if (wantsTurn)
             {
-                PlayfieldStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
-                turnPreview = ResolveGatePushIfNeeded(turnPreview, wantedDir);
+                if (CanAttemptPerpendicularTurnNow(wantedDir))
+                {
+                    Vector2I originalPixelPos = _arcadePixelPos;
+                    TrySnapToRailForDirection(wantedDir);
 
-                if (isAtLogicalAnchor && turnPreview.Allowed)
-                {
-                    _currentDir = wantedDir;
-                    _offsetDir = _currentDir;
-                }
-                else if (!turnPreview.Allowed)
-                {
-                    _currentDir = Vector2I.Zero;
-                    return BuildStepResult(previousPixelPos, previousDirection);
+                    PlayfieldStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
+                    turnPreview = ResolveGatePushIfNeeded(turnPreview, wantedDir);
+
+                    if (turnPreview.Allowed)
+                    {
+                        _currentDir = wantedDir;
+                        _offsetDir = _currentDir;
+                    }
+                    else
+                    {
+                        _arcadePixelPos = originalPixelPos;
+                        _currentDir = Vector2I.Zero;
+                        return BuildStepResult(previousPixelPos, previousDirection);
+                    }
                 }
                 else
                 {
-                    // Buffered turn: keep current direction until the anchor.
+                    // Buffered turn: keep current direction until we enter the turn window.
                 }
             }
             else
@@ -152,6 +155,50 @@ public sealed class PlayerMovementMotor
     }
 
     /// <summary>
+    /// Resolves a gate push immediately when a step is blocked by a pushable gate,
+    /// then re-evaluates the same step with the updated gate state.
+    /// </summary>
+    /// <param name="step">Original evaluated playfield step.</param>
+    /// <param name="direction">Attempted gameplay movement direction.</param>
+    /// <returns>
+    /// The original step if no gate push is possible, otherwise the re-evaluated
+    /// step after a successful gate push.
+    /// </returns>
+    private PlayfieldStepResult ResolveGatePushIfNeeded(
+        PlayfieldStepResult step,
+        Vector2I direction)
+    {
+        if (step.Kind == PlayfieldStepKind.BlockedByGate &&
+            step.GateId.HasValue &&
+            step.ContactHalf.HasValue &&
+            _level.TryPushGate(step.GateId.Value, direction, step.ContactHalf.Value))
+        {
+            return EvaluateOnePixelStep(direction);
+        }
+
+        return step;
+    }
+
+    /// <summary>
+    /// Determines whether a perpendicular turn may be attempted on this tick.
+    /// </summary>
+    /// <param name="wantedDir">Requested perpendicular direction.</param>
+    /// <returns>
+    /// True when the player is already close enough to the required rail for that
+    /// direction; otherwise false.
+    /// </returns>
+    /// <remarks>
+    /// This is intentionally more permissive than requiring an exact logical anchor.
+    /// It allows turns as soon as the player is within the existing rail snap window,
+    /// while also preventing premature gate pushes when the player is still clearly
+    /// between two turn opportunities.
+    /// </remarks>
+    private bool CanAttemptPerpendicularTurnNow(Vector2I wantedDir)
+    {
+        return CanSnapToRailForDirection(wantedDir);
+    }
+
+    /// <summary>
     /// Returns whether the gameplay position exactly matches the logical anchor
     /// of its current cell.
     /// </summary>
@@ -166,14 +213,14 @@ public sealed class PlayerMovementMotor
     }
 
     /// <summary>
-    /// Attempts to snap the player to the movement rail required by the given direction.
+    /// Returns whether the player is already close enough to the movement rail
+    /// required by the given direction.
     /// </summary>
-    /// <param name="direction">Direction the player wants to start or resume.</param>
+    /// <param name="direction">Direction whose rail is being tested.</param>
     /// <returns>
-    /// True if the player was close enough to the required rail and was snapped
-    /// successfully; otherwise false.
+    /// True if the player is close enough to the required rail; otherwise false.
     /// </returns>
-    private bool TrySnapToRailForDirection(Vector2I direction)
+    private bool CanSnapToRailForDirection(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
             return false;
@@ -184,25 +231,44 @@ public sealed class PlayerMovementMotor
         if (direction.X != 0)
         {
             int deltaY = _arcadePixelPos.Y - anchor.Y;
-            if (Mathf.Abs(deltaY) <= PlayerMovementTuning.HorizontalRailSnapTolerance)
-            {
-                _arcadePixelPos = new Vector2I(_arcadePixelPos.X, anchor.Y);
-                return true;
-            }
-
-            return false;
+            return Mathf.Abs(deltaY) <= PlayerMovementTuning.HorizontalRailSnapTolerance;
         }
 
         if (direction.Y != 0)
         {
             int deltaX = _arcadePixelPos.X - anchor.X;
-            if (Mathf.Abs(deltaX) <= PlayerMovementTuning.VerticalRailSnapTolerance)
-            {
-                _arcadePixelPos = new Vector2I(anchor.X, _arcadePixelPos.Y);
-                return true;
-            }
+            return Mathf.Abs(deltaX) <= PlayerMovementTuning.VerticalRailSnapTolerance;
+        }
 
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to snap the player to the movement rail required by the given direction.
+    /// </summary>
+    /// <param name="direction">Direction the player wants to start or resume.</param>
+    /// <returns>
+    /// True if the player was close enough to the required rail and was snapped
+    /// successfully; otherwise false.
+    /// </returns>
+    private bool TrySnapToRailForDirection(Vector2I direction)
+    {
+        if (!CanSnapToRailForDirection(direction))
             return false;
+
+        Vector2I currentCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
+        Vector2I anchor = _level.LogicalCellToArcadePixel(currentCell);
+
+        if (direction.X != 0)
+        {
+            _arcadePixelPos = new Vector2I(_arcadePixelPos.X, anchor.Y);
+            return true;
+        }
+
+        if (direction.Y != 0)
+        {
+            _arcadePixelPos = new Vector2I(anchor.X, _arcadePixelPos.Y);
+            return true;
         }
 
         return false;
@@ -245,8 +311,7 @@ public sealed class PlayerMovementMotor
     /// </summary>
     /// <param name="direction">Direction to test.</param>
     /// <returns>
-    /// A combined playfield result indicating whether movement is allowed,
-    /// blocked by the static maze, or blocked by a rotating gate.
+    /// A combined playfield result indicating whether movement is allowed.
     /// </returns>
     private PlayfieldStepResult EvaluateOnePixelStep(Vector2I direction)
     {
@@ -260,38 +325,6 @@ public sealed class PlayerMovementMotor
             _arcadePixelPos,
             direction,
             GetCollisionLead(direction));
-    }
-
-    /// <summary>
-    /// Attempts to resolve a gate-blocked step by pushing the blocking gate,
-    /// then immediately reevaluating the same step.
-    /// </summary>
-    /// <param name="step">Current playfield step result.</param>
-    /// <param name="direction">Attempted movement direction.</param>
-    /// <returns>
-    /// The original step if no push is possible or needed; otherwise the
-    /// reevaluated step after a successful push.
-    /// </returns>
-    private PlayfieldStepResult ResolveGatePushIfNeeded(PlayfieldStepResult step, Vector2I direction)
-    {
-        if (step.Allowed)
-            return step;
-
-        if (step.Kind != PlayfieldStepKind.BlockedByGate)
-            return step;
-
-        if (!step.GateId.HasValue || !step.ContactHalf.HasValue)
-            return step;
-
-        bool pushed = _level.TryPushGate(
-            step.GateId.Value,
-            direction,
-            step.ContactHalf.Value);
-
-        if (!pushed)
-            return step;
-
-        return EvaluateOnePixelStep(direction);
     }
 
     /// <summary>
