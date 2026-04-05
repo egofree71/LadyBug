@@ -14,8 +14,9 @@ namespace LadyBug.Gameplay.Gates;
 /// - push attempts
 /// - short turning-timer updates
 ///
-/// It does not decide yet whether a movement step is blocked by a gate.
-/// That playfield integration will be added in the next step.
+/// It does not itself evaluate the full legality of one playfield movement
+/// step. That responsibility remains at the level-runtime layer, where the
+/// static maze and the dynamic gate overlay are combined.
 /// </remarks>
 public sealed class GateSystem
 {
@@ -33,7 +34,7 @@ public sealed class GateSystem
     }
 
     /// <summary>
-    /// Builds a runtime gate system from the deserialized gate entries in maze.json.
+    /// Builds a runtime gate system from the deserialized gate entries in <c>maze.json</c>.
     /// </summary>
     /// <param name="gateDataFiles">Serialized gate definitions.</param>
     /// <returns>A fully initialized runtime gate system.</returns>

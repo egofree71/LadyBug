@@ -5,12 +5,16 @@ namespace LadyBug.Gameplay.Gates;
 /// <summary>
 /// Visual scene instance used to display one rotating gate in the level.
 /// </summary>
+/// <remarks>
+/// This class is purely visual. It reflects the runtime state owned elsewhere
+/// by the gate system and does not decide gameplay legality by itself.
+/// </remarks>
 public partial class RotatingGateView : Node2D
 {
     private AnimatedSprite2D? _sprite;
 
     /// <summary>
-    /// Caches the AnimatedSprite2D child used to display the gate.
+    /// Caches the <see cref="AnimatedSprite2D"/> child used to display the gate.
     /// </summary>
     public override void _Ready()
     {

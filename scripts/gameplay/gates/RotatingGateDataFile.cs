@@ -4,15 +4,15 @@ using System.Text.Json.Serialization;
 namespace LadyBug.Gameplay.Gates;
 
 /// <summary>
-/// Serialized rotating gate entry loaded from maze.json.
+/// Serialized rotating gate entry loaded from <c>maze.json</c>.
 /// </summary>
 /// <remarks>
 /// This class only represents static data coming from the JSON file:
 /// - identifier
 /// - pivot position
-/// - initial orientation
+/// - initial stable orientation
 ///
-/// It does not represent runtime state changes yet.
+/// It does not represent runtime state changes.
 /// </remarks>
 public sealed class RotatingGateDataFile
 {
@@ -30,7 +30,7 @@ public sealed class RotatingGateDataFile
 
     /// <summary>
     /// Initial stable orientation read from JSON.
-    /// Expected values are "horizontal" or "vertical".
+    /// Expected values are <c>"horizontal"</c> or <c>"vertical"</c>.
     /// </summary>
     [JsonPropertyName("initialOrientation")]
     public string InitialOrientation { get; set; } = string.Empty;

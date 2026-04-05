@@ -12,6 +12,8 @@ namespace LadyBug.Gameplay.Gates;
 /// - the diagonal turning visual currently used
 /// - whether it is currently locked in rotation
 /// - and how many ticks remain before the turning visual ends
+///
+/// It is intentionally separate from the serialized JSON data.
 /// </remarks>
 public sealed class RotatingGateRuntimeState
 {
@@ -146,7 +148,8 @@ public sealed class RotatingGateRuntimeState
     /// </returns>
     /// <remarks>
     /// The logical blocking state toggles immediately when the push is accepted.
-    /// The visual state then remains in Turning for a short number of ticks.
+    /// The visual state then remains in <see cref="GateVisualState.Turning"/>
+    /// for a short number of ticks.
     /// </remarks>
     public bool TryBeginPush(Vector2I moveDir, GateContactHalf contactHalf)
     {

@@ -1,14 +1,13 @@
 using System.Text.Json.Serialization;
 
 namespace LadyBug.Gameplay.Gates;
-    
+
 /// <summary>
-/// Serialized pivot coordinates for one rotating gate in maze.json.
+/// Serialized pivot coordinates for one rotating gate in <c>maze.json</c>.
 /// </summary>
 /// <remarks>
-/// These coordinates identify the logical pivot position of the gate
-/// in the gate grid extracted from the maze.
-/// They are not scene coordinates.
+/// These coordinates identify the logical pivot position of the gate in the
+/// internal gate grid. They are not scene-space coordinates.
 /// </remarks>
 public sealed class PivotDataFile
 {
