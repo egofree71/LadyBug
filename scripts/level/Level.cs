@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay.Gates;
 
 /// <summary>
 /// Represents one playable level of the game.

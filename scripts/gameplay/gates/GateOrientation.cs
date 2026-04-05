@@ -1,3 +1,5 @@
+namespace LadyBug.Gameplay.Gates;
+
 /// <summary>
 /// Stable logical orientation of a rotating gate.
 /// </summary>

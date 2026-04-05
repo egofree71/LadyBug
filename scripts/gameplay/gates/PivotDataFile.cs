@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+namespace LadyBug.Gameplay.Gates;
+    
 /// <summary>
 /// Serialized pivot coordinates for one rotating gate in maze.json.
 /// </summary>

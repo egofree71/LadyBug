@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using LadyBug.Gameplay.Gates;
 
 namespace LadyBug.Gameplay.Maze;
 

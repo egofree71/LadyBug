@@ -1,6 +1,8 @@
 using System;
 using System.Text.Json.Serialization;
 
+namespace LadyBug.Gameplay.Gates;
+
 /// <summary>
 /// Serialized rotating gate entry loaded from maze.json.
 /// </summary>
