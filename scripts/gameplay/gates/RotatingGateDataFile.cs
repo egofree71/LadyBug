@@ -1,17 +1,45 @@
 using System;
 using System.Text.Json.Serialization;
 
+/// <summary>
+/// Serialized rotating gate entry loaded from maze.json.
+/// </summary>
+/// <remarks>
+/// This class only represents static data coming from the JSON file:
+/// - identifier
+/// - pivot position
+/// - initial orientation
+///
+/// It does not represent runtime state changes yet.
+/// </remarks>
 public sealed class RotatingGateDataFile
 {
+    /// <summary>
+    /// Unique identifier of the gate inside the level data.
+    /// </summary>
     [JsonPropertyName("id")]
     public int Id { get; set; }
 
+    /// <summary>
+    /// Logical pivot position of the gate.
+    /// </summary>
     [JsonPropertyName("pivot")]
     public PivotDataFile Pivot { get; set; } = new();
 
+    /// <summary>
+    /// Initial stable orientation read from JSON.
+    /// Expected values are "horizontal" or "vertical".
+    /// </summary>
     [JsonPropertyName("initialOrientation")]
     public string InitialOrientation { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Converts the serialized orientation string into the runtime enum.
+    /// </summary>
+    /// <returns>The parsed gate orientation.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if the JSON value is unknown.
+    /// </exception>
     public GateOrientation GetOrientation()
     {
         return InitialOrientation.ToLowerInvariant() switch

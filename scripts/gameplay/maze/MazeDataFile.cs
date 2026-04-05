@@ -27,6 +27,9 @@ namespace LadyBug.Gameplay.Maze
         /// </summary>
         public int[] Cells { get; set; } = [];
         
+        /// <summary>
+        /// Static rotating gate definitions loaded from the JSON file.
+        /// </summary>
         [JsonPropertyName("gates")]
         public RotatingGateDataFile[] Gates { get; set; } = Array.Empty<RotatingGateDataFile>();
     }

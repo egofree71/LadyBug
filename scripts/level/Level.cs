@@ -29,7 +29,7 @@ public partial class Level : Node2D
 
     private Node2D _gatesNode = null!;
     private readonly PackedScene _rotatingGateScene = GD.Load<PackedScene>(RotatingGateScenePath);
-    
+
     // --- Constants ----------------------------------------------------------
 
     // Size of one logical maze cell in original arcade pixels.
@@ -70,7 +70,7 @@ public partial class Level : Node2D
     // --- Runtime State ------------------------------------------------------
 
     // Runtime logical maze loaded from JSON.
-    private MazeGrid _mazeGrid;
+    private MazeGrid _mazeGrid = null!;
 
     /// <summary>
     /// Gets the runtime logical maze used by gameplay actors.
@@ -84,28 +84,38 @@ public partial class Level : Node2D
     /// </summary>
     /// <remarks>
     /// In the editor, only the preview position is updated.
-    /// At runtime, the logical maze is loaded and then the player controller
-    /// is initialized.
+    /// At runtime, the logical maze is loaded, the rotating gates are spawned,
+    /// and then the player controller is initialized.
     /// </remarks>
     public override void _Ready()
     {
         _gatesNode = GetNode<Node2D>("Gates");
-        
-        SpawnRotatingGates();
-        
+
         if (Engine.IsEditorHint())
         {
             UpdatePlayerPositionFromLogicalCell();
             return;
         }
 
-        _mazeGrid = MazeLoader.LoadFromJsonFile("res://data/maze.json");
+        _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
+
+        SpawnRotatingGates();
 
         PlayerController player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
             player.Initialize(this);
     }
 
+    // --- Rotating Gates -----------------------------------------------------
+
+    /// <summary>
+    /// Spawns all rotating gate visuals defined in the maze JSON file.
+    /// </summary>
+    /// <remarks>
+    /// For now, gates are display-only objects.
+    /// Their interaction with the player and their runtime logical state
+    /// are not implemented yet.
+    /// </remarks>
     private void SpawnRotatingGates()
     {
         foreach (Node child in _gatesNode.GetChildren())
@@ -124,6 +134,13 @@ public partial class Level : Node2D
         }
     }
 
+    /// <summary>
+    /// Loads the raw serialized maze data file from JSON.
+    /// </summary>
+    /// <returns>The deserialized maze data structure.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if the JSON file cannot be deserialized.
+    /// </exception>
     private MazeDataFile LoadMazeDataFile()
     {
         string absolutePath = ProjectSettings.GlobalizePath(MazeJsonPath);
@@ -137,23 +154,26 @@ public partial class Level : Node2D
         MazeDataFile? data = JsonSerializer.Deserialize<MazeDataFile>(json, options);
 
         if (data is null)
-        {
             throw new InvalidOperationException("Failed to deserialize maze.json.");
-        }
 
         return data;
     }
 
+    /// <summary>
+    /// Converts a gate pivot read from JSON into a scene position.
+    /// </summary>
+    /// <param name="pivot">Gate pivot coordinates from the JSON file.</param>
+    /// <returns>Scene position of the gate pivot.</returns>
+    /// <remarks>
+    /// Gate pivot coordinates are expressed on a grid aligned with 16 arcade-pixel steps.
+    /// The visual sprite offset is handled locally inside RotatingGate.tscn.
+    /// </remarks>
     private Vector2 GetGateScenePosition(PivotDataFile pivot)
     {
-        // Hypothèse simple et logique :
-        // le pivot d’une porte est sur la grille des multiples de 16 pixels arcade.
         Vector2I pivotArcade = new(pivot.X * 16, pivot.Y * 16);
-
-        // Remplace ce nom par ton helper exact si nécessaire.
         return ArcadePixelToScenePosition(pivotArcade);
     }
-    
+
     // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>
