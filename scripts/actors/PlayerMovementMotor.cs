@@ -1,6 +1,8 @@
 using Godot;
 using LadyBug.Gameplay.Maze;
 
+namespace LadyBug.Actors;
+
 /// <summary>
 /// Executes the player's arcade-style movement simulation.
 /// </summary>

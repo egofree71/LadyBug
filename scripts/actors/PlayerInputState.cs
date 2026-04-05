@@ -1,5 +1,7 @@
 using Godot;
 
+namespace LadyBug.Actors;
+
 /// <summary>
 /// Stores directional input state for the player.
 /// </summary>

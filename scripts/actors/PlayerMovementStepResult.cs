@@ -1,5 +1,6 @@
-
 using Godot;
+
+namespace LadyBug.Actors;
 
 /// <summary>
 /// Represents the outcome of one movement-motor simulation tick.

@@ -1,5 +1,6 @@
-
 using Godot;
+
+namespace LadyBug.Actors;
 
 /// <summary>
 /// Controls the player node and orchestrates input, movement and rendering.

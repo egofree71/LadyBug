@@ -1,5 +1,7 @@
 using Godot;
 
+namespace LadyBug.Actors;
+
 /// <summary>
 /// Stores the movement tuning values used by the player controller.
 /// </summary>
