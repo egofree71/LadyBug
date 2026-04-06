@@ -1,8 +1,5 @@
 using Godot;
-using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Gates;
@@ -17,12 +14,12 @@ using LadyBug.Gameplay.Maze;
 /// owning the runtime rotating-gate system,
 /// exposing playfield step evaluation,
 /// and converting between logical cells, arcade-pixel gameplay coordinates,
-/// and Godot scene coordinates.
+/// gate pivots, and Godot scene coordinates.
 ///
 /// The level intentionally separates:
 /// - logical maze data used for gameplay
 /// - dynamic rotating-gate state used as a movement overlay
-/// - visual rendering provided by the maze background and gate views
+/// - visual rendering provided by the maze background and placed gate views
 ///
 /// The player controller uses gameplay anchors in arcade pixels,
 /// while sprite-specific visual offsets are handled separately by the actor.
@@ -31,25 +28,17 @@ using LadyBug.Gameplay.Maze;
 public partial class Level : Node2D
 {
     private const string MazeJsonPath = "res://data/maze.json";
-    private const string RotatingGateScenePath = "res://scenes/level/RotatingGate.tscn";
 
     // --- Constants ----------------------------------------------------------
 
-    // Size of one logical maze cell in original arcade pixels.
     private const int CellSizeArcade = 16;
-
-    // Scale factor used to render arcade pixels in the Godot scene.
     private const int RenderScale = 4;
-
-    // Gameplay anchor used inside each logical 16x16 cell.
-    // This anchor is used for movement and collision, not for visual sprite centering.
     private static readonly Vector2I GameplayAnchorArcade = new(8, 7);
 
     // --- Scene References ---------------------------------------------------
 
     private Node2D _gatesNode = null!;
     private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
-    private readonly PackedScene _rotatingGateScene = GD.Load<PackedScene>(RotatingGateScenePath);
 
     // --- Exported Properties ------------------------------------------------
 
@@ -97,59 +86,90 @@ public partial class Level : Node2D
     /// Initializes the level.
     /// </summary>
     /// <remarks>
-    /// In the editor, only the preview position is updated.
-    /// At runtime, the logical maze is loaded, the rotating gates are created,
-    /// and then the player controller is initialized.
+    /// In the editor, gate views and the player preview are refreshed from their
+    /// authored definitions.
+    ///
+    /// At runtime, the logical maze is loaded, the runtime gate system is built
+    /// from the gate instances already placed under the Gates node, and then the
+    /// player controller is initialized.
     /// </remarks>
     public override void _Ready()
     {
         _gatesNode = GetNode<Node2D>("Gates");
+        CachePlacedGateViews();
 
         if (Engine.IsEditorHint())
         {
             UpdatePlayerPositionFromLogicalCell();
+            RefreshPlacedGateViewsFromDefinitions();
             return;
         }
 
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
-
-        MazeDataFile mazeData = LoadMazeDataFile();
-        _gateSystem = GateSystem.FromDataFiles(mazeData.Gates);
-
-        SpawnRotatingGates();
+        RefreshPlacedGateViewsFromDefinitions();
+        _gateSystem = BuildGateSystemFromPlacedViews();
+        SyncGateViewsFromRuntimeState();
 
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
             player.Initialize(this);
     }
 
-    // --- Rotating Gates -----------------------------------------------------
+    // --- Placed Gate Authoring ---------------------------------------------
 
     /// <summary>
-    /// Spawns all rotating-gate views from the current runtime gate system.
+    /// Rebuilds the internal lookup of gate views already placed under the Gates node.
     /// </summary>
     /// <remarks>
-    /// The runtime gate system is the source of truth.
-    /// Views are just synchronized scene instances.
+    /// The gate views are authored directly in the scene tree.
+    /// Their editor definition is later converted into a separate runtime gate system.
     /// </remarks>
-    private void SpawnRotatingGates()
+    private void CachePlacedGateViews()
     {
-        foreach (Node child in _gatesNode.GetChildren())
-        {
-            child.QueueFree();
-        }
-
         _gateViewsById.Clear();
 
-        foreach (RotatingGateRuntimeState gateState in _gateSystem.Gates)
+        foreach (Node child in _gatesNode.GetChildren())
         {
-            RotatingGateView gateView = _rotatingGateScene.Instantiate<RotatingGateView>();
-            gateView.Position = GetGateScenePosition(gateState.Pivot);
-            _gatesNode.AddChild(gateView);
-            gateView.SetOrientation(gateState.GetStableOrientation());
-            _gateViewsById.Add(gateState.Id, gateView);
+            if (child is not RotatingGateView gateView)
+                continue;
+
+            if (_gateViewsById.ContainsKey(gateView.GateId))
+            {
+                GD.PushError($"Duplicate rotating gate id '{gateView.GateId}' in Gates node.");
+                continue;
+            }
+
+            _gateViewsById.Add(gateView.GateId, gateView);
         }
     }
+
+    /// <summary>
+    /// Reapplies the authored gate definitions to the placed gate views.
+    /// </summary>
+    private void RefreshPlacedGateViewsFromDefinitions()
+    {
+        foreach (RotatingGateView gateView in _gateViewsById.Values)
+        {
+            gateView.RefreshFromDefinition();
+        }
+    }
+
+    /// <summary>
+    /// Builds the runtime gate system from the placed gate views.
+    /// </summary>
+    private GateSystem BuildGateSystemFromPlacedViews()
+    {
+        List<RotatingGateRuntimeState> gateStates = new();
+
+        foreach (RotatingGateView gateView in _gateViewsById.Values)
+        {
+            gateStates.Add(gateView.CreateInitialRuntimeState());
+        }
+
+        return GateSystem.FromRuntimeStates(gateStates);
+    }
+
+    // --- Rotating Gates -----------------------------------------------------
 
     /// <summary>
     /// Advances the rotating-gate runtime timers by one simulation tick
@@ -258,15 +278,6 @@ public partial class Level : Node2D
     /// Tries to detect a blocking gate directly from the pixel probe motion,
     /// even when the probe does not cross into a different logical cell yet.
     /// </summary>
-    /// <param name="arcadePixelPos">Current gameplay position in arcade pixels.</param>
-    /// <param name="direction">Attempted one-pixel movement direction.</param>
-    /// <param name="collisionLead">Directional collision probe offset.</param>
-    /// <param name="gateId">Returned blocking gate identifier if found.</param>
-    /// <param name="contactHalf">
-    /// Returned contacted gate half if one side is clearly touched;
-    /// otherwise null when the probe hits the pivot dead zone.
-    /// </param>
-    /// <returns>True if a blocking gate is found; otherwise false.</returns>
     private bool TryGetBlockingGateIdAtProbe(
         Vector2I arcadePixelPos,
         Vector2I direction,
@@ -321,15 +332,6 @@ public partial class Level : Node2D
     /// Tests whether the current probe motion intersects the blocking geometry
     /// of one specific gate.
     /// </summary>
-    /// <param name="gate">Gate being tested.</param>
-    /// <param name="probeStart">Probe position before the attempted step.</param>
-    /// <param name="probeEnd">Probe position after the attempted step.</param>
-    /// <param name="direction">Attempted one-pixel movement direction.</param>
-    /// <param name="contactHalf">
-    /// Returned contacted gate half if one side is clearly touched;
-    /// otherwise null when the pivot itself is touched.
-    /// </param>
-    /// <returns>True if the probe intersects the gate; otherwise false.</returns>
     private bool TryGetGateBlockAtProbe(
         RotatingGateRuntimeState gate,
         Vector2I probeStart,
@@ -391,10 +393,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Returns whether a 1D segment crosses or touches a target coordinate.
     /// </summary>
-    /// <param name="start">Start coordinate.</param>
-    /// <param name="end">End coordinate.</param>
-    /// <param name="target">Target coordinate.</param>
-    /// <returns>True if the segment crosses or touches the target; otherwise false.</returns>
     private static bool CrossesCoordinate(int start, int end, int target)
     {
         return (start <= target && end >= target) ||
@@ -405,11 +403,6 @@ public partial class Level : Node2D
     /// Tries to find whether the evaluated step is blocked by one rotating gate
     /// when the probe crosses into another logical cell.
     /// </summary>
-    /// <param name="mazeStep">Underlying static maze step result.</param>
-    /// <param name="direction">Attempted one-pixel movement direction.</param>
-    /// <param name="gateId">Returned blocking gate identifier if found.</param>
-    /// <param name="contactHalf">Returned contacted gate half if found.</param>
-    /// <returns>True if a blocking gate is found; otherwise false.</returns>
     private bool TryGetBlockingGateIdForStep(
         MazeStepResult mazeStep,
         Vector2I direction,
@@ -462,7 +455,7 @@ public partial class Level : Node2D
         gateId = -1;
         contactHalf = GateContactHalf.Left;
 
-        int boundaryX = Math.Max(currentCell.X, nextCell.X);
+        int boundaryX = System.Math.Max(currentCell.X, nextCell.X);
 
         Vector2I pivotTop = new(boundaryX, currentCell.Y);
         if (TryGetBlockingGateAtPivot(direction, pivotTop, GateContactHalf.Bottom, out gateId, out contactHalf))
@@ -489,7 +482,7 @@ public partial class Level : Node2D
         gateId = -1;
         contactHalf = GateContactHalf.Left;
 
-        int boundaryY = Math.Max(currentCell.Y, nextCell.Y);
+        int boundaryY = System.Math.Max(currentCell.Y, nextCell.Y);
 
         Vector2I pivotLeft = new(currentCell.X, boundaryY);
         if (TryGetBlockingGateAtPivot(direction, pivotLeft, GateContactHalf.Right, out gateId, out contactHalf))
@@ -526,40 +519,11 @@ public partial class Level : Node2D
         return false;
     }
 
-    // --- Data Loading -------------------------------------------------------
-
-    /// <summary>
-    /// Loads the raw serialized maze data file from JSON.
-    /// </summary>
-    /// <returns>The deserialized maze data structure.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if the JSON file cannot be deserialized.
-    /// </exception>
-    private MazeDataFile LoadMazeDataFile()
-    {
-        string absolutePath = ProjectSettings.GlobalizePath(MazeJsonPath);
-        string json = File.ReadAllText(absolutePath);
-
-        JsonSerializerOptions options = new()
-        {
-            PropertyNameCaseInsensitive = true
-        };
-
-        MazeDataFile? data = JsonSerializer.Deserialize<MazeDataFile>(json, options);
-
-        if (data is null)
-            throw new InvalidOperationException("Failed to deserialize maze.json.");
-
-        return data;
-    }
-
     // --- Gate Coordinate Helpers -------------------------------------------
 
     /// <summary>
     /// Converts one logical gate pivot into an arcade-pixel pivot position.
     /// </summary>
-    /// <param name="pivot">Logical gate pivot.</param>
-    /// <returns>Arcade-pixel position of that pivot.</returns>
     private static Vector2I GatePivotToArcadePixel(Vector2I pivot)
     {
         return new Vector2I(pivot.X * CellSizeArcade, pivot.Y * CellSizeArcade);
@@ -570,7 +534,7 @@ public partial class Level : Node2D
     /// </summary>
     /// <param name="pivot">Logical gate pivot.</param>
     /// <returns>Scene position of the gate pivot.</returns>
-    private Vector2 GetGateScenePosition(Vector2I pivot)
+    public Vector2 GatePivotToScenePosition(Vector2I pivot)
     {
         return ArcadePixelToScenePosition(GatePivotToArcadePixel(pivot));
     }
@@ -580,10 +544,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Converts a logical maze cell into a gameplay arcade-pixel anchor.
     /// </summary>
-    /// <param name="cell">Logical cell coordinates.</param>
-    /// <returns>
-    /// Arcade-pixel gameplay anchor corresponding to the logical cell.
-    /// </returns>
     public Vector2I LogicalCellToArcadePixel(Vector2I cell)
     {
         return cell * CellSizeArcade + GameplayAnchorArcade;
@@ -592,14 +552,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Converts a gameplay arcade-pixel position back into a logical maze cell.
     /// </summary>
-    /// <param name="arcadePixel">Gameplay position in arcade pixels.</param>
-    /// <returns>
-    /// Logical cell containing that gameplay position.
-    /// </returns>
-    /// <remarks>
-    /// The cell changes at the midpoint between two anchors, not only once the
-    /// next anchor itself is reached.
-    /// </remarks>
     public Vector2I ArcadePixelToLogicalCell(Vector2I arcadePixel)
     {
         int halfCell = CellSizeArcade / 2;
@@ -613,14 +565,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Converts a gameplay arcade-pixel position into scene coordinates.
     /// </summary>
-    /// <param name="arcadePixel">Gameplay position in arcade pixels.</param>
-    /// <returns>
-    /// Scene position corresponding to that gameplay anchor.
-    /// </returns>
-    /// <remarks>
-    /// This is a pure gameplay-to-scene conversion.
-    /// No sprite-specific visual offset is applied here.
-    /// </remarks>
     public Vector2 ArcadePixelToScenePosition(Vector2I arcadePixel)
     {
         Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
@@ -635,14 +579,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Converts an arcade-pixel delta into a scene-space delta.
     /// </summary>
-    /// <param name="arcadeDelta">Delta expressed in arcade pixels.</param>
-    /// <returns>
-    /// Delta expressed in Godot scene pixels.
-    /// </returns>
-    /// <remarks>
-    /// This is mainly used by gameplay actors to apply visual sprite offsets
-    /// without changing their true gameplay anchor.
-    /// </remarks>
     public Vector2 ArcadeDeltaToSceneDelta(Vector2I arcadeDelta)
     {
         return new Vector2(arcadeDelta.X * RenderScale, arcadeDelta.Y * RenderScale);
@@ -651,10 +587,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Converts a logical maze cell directly into a scene position.
     /// </summary>
-    /// <param name="cell">Logical cell coordinates.</param>
-    /// <returns>
-    /// Scene position corresponding to the gameplay anchor of that cell.
-    /// </returns>
     public Vector2 LogicalCellToScenePosition(Vector2I cell)
     {
         return ArcadePixelToScenePosition(LogicalCellToArcadePixel(cell));
@@ -665,11 +597,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Computes floor division for integers, including negative values.
     /// </summary>
-    /// <param name="value">Dividend.</param>
-    /// <param name="divisor">Divisor.</param>
-    /// <returns>
-    /// Mathematical floor of value / divisor.
-    /// </returns>
     private static int FloorDiv(int value, int divisor)
     {
         int quotient = value / divisor;
@@ -686,10 +613,6 @@ public partial class Level : Node2D
     /// <summary>
     /// Updates the player instance preview position from the configured start cell.
     /// </summary>
-    /// <remarks>
-    /// This is mainly used in the editor so that changing <see cref="PlayerStartCell"/>
-    /// immediately refreshes the visible placement.
-    /// </remarks>
     private void UpdatePlayerPositionFromLogicalCell()
     {
         Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");

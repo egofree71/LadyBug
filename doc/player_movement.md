@@ -16,7 +16,7 @@ Purpose of this document:
 
 The goal is NOT to use a modern free-movement system such as:
 
-    Position += direction * Speed * delta;
+	Position += direction * Speed * delta;
 
 Instead, the goal is to reproduce the original arcade behavior as closely as
 possible.
@@ -41,7 +41,7 @@ Previous prototype movement used:
 
 Example:
 
-    Position += _moveDirection * Speed * delta;
+	Position += _moveDirection * Speed * delta;
 
 Problems with this approach:
 - not faithful to the arcade logic
@@ -84,20 +84,20 @@ while remaining easy to refine.
 
 Movement is updated at a fixed tick rate:
 
-    TickRate = 60.1145 Hz
+	TickRate = 60.1145 Hz
 
 And:
 
-    TickDuration = 1.0 / TickRate
+	TickDuration = 1.0 / TickRate
 
 The update loop uses an accumulator:
 
-    _accumulator += delta;
-    while (_accumulator >= TickDuration)
-    {
-        _accumulator -= TickDuration;
-        RunOneTick();
-    }
+	_accumulator += delta;
+	while (_accumulator >= TickDuration)
+	{
+		_accumulator -= TickDuration;
+		RunOneTick();
+	}
 
 Purpose:
 - reproduce hardware-style movement timing
@@ -110,7 +110,7 @@ Purpose:
 
 The gameplay position is stored as integer arcade-pixel coordinates:
 
-    Vector2I _arcadePixelPos;
+	Vector2I _arcadePixelPos;
 
 Purpose:
 - avoid floating-point drift
@@ -133,7 +133,7 @@ Current movement assumption:
 
 Example:
 
-    _arcadePixelPos += _currentDir;
+	_arcadePixelPos += _currentDir;
 
 This means:
 - movement is discrete
@@ -155,7 +155,7 @@ The current code distinguishes several movement-related directions.
 7.1 Wanted Direction
 -------------------------------------------------------------------------------
 
-    wantedDir / _wantedDir
+	wantedDir / _wantedDir
 
 Meaning:
 - the direction currently intended by the player
@@ -165,7 +165,7 @@ Meaning:
 7.2 Current Direction
 -------------------------------------------------------------------------------
 
-    _currentDir
+	_currentDir
 
 Meaning:
 - the direction actually used by effective gameplay movement
@@ -174,7 +174,7 @@ Meaning:
 7.3 Facing Direction
 -------------------------------------------------------------------------------
 
-    _facingDir
+	_facingDir
 
 Meaning:
 - the direction currently shown by the sprite
@@ -187,7 +187,7 @@ movement motor has accepted that direction.
 7.4 Offset Direction
 -------------------------------------------------------------------------------
 
-    _offsetDir
+	_offsetDir
 
 Meaning:
 - the direction used to choose the sprite render offset
@@ -266,9 +266,9 @@ This means:
 
 Reverse engineering suggests checks of the form:
 
-    X & 0x0F == 0x08
-    Y & 0x0F == 0x06
-    Y & 0x0F == 0x07
+	X & 0x0F == 0x08
+	Y & 0x0F == 0x06
+	Y & 0x0F == 0x07
 
 Interpretation:
 - 0x0F corresponds to 15
@@ -283,7 +283,7 @@ So the game is checking sub-cell alignment.
 
 Observed condition:
 
-    X & 0x0F == 0x08
+	X & 0x0F == 0x08
 
 Interpretation:
 - vertical movement or vertical turning appears to depend on X being aligned
@@ -295,8 +295,8 @@ Interpretation:
 
 Observed conditions:
 
-    Y & 0x0F == 0x06
-    Y & 0x0F == 0x07
+	Y & 0x0F == 0x06
+	Y & 0x0F == 0x07
 
 Interpretation:
 - horizontal movement or horizontal turning appears to depend on Y alignment
@@ -316,7 +316,7 @@ For horizontal movement / turning:
 
 In practice, the gameplay anchor currently used by Level is:
 
-    GameplayAnchorArcade = new(8, 7)
+	GameplayAnchorArcade = new(8, 7)
 
 And the movement tuning currently uses:
 - horizontal rail snap tolerance = 1
@@ -397,7 +397,7 @@ Current integration:
 
 In practice, the current movement rule is approximately:
 
-    step allowed = lane/alignment state + maze legality + gate state
+	step allowed = lane/alignment state + maze legality + gate state
 
 This is now implemented.
 Rotating gates are no longer just a planned extension.

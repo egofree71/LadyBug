@@ -13,7 +13,7 @@ namespace LadyBug.Gameplay.Gates;
 /// - whether it is currently locked in rotation
 /// - and how many ticks remain before the turning visual ends
 ///
-/// It is intentionally separate from the serialized JSON data.
+/// It is intentionally separate from any editor-authored scene instance.
 /// </remarks>
 public sealed class RotatingGateRuntimeState
 {
@@ -70,20 +70,23 @@ public sealed class RotatingGateRuntimeState
     }
 
     /// <summary>
-    /// Creates a runtime gate state from one deserialized JSON gate entry.
+    /// Creates a runtime gate state from one stable initial orientation.
     /// </summary>
-    /// <param name="dataFile">Serialized gate definition.</param>
+    /// <param name="id">Unique gate identifier.</param>
+    /// <param name="pivot">Logical pivot position of the gate.</param>
+    /// <param name="initialOrientation">Initial stable visual orientation.</param>
     /// <returns>A new runtime gate state initialized from that definition.</returns>
-    public static RotatingGateRuntimeState FromDataFile(RotatingGateDataFile dataFile)
+    public static RotatingGateRuntimeState FromInitialOrientation(
+        int id,
+        Vector2I pivot,
+        GateOrientation initialOrientation)
     {
         GateLogicalState logicalState =
-            dataFile.GetOrientation() == GateOrientation.Horizontal
+            initialOrientation == GateOrientation.Horizontal
                 ? GateLogicalState.BlocksVertical
                 : GateLogicalState.BlocksHorizontal;
 
-        Vector2I pivot = new(dataFile.Pivot.X, dataFile.Pivot.Y);
-
-        return new RotatingGateRuntimeState(dataFile.Id, pivot, logicalState);
+        return new RotatingGateRuntimeState(id, pivot, logicalState);
     }
 
     /// <summary>

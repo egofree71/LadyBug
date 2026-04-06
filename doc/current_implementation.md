@@ -52,7 +52,7 @@ assets/
    ├─ player/
    │  └─ lady_bug_spritesheet.png
    └─ props/
-      └─ rotating_gate.png
+	  └─ rotating_gate.png
 
 scenes/
 ├─ Main.tscn

@@ -1,36 +1,36 @@
 using System;
 using System.Text.Json.Serialization;
-using LadyBug.Gameplay.Gates;
 
 namespace LadyBug.Gameplay.Maze;
 
 /// <summary>
-/// Represents the serialized JSON data used to load a maze definition.
+/// Serialized root structure loaded from maze.json.
 /// </summary>
 /// <remarks>
-/// Each entry in <see cref="Cells"/> stores the wall bitmask for one logical maze cell.
+/// This file contains only the static maze definition:
+/// - logical maze dimensions
+/// - the wall bitmask array for all cells
+///
+/// Rotating gates are now authored directly in Level.tscn and are no longer
+/// serialized inside maze.json.
 /// </remarks>
 public sealed class MazeDataFile
 {
     /// <summary>
-    /// Gets or sets the maze width, in logical cells.
+    /// Logical maze width in cells.
     /// </summary>
+    [JsonPropertyName("width")]
     public int Width { get; set; }
 
     /// <summary>
-    /// Gets or sets the maze height, in logical cells.
+    /// Logical maze height in cells.
     /// </summary>
+    [JsonPropertyName("height")]
     public int Height { get; set; }
 
     /// <summary>
-    /// Gets or sets the flattened cell data array.
-    /// Each value represents the wall bitmask of one maze cell.
+    /// Flat array of wall bitmasks, one entry per logical cell.
     /// </summary>
-    public int[] Cells { get; set; } = [];
-    
-    /// <summary>
-    /// Static rotating gate definitions loaded from the JSON file.
-    /// </summary>
-    [JsonPropertyName("gates")]
-    public RotatingGateDataFile[] Gates { get; set; } = Array.Empty<RotatingGateDataFile>();
+    [JsonPropertyName("cells")]
+    public int[] Cells { get; set; } = Array.Empty<int>();
 }

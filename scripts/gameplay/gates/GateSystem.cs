@@ -34,31 +34,29 @@ public sealed class GateSystem
     }
 
     /// <summary>
-    /// Builds a runtime gate system from the deserialized gate entries in <c>maze.json</c>.
+    /// Builds a runtime gate system from prebuilt initial runtime states.
     /// </summary>
-    /// <param name="gateDataFiles">Serialized gate definitions.</param>
+    /// <param name="gateStates">Initial runtime gate states.</param>
     /// <returns>A fully initialized runtime gate system.</returns>
     /// <exception cref="InvalidOperationException">
     /// Thrown if duplicate gate ids or duplicate pivots are found.
     /// </exception>
-    public static GateSystem FromDataFiles(IEnumerable<RotatingGateDataFile> gateDataFiles)
+    public static GateSystem FromRuntimeStates(IEnumerable<RotatingGateRuntimeState> gateStates)
     {
         GateSystem system = new();
 
-        foreach (RotatingGateDataFile gateData in gateDataFiles)
+        foreach (RotatingGateRuntimeState gate in gateStates)
         {
-            RotatingGateRuntimeState gate = RotatingGateRuntimeState.FromDataFile(gateData);
-
             if (system._gatesById.ContainsKey(gate.Id))
             {
                 throw new InvalidOperationException(
-                    $"Duplicate rotating gate id '{gate.Id}' found in maze data.");
+                    $"Duplicate rotating gate id '{gate.Id}' found in level gates.");
             }
 
             if (system._gatesByPivot.ContainsKey(gate.Pivot))
             {
                 throw new InvalidOperationException(
-                    $"Duplicate rotating gate pivot '{gate.Pivot}' found in maze data.");
+                    $"Duplicate rotating gate pivot '{gate.Pivot}' found in level gates.");
             }
 
             system._gates.Add(gate);
