@@ -45,15 +45,6 @@ Relevant folders currently present in the repository:
 
 Important currently used files:
 
-assets/
-├─ images/
-│  └─ maze_background.png
-└─ sprites/
-   ├─ player/
-   │  └─ lady_bug_spritesheet.png
-   └─ props/
-	  └─ rotating_gate.png
-
 scenes/
 ├─ Main.tscn
 ├─ level/
@@ -71,8 +62,13 @@ scripts/
 │  ├─ PlayerMovementStepResult.cs
 │  └─ PlayerMovementTuning.cs
 ├─ gameplay/
-│  ├─ PlayfieldStepKind.cs
-│  ├─ PlayfieldStepResult.cs
+│  ├─ maze/
+│  │  ├─ WallFlags.cs
+│  │  ├─ MazeCell.cs
+│  │  ├─ MazeDataFile.cs
+│  │  ├─ MazeGrid.cs
+│  │  ├─ MazeLoader.cs
+│  │  └─ MazeStepResult.cs
 │  ├─ gates/
 │  │  ├─ GateContactHalf.cs
 │  │  ├─ GateLogicalState.cs
@@ -81,16 +77,9 @@ scripts/
 │  │  ├─ GateTuning.cs
 │  │  ├─ GateTurningVisual.cs
 │  │  ├─ GateVisualState.cs
-│  │  ├─ PivotDataFile.cs
-│  │  ├─ RotatingGateDataFile.cs
 │  │  └─ RotatingGateRuntimeState.cs
-│  └─ maze/
-│     ├─ WallFlags.cs
-│     ├─ MazeCell.cs
-│     ├─ MazeDataFile.cs
-│     ├─ MazeGrid.cs
-│     ├─ MazeLoader.cs
-│     └─ MazeStepResult.cs
+│  ├─ PlayfieldStepKind.cs
+│  └─ PlayfieldStepResult.cs
 └─ level/
    ├─ Level.cs
    └─ RotatingGateView.cs
@@ -101,7 +90,14 @@ data/
 doc/
 ├─ architecture.md
 ├─ current_implementation.md
-└─ player_movement.md
+├─ enemy_movement.md
+├─ player_movement.md
+└─ reverse_engineering.txt
+
+Important currently used visual assets:
+- assets/images/maze_background.png
+- assets/sprites/player/lady_bug_spritesheet.png
+- assets/sprites/props/rotating_gate.png
 
 ===============================================================================
 3. CURRENT SCENE STRUCTURE
@@ -140,6 +136,7 @@ Current structure:
 Level (Node2D)
 ├─ Maze (Sprite2D)
 ├─ Gates (Node2D)
+│  └─ 20 instances of scenes/level/RotatingGate.tscn
 └─ Player (instance of scenes/player/Player.tscn)
 
 Current script:
@@ -155,8 +152,11 @@ Maze node:
 - offset = Vector2(16, 24)
 
 Gates node:
-- type = Node2D
-- owns rotating-gate scene instances at runtime
+- contains the pre-placed rotating gate instances
+- each gate instance stores:
+  - GateId
+  - GatePivot
+  - InitialOrientation
 
 Player node:
 - instance of scenes/player/Player.tscn
@@ -176,15 +176,21 @@ RotatingGate (Node2D)
 Current script:
 - scripts/level/RotatingGateView.cs
 
-Current visual setup:
-- uses assets/sprites/props/rotating_gate.png
-- supports four visuals:
-  - horizontal
-  - vertical
-  - slash
-  - backslash
-- the root node represents the logical pivot
-- the sprite transform is intended to stay centered on that pivot
+Current role:
+- visual gate scene used both for:
+  - editor authoring inside Level.tscn
+  - runtime rendering synced from GateSystem
+
+Current editor-authored properties:
+- GateId
+- GatePivot
+- InitialOrientation
+
+Current visual states available:
+- horizontal
+- vertical
+- slash
+- backslash
 
 -------------------------------------------------------------------------------
 3.4 Player scene
@@ -233,7 +239,11 @@ Current maze JSON:
 - width = 11
 - height = 11
 - cells = flat array of wall bitmasks
-- gates = rotating-gate definitions with pivot coordinates and initial orientation
+
+Important:
+- maze.json now describes only the static maze
+- rotating gates are no longer serialized in maze.json
+- rotating gates are authored directly in Level.tscn
 
 -------------------------------------------------------------------------------
 4.1 WallFlags
@@ -274,16 +284,13 @@ File:
 - scripts/gameplay/maze/MazeDataFile.cs
 
 Purpose:
-- represent the serialized JSON structure
+- represent the serialized JSON structure of the static maze
 
 Current use:
-- intermediate deserialization model between maze.json and MazeGrid / GateSystem
+- intermediate deserialization model between maze.json and MazeGrid
 
-Current serialized contents:
-- width
-- height
-- cells
-- gates
+Important:
+- this file no longer contains gate definitions
 
 -------------------------------------------------------------------------------
 4.4 MazeStepResult
@@ -298,7 +305,7 @@ Purpose:
 
 Current use:
 - returned by MazeGrid.EvaluateArcadePixelStep(...)
-- wrapped later into PlayfieldStepResult when gate logic is applied
+- wrapped later into PlayfieldStepResult once dynamic gates are considered
 
 -------------------------------------------------------------------------------
 4.5 MazeGrid
@@ -319,9 +326,8 @@ Current responsibilities:
 
 Important:
 - CanMove() blocks movement outside maze bounds
-- EvaluateArcadePixelStep(...) remains the bridge between pixel movement
-  and static maze legality
-- rotating gates are not stored inside MazeGrid itself
+- EvaluateArcadePixelStep(...) is the current bridge between pixel movement
+  and static maze legality only
 
 -------------------------------------------------------------------------------
 4.6 MazeLoader
@@ -342,114 +348,71 @@ Current behavior:
 5. ROTATING GATE SYSTEM
 ===============================================================================
 
-Rotating gates are now implemented as a runtime gameplay system,
-separate from the static maze.
+Rotating gates are now implemented as a dynamic gameplay system.
 
-Current core files:
-- PlayfieldStepKind.cs
-- PlayfieldStepResult.cs
-- GateSystem.cs
-- GateLogicalState.cs
-- GateVisualState.cs
-- GateTurningVisual.cs
-- GateContactHalf.cs
-- GateTuning.cs
-- PivotDataFile.cs
-- RotatingGateDataFile.cs
-- RotatingGateRuntimeState.cs
-- RotatingGateView.cs
+Current structure:
+- gate views are authored in Level.tscn
+- runtime gate state is built from those placed views
+- gate logic is kept separate from the static maze
 
--------------------------------------------------------------------------------
-5.1 Gate data model
--------------------------------------------------------------------------------
-
-Files:
-- scripts/gameplay/gates/PivotDataFile.cs
-- scripts/gameplay/gates/RotatingGateDataFile.cs
-
-Purpose:
-- deserialize rotating-gate entries from maze.json
-
-Current serialized information:
-- gate id
-- pivot coordinates
-- initial stable orientation
-
--------------------------------------------------------------------------------
-5.2 Gate runtime state
--------------------------------------------------------------------------------
-
-File:
-- scripts/gameplay/gates/RotatingGateRuntimeState.cs
-
-Purpose:
-- represent one gate during active gameplay
-
-Current runtime state includes:
-- logical blocking state
-- current visual state
-- current turning visual
-- rotating / lock state
-- remaining turning ticks
-
-Important current behavior:
-- logical state toggles immediately when a push is accepted
-- the gate then remains briefly in Turning state
-- the gate is locked against immediate re-entry while rotating
-
--------------------------------------------------------------------------------
-5.3 GateSystem
--------------------------------------------------------------------------------
-
-File:
+Current gate-related files:
+- scripts/gameplay/gates/GateContactHalf.cs
+- scripts/gameplay/gates/GateLogicalState.cs
+- scripts/gameplay/gates/GateOrientation.cs
 - scripts/gameplay/gates/GateSystem.cs
-
-Purpose:
-- own all runtime gates of the active level
-
-Current responsibilities:
-- build runtime gate state from maze JSON data
-- expose runtime gates by id and pivot
-- attempt pushes
-- advance turning timers one simulation tick at a time
-
--------------------------------------------------------------------------------
-5.4 PlayfieldStepResult
--------------------------------------------------------------------------------
-
-File:
-- scripts/gameplay/PlayfieldStepResult.cs
-
-Purpose:
-- represent the combined step result after applying:
-  - static maze legality
-  - dynamic gate legality
-
-Current result kinds:
-- Allowed
-- BlockedByFixedWall
-- BlockedByGate
-
-Current additional gate data:
-- gate id when relevant
-- contacted gate half when relevant
-- null contact half when the probe hits the pivot dead zone
-
--------------------------------------------------------------------------------
-5.5 Gate rendering
--------------------------------------------------------------------------------
-
-File:
+- scripts/gameplay/gates/GateTuning.cs
+- scripts/gameplay/gates/GateTurningVisual.cs
+- scripts/gameplay/gates/GateVisualState.cs
+- scripts/gameplay/gates/RotatingGateRuntimeState.cs
 - scripts/level/RotatingGateView.cs
 
-Purpose:
-- display the current stable or turning visual of one gate scene instance
+-------------------------------------------------------------------------------
+5.1 Gate authoring model
+-------------------------------------------------------------------------------
 
-Current behavior:
-- show horizontal or vertical stable state
-- show slash or backslash during Turning
-- remain purely visual
-- not own gameplay legality
+Current model:
+- 20 gate instances are already present under Level/Gates
+- each gate stores its authored definition directly in the scene:
+  - GateId
+  - GatePivot
+  - InitialOrientation
+
+Purpose:
+- make gates visible and editable directly in the Godot editor
+- avoid storing immutable gate placement in maze.json
+- keep runtime logic separate from editor authoring
+
+-------------------------------------------------------------------------------
+5.2 Gate runtime model
+-------------------------------------------------------------------------------
+
+Runtime source of truth:
+- GateSystem
+
+Current responsibilities:
+- own all runtime gate states
+- lookup gates by id
+- lookup gates by pivot
+- accept push attempts
+- lock gates during turning
+- advance short turning timers
+
+Current runtime gate state includes:
+- logical blocking axis
+- current visual state
+- turning diagonal visual
+- rotation lock
+- remaining turning ticks
+
+-------------------------------------------------------------------------------
+5.3 Gate rendering
+-------------------------------------------------------------------------------
+
+Current rendering behavior:
+- Level keeps references to the placed RotatingGateView instances
+- runtime gate state is synchronized back to those views
+- stable state shows horizontal or vertical
+- short turning state shows slash or backslash
 
 ===============================================================================
 6. LEVEL RUNTIME LOGIC
@@ -461,21 +424,17 @@ File:
 Level.cs is currently the runtime coordinator for the prototype level.
 
 Current responsibilities:
-- load the logical maze from res://data/maze.json
-- build and expose the runtime GateSystem
-- spawn and synchronize rotating-gate views
+- load the static logical maze from res://data/maze.json
+- scan the Gates node and build the runtime GateSystem from placed views
 - expose the runtime MazeGrid through a property
 - expose the runtime GateSystem through a property
-- reposition the player from PlayerStartCell
 - convert logical cells into gameplay arcade-pixel anchors
+- convert gate pivots into arcade-pixel and scene-space positions
 - convert arcade-pixel positions into logical cells
 - convert arcade-pixel positions and deltas into scene-space positions
-- evaluate one attempted playfield step using:
-  - static maze legality
-  - dynamic gate legality
-- attempt gate pushes
-- initialize the player after the level has been loaded
-- update the player preview in the editor when PlayerStartCell changes
+- combine static maze legality and dynamic gate legality into PlayfieldStepResult
+- initialize the player after the maze and gate system have been prepared
+- update player and gate previews in the editor
 
 Important implementation details:
 - Level uses [Tool]
@@ -487,9 +446,8 @@ Important design point:
 - Level is the source of truth for coordinate conversion between:
   - logical cells
   - arcade-pixel gameplay coordinates
+  - gate pivots
   - scene-space coordinates
-- Level also acts as the runtime integration point between MazeGrid,
-  GateSystem and gate scene instances
 
 ===============================================================================
 7. PLAYER MOVEMENT SYSTEM
@@ -508,6 +466,10 @@ Current player-related files:
 - PlayerMovementStepResult.cs
 - PlayerMovementTuning.cs
 
+Additional movement-related integration:
+- PlayfieldStepKind.cs
+- PlayfieldStepResult.cs
+
 -------------------------------------------------------------------------------
 7.1 PlayerController
 -------------------------------------------------------------------------------
@@ -520,7 +482,7 @@ Current role:
 - receive the Level reference
 - forward input events to PlayerInputState
 - advance PlayerMovementMotor at fixed tick rate
-- advance rotating-gate timers once per simulation tick through Level
+- advance gate timers once per simulation tick
 - update facing animation
 - apply gameplay position and render offset to the scene node
 
@@ -537,7 +499,7 @@ File:
 
 Purpose:
 - track held movement directions
-- track the relative press order of directions
+- track the relative order in which they were pressed
 - resolve the currently intended direction
 
 Current rule:
@@ -593,9 +555,9 @@ Current responsibilities:
 - resume movement only when the requested lane can be used
 - apply rail snap
 - validate each attempted movement step against the active playfield
-- react to BlockedByGate by attempting a push and re-evaluating the same step
 - move exactly one pixel per valid tick
 - apply conservative straight-line recentering
+- resolve gate pushes and same-tick re-evaluation
 - return a structured tick result
 
 Important current behavior:
@@ -604,14 +566,37 @@ Important current behavior:
 - movement speed is currently 1 pixel per tick
 - buffered direction changes are supported
 - perpendicular blocked direction requests stop the actor
-- gate pushes are integrated directly into the movement step validation loop
 - sprite facing and sprite render offset are intentionally separated
 
 ===============================================================================
-8. CURRENT PLAYER + GATE MOVEMENT BEHAVIOR
+8. PLAYFIELD STEP EVALUATION
 ===============================================================================
 
-The current movement model includes:
+Dynamic movement legality is now evaluated beyond the static maze.
+
+Current flow:
+- PlayerMovementMotor requests one attempted step
+- Level asks MazeGrid for the static result
+- Level then overlays dynamic rotating-gate checks
+- the final result is wrapped in PlayfieldStepResult
+
+Current possible outcomes:
+- Allowed
+- BlockedByFixedWall
+- BlockedByGate
+
+Current gate-specific behavior:
+- a gate can block from direct probe contact even without immediate logical-cell change
+- a gate can also block when crossing a boundary into another logical cell
+- if a blocked gate can be pushed from the contacted half:
+  - the logical gate state toggles immediately
+  - the attempted step is re-evaluated in the same tick
+
+===============================================================================
+9. CURRENT PLAYER MOVEMENT BEHAVIOR
+===============================================================================
+
+The current player movement model includes:
 
 - fixed tick update
 - integer arcade-pixel gameplay position
@@ -619,23 +604,19 @@ The current movement model includes:
 - buffered input using "last pressed wins"
 - explicit current / wanted / facing / offset directions
 - lane alignment inside 16x16 logical cells
-- rail snap when starting or resuming movement
-- conservative straight-line recentering
-- maze validation for each attempted pixel step
-- dynamic rotating-gate validation for each attempted pixel step
-- immediate logical gate toggle when a push is accepted
-- immediate step re-evaluation after an accepted gate push
-- short Turning visual during rotation
-- separation between gameplay anchor and visual sprite offset
+- rail snap and conservative recentering
+- static maze validation for each attempted pixel step
+- dynamic rotating-gate validation layered on top of the static maze
+- same-tick gate push resolution and re-evaluation
+- short gate turning visuals
 
 Important:
 - the player no longer moves cell to cell
 - the player no longer interpolates toward a target scene position
 - movement is now driven by discrete gameplay ticks
-- gate interaction is no longer visual-only; it directly changes movement legality
 
 ===============================================================================
-9. WHAT IS CURRENTLY WORKING
+10. WHAT IS CURRENTLY WORKING
 ===============================================================================
 
 The following is already implemented and functional:
@@ -643,21 +624,19 @@ The following is already implemented and functional:
 - Main scene launches correctly
 - Level scene is instantiated from Main
 - maze background is displayed
+- pre-placed rotating gates are displayed
 - player is displayed
 - player start position is defined through Level.PlayerStartCell
 - player preview updates in the editor
-- logical maze is loaded from JSON
+- rotating gate preview updates in the editor
+- logical static maze is loaded from JSON
 - logical cell walls are interpreted correctly
-- movement is validated against the logical maze
+- movement is validated against the static maze
 - movement outside the maze bounds is blocked
-- rotating-gate data is loaded from maze.json
-- rotating gates are instantiated visually at runtime
-- rotating gates have stable and turning visuals
 - rotating gates influence movement legality
-- player movement can push rotating gates
-- accepted gate pushes toggle gate logic immediately
-- accepted gate pushes re-evaluate the same step immediately
-- gate turning is locked briefly to prevent immediate re-entry
+- rotating gates can be pushed
+- gate logical state toggles immediately on successful push
+- gate turning visuals are shown briefly
 - player movement runs with a fixed tick model
 - player movement runs pixel by pixel in gameplay coordinates
 - buffered multi-key input works
@@ -665,7 +644,7 @@ The following is already implemented and functional:
 - movement architecture is refactored into dedicated helper classes
 
 ===============================================================================
-10. WHAT IS NOT IMPLEMENTED YET
+11. WHAT IS NOT IMPLEMENTED YET
 ===============================================================================
 
 The following systems are still not implemented yet:
@@ -681,28 +660,27 @@ The following systems are still not implemented yet:
 - session state management
 
 ===============================================================================
-11. CURRENT LIMITATIONS
+12. CURRENT LIMITATIONS
 ===============================================================================
 
-The movement system is much more faithful than before, but it is not yet the
-final verified arcade reproduction.
+The movement and gate systems are much more faithful than before,
+but they are not yet the final verified arcade reproduction.
 
 Open points include:
 - exact original turn-window details
 - exact original collision details from the ROM
 - exact interpretation of all lane-alignment checks
-- exact acceptance window for perpendicular turns
-- remaining fine-grained interaction details between turn timing and gate pushes
+- exact gate/turn interaction windows in edge cases
 - enemy movement system
 - later gameplay-specific reactions using PlayerMovementStepResult
 
 ===============================================================================
-12. CURRENT DEVELOPMENT PRIORITY
+13. CURRENT DEVELOPMENT PRIORITY
 ===============================================================================
 
 A reasonable current priority is now:
 
-1) keep the current movement + gate system stable
-2) refine turn-window / alignment fidelity using reverse engineering
+1) keep the current movement and gate systems stable
+2) refine turn-window / alignment fidelity through reverse engineering
 3) implement enemies and remaining gameplay systems
 4) continue refining arcade fidelity where reverse engineering justifies it

@@ -98,10 +98,11 @@ This section describes the intended long-term structure.
 assets/
 ├─ images/
 │  ├─ maze/
+│  └─ ui/
+├─ sprites/
 │  ├─ player/
 │  ├─ enemies/
-│  ├─ props/
-│  └─ ui/
+│  └─ props/
 ├─ audio/
 │  ├─ music/
 │  └─ sfx/
@@ -128,7 +129,8 @@ scenes/
 │  ├─ GameOverScreen.tscn
 │  └─ HighScoreScreen.tscn
 ├─ level/
-│  └─ Level.tscn
+│  ├─ Level.tscn
+│  └─ RotatingGate.tscn
 ├─ player/
 │  └─ Player.tscn
 ├─ enemies/
@@ -137,7 +139,6 @@ scenes/
 │  ├─ Bulldozer.tscn
 │  └─ OtherEnemyVariants.tscn
 ├─ props/
-│  ├─ RotatingGate.tscn
 │  ├─ Collectible.tscn
 │  ├─ BonusVegetable.tscn
 │  └─ BonusLetter.tscn
@@ -152,7 +153,8 @@ scripts/
 │  ├─ GameOverScreen.cs
 │  └─ HighScoreScreen.cs
 ├─ level/
-│  └─ Level.cs
+│  ├─ Level.cs
+│  └─ RotatingGateView.cs
 ├─ actors/
 │  ├─ PlayerController.cs
 │  ├─ PlayerInputState.cs
@@ -172,9 +174,14 @@ scripts/
 │  │  ├─ MazeLoader.cs
 │  │  └─ MazeStepResult.cs
 │  ├─ gates/
-│  │  ├─ RotatingGateController.cs
-│  │  ├─ RotatingGateState.cs
-│  │  └─ GateInteractionResult.cs
+│  │  ├─ GateContactHalf.cs
+│  │  ├─ GateLogicalState.cs
+│  │  ├─ GateOrientation.cs
+│  │  ├─ GateSystem.cs
+│  │  ├─ GateTuning.cs
+│  │  ├─ GateTurningVisual.cs
+│  │  ├─ GateVisualState.cs
+│  │  └─ RotatingGateRuntimeState.cs
 │  ├─ items/
 │  │  ├─ CollectibleController.cs
 │  │  ├─ BonusVegetableController.cs
@@ -184,10 +191,12 @@ scripts/
 │  │  ├─ ScoreService.cs
 │  │  ├─ BonusRules.cs
 │  │  └─ HighScoreEntry.cs
-│  └─ session/
-│     ├─ StageDefinition.cs
-│     ├─ StageFlowController.cs
-│     └─ LifeState.cs
+│  ├─ session/
+│  │  ├─ StageDefinition.cs
+│  │  ├─ StageFlowController.cs
+│  │  └─ LifeState.cs
+│  ├─ PlayfieldStepKind.cs
+│  └─ PlayfieldStepResult.cs
 ├─ ui/
 │  └─ HudController.cs
 └─ autoload/
@@ -314,6 +323,7 @@ Responsibilities:
 
 Level should remain the source of truth for:
 - logical cell <-> arcade-pixel conversion
+- gate pivot <-> arcade-pixel conversion
 - arcade-pixel <-> scene-space conversion
 - active board objects belonging to the level
 
@@ -337,6 +347,8 @@ Level (Node2D)
 Notes:
 - the static maze background remains a Sprite2D
 - moving / interactive objects should remain separate from the static background
+- gate view instances can be pre-placed in Level.tscn and converted into a
+  separate runtime gate system during level initialization
 
 ===============================================================================
 7. PLAYER ARCHITECTURE
@@ -402,41 +414,43 @@ Possible shared concepts:
 - similar tick-based movement structure
 
 Important:
-Enemy logic should probably reuse the same maze-step legality model, but not
+Enemy logic should probably reuse the same playfield-step legality model, but not
 necessarily the exact same player movement rules.
 
 ===============================================================================
 9. ROTATING GATE ARCHITECTURE
 ===============================================================================
 
-Rotating gates are one of the most important missing gameplay systems.
+Rotating gates are one of the most important gameplay systems already present
+in the current foundation.
 
 They should not be treated as a visual-only feature.
 
-Expected architecture:
-
-RotatingGateController
-- own the gate's current state and animation
-
-RotatingGateState
-- represent orientation and movement-blocking consequences
-
-GateInteractionResult
-- describe what happens when player or enemy interacts with a gate
+Current architectural direction:
+- RotatingGateView
+  - editor-authored view instance inside Level.tscn
+  - runtime visual synced from gate state
+- GateSystem
+  - own all runtime gate states of the active level
+- RotatingGateRuntimeState
+  - represent one mutable runtime gate
+- Gate-related enums and tuning types
+  - represent stable orientation, logical blocking axis, turning state, etc.
 
 Level / Maze integration:
-- gates should influence movement legality
-- the static MazeGrid should remain the base maze
-- dynamic gate state should be applied as an additional movement constraint
+- gates influence movement legality
+- the static MazeGrid remains the base maze
+- dynamic gate state is applied as an additional movement constraint
   on top of the static maze
 
-In practice, long-term movement legality should become something like:
+In practice, long-term movement legality is now intended to remain:
 
     static maze legality
     + lane / alignment legality
     + dynamic rotating gate legality
 
-This is the big next gameplay architecture step after the current player work.
+What still remains for future work is not the existence of the gate system,
+but its continued fidelity refinement and future enemy interaction.
 
 ===============================================================================
 10. ITEM / COLLECTIBLE ARCHITECTURE
@@ -514,6 +528,11 @@ In other words:
 - actors = movement clients
 - Level = runtime coordinator
 
+Important:
+maze.json is intended to remain focused on static maze data.
+Rotating gates can be authored in the level scene while still being converted
+into a separate runtime system at initialization.
+
 ===============================================================================
 13. COORDINATE SYSTEM DESIGN
 ===============================================================================
@@ -544,6 +563,7 @@ The following part of the target architecture is already implemented now:
 
 - Main scene
 - Level scene
+- RotatingGate scene
 - Player scene
 - logical maze loading from JSON
 - MazeGrid / MazeCell / WallFlags / MazeLoader
@@ -553,8 +573,15 @@ The following part of the target architecture is already implemented now:
 - PlayerMovementStepResult
 - PlayerMovementTuning
 - MazeStepResult
-- pixel-step maze validation
+- PlayfieldStepKind
+- PlayfieldStepResult
+- GateSystem
+- RotatingGateRuntimeState
+- placed gate authoring in Level.tscn
+- pixel-step playfield validation
 - fixed tick player movement
+- dynamic rotating gate legality
+- gate push resolution and turning visuals
 - lane snap and conservative recentering
 
 This section is intentionally short.
@@ -574,8 +601,7 @@ The largest remaining systems are:
 - GameSession
 - EnemyController and enemy runtime logic
 - enemy AI / movement helpers
-- rotating gate runtime logic
-- dynamic gate interaction with movement legality
+- enemy interaction with rotating gates
 - collectibles / letters / bonus vegetables
 - score service and high-score persistence
 - gameplay HUD
@@ -613,8 +639,9 @@ It should ultimately contain:
 - scoring and high scores
 - HUD and other UI
 
-The project already has a solid movement and maze foundation.
-The next major architectural expansion should now happen around:
-- rotating gates
+The project already has a solid movement, maze, and rotating-gate foundation.
+The next major architectural expansions should now happen around:
+- alignment / turn-window fidelity refinement
 - enemies
 - session / screen flow
+- collectibles / scoring systems
