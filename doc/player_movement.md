@@ -222,29 +222,31 @@ It produces the current intended direction that the movement motor will try
 to apply.
 
 ===============================================================================
-9. DIRECTION CHANGE LOGIC
+9. UPDATED REVERSE-ENGINEERED TURN MODEL
 ===============================================================================
 
-A turn is not always applied immediately.
+The original arcade turn logic is now understood as more than a simple
+"turn window" check.
 
-The current logic is:
+The current best reverse-engineered model is:
 
-1) read current intended direction
-2) if no input is held, stop immediately
-3) if stopped, try to start or resume in the wanted direction
-4) if already moving:
-   - same-axis change is applied immediately
-   - perpendicular change is accepted only if alignment and playfield legality allow it
-5) if a perpendicular requested direction is blocked, the actor stops instead
-   of continuing in the old direction
+1) input is normalized into logical direction bits
+2) a turn may be armed
+3) the effective direction may be committed or recommitted
+4) the player may enter a special interactive turn mode
+5) while in that mode, the next sub-step depends on:
+   - current effective direction
+   - current special direction
+   - fine alignment inside the 16x16 cell
+   - internal state/flags
 
 Important:
-the exact acceptance window for perpendicular turns is still not considered
-final.
+This means the arcade game does NOT appear to use:
+- a purely scripted post-commit sequence
+- a free diagonal
+- a single fixed tolerance rule that fully explains all turns
 
-The current implementation already avoids some previously observed gate-related
-bugs by not attempting certain perpendicular turns too early, but the precise
-arcade turn window still needs more reverse engineering.
+Instead, the post-commit logic is interactive and branch-driven.
 
 ===============================================================================
 10. ALIGNMENT INSIDE 16x16 CELLS
@@ -264,11 +266,18 @@ This means:
 11. BITWISE ALIGNMENT CHECKS FROM REVERSE ENGINEERING
 ===============================================================================
 
-Reverse engineering suggests checks of the form:
+Reverse engineering now strongly supports checks of the form:
 
 	X & 0x0F == 0x08
 	Y & 0x0F == 0x06
+
+Historical earlier observations also saw:
+
 	Y & 0x0F == 0x07
+
+But the current best-supported special-mode branching uses:
+- X & 0x0F == 0x08
+- Y & 0x0F == 0x06
 
 Interpretation:
 - 0x0F corresponds to 15
@@ -286,21 +295,35 @@ Observed condition:
 	X & 0x0F == 0x08
 
 Interpretation:
-- vertical movement or vertical turning appears to depend on X being aligned
-  to an internal vertical lane
+- special-mode branching uses this as the preferred X alignment
+- when this is true, the code can use an X-aligned path instead of the
+  intermediate dispatcher
 
 -------------------------------------------------------------------------------
 11.2 Horizontal alignment
 -------------------------------------------------------------------------------
 
-Observed conditions:
+Observed condition:
 
 	Y & 0x0F == 0x06
-	Y & 0x0F == 0x07
 
 Interpretation:
-- horizontal movement or horizontal turning appears to depend on Y alignment
-- the exact meaning of 0x06 / 0x07 is still not fully confirmed
+- special-mode branching uses this as the preferred Y alignment
+- when this is true, the code can use a Y-aligned path instead of the
+  intermediate dispatcher
+
+-------------------------------------------------------------------------------
+11.3 About Y & 0x0F == 0x07
+-------------------------------------------------------------------------------
+
+Historical earlier reverse engineering observed Y & 0x0F == 0x07 in some
+movement/turning contexts.
+
+Current status:
+- 0x07 should not be treated as the main confirmed branching test
+- the exact meaning of 0x07 is still not fully resolved
+- it may reflect another lane-related detail, sprite-origin relation, or a
+  nearby operational row used in other parts of the movement system
 
 ===============================================================================
 12. CURRENT PROVISIONAL ALIGNMENT RULES
@@ -327,9 +350,12 @@ Purpose:
 - keep alignment logic explicit and easy to refine later
 
 Important:
-This is still provisional.
-It is a validated intermediate implementation, not yet a final claim about
-the original ROM logic.
+This remains provisional for the remake side.
+The reverse engineering now strongly supports:
+- X special alignment at +8
+- Y special alignment at +6 for the special dispatcher
+but the exact final interpretation of the visual/gameplay anchor relationship
+is still not considered fully closed.
 
 ===============================================================================
 13. LANE SNAP AND RECENTERING
@@ -428,7 +454,170 @@ So visually:
 - offset follows effective movement
 
 ===============================================================================
-17. CURRENT IMPLEMENTATION STATUS
+17. SPECIAL TURN MODE - KEY VARIABLES FROM REVERSE ENGINEERING
+===============================================================================
+
+Several RAM variables are now important for interpreting the original turn logic.
+
+-------------------------------------------------------------------------------
+17.1 6026 - effective current direction
+-------------------------------------------------------------------------------
+
+6026 is the effective runtime direction byte.
+
+Observed commits/recommits:
+- D=08 -> 6026 becomes 82
+- D=01 -> 6026 becomes 12
+- D=04 -> 6026 becomes 42
+- D=02 -> 6026 becomes 22
+
+So 381E -> 382C acts as the commit/recommit gate for 6026.
+
+-------------------------------------------------------------------------------
+17.2 605F - special-mode state byte
+-------------------------------------------------------------------------------
+
+605F bit 7 is now considered the key marker for entry into the special
+interactive turn mode.
+
+Strong working interpretation:
+- bit 7 clear  -> simpler/non-special flow
+- bit 7 set    -> special interactive turn flow
+
+Observed values commonly include:
+- 01 / 09 before special mode
+- 81 / 89 in the special mode
+
+The exact meaning of the lower bits is still unresolved.
+
+-------------------------------------------------------------------------------
+17.3 6198 - current special direction
+-------------------------------------------------------------------------------
+
+6198 is now strongly understood as the current special direction.
+
+Observed values:
+- 08 = up
+- 01 = left
+- 04 = right
+- 02 = down
+
+This is not just an abstract phase id.
+It behaves like the current direction used by the special turn dispatcher.
+
+-------------------------------------------------------------------------------
+17.4 61E0 - auxiliary flag
+-------------------------------------------------------------------------------
+
+61E0 is involved repeatedly during turn handling.
+
+Current interpretation:
+- important auxiliary turn/correction flag
+- clearly active in the flow
+- exact semantic role still not fully closed
+
+-------------------------------------------------------------------------------
+17.5 6196 / 6197 - target coordinates
+-------------------------------------------------------------------------------
+
+6196 and 6197 act as runtime target coordinates during turn handling and
+alignment/correction.
+
+===============================================================================
+18. SPECIAL INTERACTIVE TURN MODE
+===============================================================================
+
+The current best reverse-engineered picture is:
+
+1) input is normalized at 3652 into:
+   - 01 = left
+   - 02 = down
+   - 04 = right
+   - 08 = up
+
+2) if the game is not yet in special mode, it uses the simpler path
+
+3) when 605F bit 7 becomes active, the game enters the special interactive mode
+
+4) inside that mode, it branches by fine alignment:
+   - if X & 0x0F == 8 -> path via 4943
+   - else if Y & 0x0F == 6 -> path via 366F
+   - else -> path via 494B -> 3677
+
+This means 494B -> 3677 is the central dispatcher for the intermediate
+"between alignments" case.
+
+===============================================================================
+19. DISPATCHER TABLE OF 3677
+===============================================================================
+
+The intermediate dispatcher now has a confirmed 4-direction table.
+
+Observed and now considered strongly established:
+
+- up    -> 36A1
+- right -> 36B9
+- down  -> 369A
+- left  -> 36C0
+
+So 3677 should no longer be treated as an unknown black box.
+Its branch table is now substantially mapped.
+
+===============================================================================
+20. ROLE OF 3868
+===============================================================================
+
+3868 appears as a more generic / aligned-state handler.
+
+Current best interpretation:
+- the intermediate direction-specific kernels are used in the "between
+  alignments" part of the sequence
+- once the motion is in a more aligned/simplified state, 3868 takes over
+
+This is clearly observed for:
+- up
+- left
+- down
+
+For right, this is still very plausible by symmetry, but slightly less directly
+observed.
+
+===============================================================================
+21. SHORT TAPS / SMALL SUCCESSIVE INPUTS
+===============================================================================
+
+Additional reverse engineering now shows an important timing detail:
+
+With small successive taps toward the new direction, the first tap can already:
+- normalize input
+- commit 6026
+
+without immediately entering the full special dispatcher path.
+
+Observed sequence in a "small successive up taps" test:
+
+1) input is normalized at 3652 (A=08)
+2) 381E -> 382C commits 6026 to 82
+3) only later does 605F gain bit 7 and enter the special mode
+4) 6198 then becomes 08
+5) then the game begins using:
+   494B -> 3677 -> 36A1
+6) once X reaches the preferred alignment, the flow leaves the intermediate
+   dispatcher and 3868 takes over
+
+Important:
+small taps done by hand on a keyboard do not necessarily correspond to a single
+arcade sub-step each.
+So the exact tap-to-substep relation is still not considered fully resolved.
+
+But the current strong timing conclusion is:
+- commit can happen before full special-mode entry
+- special-mode entry can happen after the commit
+- intermediate dispatcher use can happen after special-mode entry, not
+  necessarily immediately on the first accepted tap
+
+===============================================================================
+22. CURRENT IMPLEMENTATION STATUS
 ===============================================================================
 
 The current implementation includes:
@@ -454,7 +643,7 @@ It is now split into dedicated helpers and is much closer to a maintainable
 arcade-style structure.
 
 ===============================================================================
-18. WHAT IS ALREADY BELIEVED TO BE CORRECT
+23. WHAT IS ALREADY BELIEVED TO BE CORRECT
 ===============================================================================
 
 The following points are considered strong working assumptions:
@@ -471,33 +660,36 @@ The following points are considered strong working assumptions:
   visual script
 - a successful gate push should toggle the logical gate state immediately and
   re-evaluate the attempted step in the same tick
+- 605F bit 7 marks entry into the special interactive turn mode
+- 381E -> 382C is the commit/recommit gate for 6026
+- 6198 stores the current special direction
+- 494B -> 3677 is the central intermediate dispatcher
+- 3677 now has a mapped 4-direction kernel table
+- 3868 acts as a more generic/aligned follow-up handler
 
 ===============================================================================
-19. WHAT IS STILL UNCERTAIN
+24. WHAT IS STILL UNCERTAIN
 ===============================================================================
 
 The following points still require more reverse engineering:
 
-- the exact meaning of Y & 0x0F == 0x06 / 0x07
-- whether 0x06 and 0x07 are:
-  - a tolerance window
-  - two accepted rows
-  - sprite offset compensation
-  - another internal rule
-- the exact original turn acceptance rules
-- the exact original turn-window tables in final gameplay use
-- the exact collision checks used by the original ROM
+- the exact meaning of the lower bits of 605F besides bit 7
+- the exact meaning of Y & 0x0F == 0x07
+- the exact semantic role of 61E0
+- the exact internal code inside 3677, if a literal ROM-level reproduction is desired
+- the exact moment and conditions under which 3868 takes over in every possible
+  case, especially right
+- the exact relation between a human keyboard "small tap" and a single arcade
+  sub-step of the special turn sequence
 - whether the current collision leads match the original checks or are only a
   practical approximation
-- the exact acceptance window for perpendicular turns in real gameplay
 - whether the current gate probe/boundary combination matches the original code path
   exactly or is still an approximation
-- whether movement ever uses a repeating sub-pattern instead of a strict constant
 - whether straight-line recentering in the arcade original is identical to the
   current conservative implementation
 
 ===============================================================================
-20. DESIGN PHILOSOPHY
+25. DESIGN PHILOSOPHY
 ===============================================================================
 
 The goal is not to implement a modern clean-room movement system first and then
@@ -516,31 +708,31 @@ The current codebase now reflects that philosophy better than before:
 - dynamic rotating-gate legality is explicit
 
 ===============================================================================
-21. SUMMARY
+26. SUMMARY
 ===============================================================================
 
-Current player movement is based on:
+The movement system is no longer best described as:
+- "simple per-pixel movement with a turn window"
 
-- fixed tick timing
+The current best reverse-engineered picture is:
+
+- fixed tick movement
 - integer arcade-pixel gameplay position
-- 1 pixel per tick
-- buffered input using "last pressed wins"
-- explicit current / wanted / facing / offset directions
-- lane alignment inside 16x16 cells
-- rail snap
-- conservative straight-line recentering
-- per-step static maze validation
-- per-step rotating-gate validation
-- same-tick gate push resolution and re-evaluation
+- buffered intention
+- commit/recommit of effective direction
+- entry into a special interactive turn mode
+- fine alignment checks
+- intermediate dispatcher (494B -> 3677)
+- direction-specific intermediate kernels
+- aligned/generic follow-up handling
 
-This is no longer just an intermediate sketch.
-It is now a structured arcade-oriented implementation with clear extension
-points for future refinement.
+So the remaining movement work is no longer mainly about the existence of a
+turn window.
 
-The biggest remaining movement-specific unknowns are now mainly:
-- exact turn-window details
-- exact collision details from the original code
-- final arcade-accurate alignment acceptance rules
+It is now mainly about:
+- reproducing the interactive special post-commit turn logic faithfully
+- and refining the remaining uncertain low-level details when needed.
+
 
 ===============================================================================
 PLAYER ROUTINE INDEX
@@ -559,7 +751,9 @@ CORE PLAYER UPDATE
 ===============================================================================
 
 - 0x35FF : main player movement / direction-handling path
-- 0x380A : one-pixel player movement step
+- 0x380A : consumes the prepared DE pair from stack and enters commit logic
+- 0x381E : commit / recommit gate just before the effective direction write
+- 0x382C : writes the effective direction byte to 0x6026
 - 0x388C : post-step movement / target-handling path
 - 0x3A99 : player-related update path using current dir/x/y
 
@@ -567,15 +761,24 @@ CORE PLAYER UPDATE
 INPUT AND CURRENT PLAYER STATE
 ===============================================================================
 
-- 0x6026 : current player direction
+- 0x3652 : normalizes directional input into logical direction bits
+		   (01 left / 02 down / 04 right / 08 up)
+- 0x6026 : current effective player direction
 - 0x6027 : player X position
 - 0x6028 : player Y position
+- 0x605F : internal movement/special-mode state byte
+		   (bit 7 now strongly linked to entry into the special turn mode)
+- 0x6196 : runtime target X
+- 0x6197 : runtime target Y
+- 0x6198 : current special direction
+- 0x61E0 : auxiliary turn/correction flag
 - 0x9000 / 0x9001 : hardware input ports used by joystick / status logic
 
 ===============================================================================
 TURN WINDOWS AND LANE ALIGNMENT
 ===============================================================================
 
+Historical turn-center routines / tables:
 - 0x36DA : loads row-based vertical turn-center mask
 - 0x36F5 : scans vertical turn-center mask
 - 0x377A : loads column-based horizontal turn-center mask
@@ -583,10 +786,70 @@ TURN WINDOWS AND LANE ALIGNMENT
 - 0x0DE4 : vertical turn-center table by row
 - 0x0DFA : horizontal turn-center table by column
 
-Practical lane centers inferred from the current analysis:
-- X % 16 == 8 : vertical lane center
-- Y % 16 == 6 : horizontal turn decision line
-- Y % 16 == 7 : horizontal lane travel center
+Special-mode branching by fine alignment:
+- 0x3662 : checks X & 0x0F against the preferred X alignment
+- 0x366C : checks Y & 0x0F against the preferred Y alignment
+- 0x4943 : aligned-entry path when X & 0x0F == 8
+- 0x366F : aligned-entry path when Y & 0x0F == 6
+- 0x494B : intermediate path when neither preferred alignment is reached
+- 0x3677 : dispatcher used for the "between alignments" case
+
+Practical lane / alignment findings from the current analysis:
+- X % 16 == 8 : preferred vertical alignment and special X-aligned branch
+- Y % 16 == 6 : preferred horizontal alignment for special Y-aligned branch
+- Y % 16 == 7 : still a useful practical horizontal lane travel center in the
+				current remake-side interpretation, but not the main confirmed
+				special-branch test
+
+===============================================================================
+SPECIAL INTERACTIVE TURN MODE
+===============================================================================
+
+State/control routines:
+- 0x3810 : writes to 0x605F in the commit/special-flow path
+- 0x3891 : writes 0x89 to 0x605F during entry into the special mode
+- 0x36C1 : simpler producer path before / outside the full special dispatcher
+- 0x36C6 : clears 0x61E0 on the 0x36C1 path
+- 0x3754 : writes 0x61E0 = 0x02 in observed turn-handling sequences
+- 0x37EF : writes 0x61E0 = 0x01 in observed aligned follow-up sequences
+
+Prepared direction package / commit helpers:
+- 0x36C1 : PUSH DE on the simpler path
+- 0x366F : PUSH DE on the Y-aligned special path
+- 0x4943 : PUSH DE on the X-aligned special path
+- 0x380A : POP DE from the stack and continue with direction commit logic
+
+Observed prepared direction values pushed toward 0x380A:
+- 0x0805 : up
+- 0x0105 : left
+- 0x0405 : right
+- 0x0205 : down
+
+===============================================================================
+INTERMEDIATE DISPATCHER AND KERNELS
+===============================================================================
+
+Dispatcher:
+- 0x494B : reloads current direction from 0x6026, shifts it, then jumps to 0x3677
+- 0x3677 : central dispatcher for the intermediate "between alignments" case
+
+Confirmed dispatcher table:
+- up    -> 0x36A1
+- right -> 0x36B9
+- down  -> 0x369A
+- left  -> 0x36C0
+
+Observed kernel families:
+- 0x368F / 0x3695 / 0x369A : down-oriented intermediate path
+- 0x36AB / 0x36B4 / 0x36B9 : right-oriented intermediate path
+- 0x36AB / 0x36BB / 0x36C0 : left-oriented intermediate path
+- 0x368F / 0x369C / 0x36A1 : up-oriented intermediate path
+
+Generic / aligned follow-up:
+- 0x3868 : generic or aligned-state follow-up handler
+- 0x3856 : pure vertical-step continuation observed in upward aligned follow-up
+- 0x385B : pure horizontal-step continuation observed in left aligned follow-up
+- 0x3860 : pure vertical-step continuation observed in downward aligned follow-up
 
 ===============================================================================
 MAZE VALIDATION
