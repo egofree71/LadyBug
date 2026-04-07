@@ -488,7 +488,22 @@ Observed values commonly include:
 - 01 / 09 before special mode
 - 81 / 89 in the special mode
 
-The exact meaning of the lower bits is still unresolved.
+Important:
+the values 01 <-> 09 and 81 <-> 89 should not be overinterpreted as if they
+represented multiple fundamentally different turn phases.
+
+Current best interpretation:
+- bit 7 is the major structural distinction
+- the additional +0x08 oscillation reflects an auxiliary helper bit changing in
+  parallel
+- this auxiliary oscillation does not currently look like the core state of the
+  special turn mode itself
+
+So for practical turn-logic purposes:
+- without bit 7 active -> not yet in full special turn mode
+- with bit 7 active    -> full special turn mode active
+
+The exact meaning of the lower bits remains unresolved.
 
 -------------------------------------------------------------------------------
 17.3 6198 - current special direction
@@ -506,15 +521,30 @@ This is not just an abstract phase id.
 It behaves like the current direction used by the special turn dispatcher.
 
 -------------------------------------------------------------------------------
-17.4 61E0 - auxiliary flag
+17.4 61E0 - transition / recentering selector
 -------------------------------------------------------------------------------
 
-61E0 is involved repeatedly during turn handling.
+61E0 is no longer treated as a purely mysterious pulse or generic auxiliary flag.
 
-Current interpretation:
-- important auxiliary turn/correction flag
-- clearly active in the flow
-- exact semantic role still not fully closed
+Current best interpretation:
+- 61E0 belongs to the transition / recentering phase before or around full
+  entry into the special interactive turn mode
+- it is not the final 3677 dispatcher state itself
+
+Observed writes include:
+- 36C6 often writes 00
+- 3754 can write 02
+- 37EF can write 01
+- 4948 writes 00 again during aligned/simplified handoff
+
+Useful working interpretation:
+- 61E0 = 00 -> no extra transition recentering active
+- 61E0 = 02 -> one transition-axis correction case
+- 61E0 = 01 -> the other transition-axis correction case
+
+The exact symbolic meaning of 01 versus 02 is still not considered fully closed,
+but 61E0 is now best understood as a transition/recentering selector, not as a
+final dispatcher phase id.
 
 -------------------------------------------------------------------------------
 17.5 6196 / 6197 - target coordinates
@@ -583,7 +613,30 @@ For right, this is still very plausible by symmetry, but slightly less directly
 observed.
 
 ===============================================================================
-21. SHORT TAPS / SMALL SUCCESSIVE INPUTS
+21. ENTRY TIMING OF THE SPECIAL MODE
+===============================================================================
+
+Reverse engineering now shows that entry into the special interactive turn mode
+is not instantaneous.
+
+The current best timing model is:
+
+1) 3652 sees and normalizes the requested direction
+2) 381E -> 382C may already commit or recommit 6026
+3) the game may still be outside full special mode at that moment
+4) 61E0 can participate in a transition/recentering phase
+5) only afterwards does 605F gain bit 7
+6) then 6198 becomes the current special direction
+7) only then does the code enter:
+   - 494B -> 3677 -> direction-specific kernel
+   - or 3868 if the state is already aligned/simplified enough
+
+Important:
+This means the special dispatcher is not the beginning of the special sequence.
+There is a real transition phase before fully active special-mode behavior.
+
+===============================================================================
+22. SHORT TAPS / SMALL SUCCESSIVE INPUTS
 ===============================================================================
 
 Additional reverse engineering now shows an important timing detail:
@@ -617,7 +670,7 @@ But the current strong timing conclusion is:
   necessarily immediately on the first accepted tap
 
 ===============================================================================
-22. CURRENT IMPLEMENTATION STATUS
+23. CURRENT IMPLEMENTATION STATUS
 ===============================================================================
 
 The current implementation includes:
@@ -643,7 +696,7 @@ It is now split into dedicated helpers and is much closer to a maintainable
 arcade-style structure.
 
 ===============================================================================
-23. WHAT IS ALREADY BELIEVED TO BE CORRECT
+24. WHAT IS ALREADY BELIEVED TO BE CORRECT
 ===============================================================================
 
 The following points are considered strong working assumptions:
@@ -666,16 +719,18 @@ The following points are considered strong working assumptions:
 - 494B -> 3677 is the central intermediate dispatcher
 - 3677 now has a mapped 4-direction kernel table
 - 3868 acts as a more generic/aligned follow-up handler
+- the special mode has a real entry/transition phase before full dispatcher use
+- 61E0 belongs primarily to that transition/recentering phase
 
 ===============================================================================
-24. WHAT IS STILL UNCERTAIN
+25. WHAT IS STILL UNCERTAIN
 ===============================================================================
 
 The following points still require more reverse engineering:
 
 - the exact meaning of the lower bits of 605F besides bit 7
 - the exact meaning of Y & 0x0F == 0x07
-- the exact semantic role of 61E0
+- the exact conditions under which the game chooses 61E0 = 01 versus 61E0 = 02
 - the exact internal code inside 3677, if a literal ROM-level reproduction is desired
 - the exact moment and conditions under which 3868 takes over in every possible
   case, especially right
@@ -689,7 +744,7 @@ The following points still require more reverse engineering:
   current conservative implementation
 
 ===============================================================================
-25. DESIGN PHILOSOPHY
+26. DESIGN PHILOSOPHY
 ===============================================================================
 
 The goal is not to implement a modern clean-room movement system first and then
@@ -708,7 +763,7 @@ The current codebase now reflects that philosophy better than before:
 - dynamic rotating-gate legality is explicit
 
 ===============================================================================
-26. SUMMARY
+27. SUMMARY
 ===============================================================================
 
 The movement system is no longer best described as:
@@ -731,7 +786,8 @@ turn window.
 
 It is now mainly about:
 - reproducing the interactive special post-commit turn logic faithfully
-- and refining the remaining uncertain low-level details when needed.
+- reproducing the transition phase before fully active special mode
+- refining the remaining uncertain low-level details when needed
 
 
 ===============================================================================
@@ -751,10 +807,12 @@ CORE PLAYER UPDATE
 ===============================================================================
 
 - 0x35FF : main player movement / direction-handling path
-- 0x380A : consumes the prepared DE pair from stack and enters commit logic
+- 0x380A : consumes the prepared DE pair from stack and enters the commit/transition path
+- 0x3810 : clears 605F bit 7 inside the commit/transition path
 - 0x381E : commit / recommit gate just before the effective direction write
 - 0x382C : writes the effective direction byte to 0x6026
-- 0x388C : post-step movement / target-handling path
+- 0x388C : re-enters the post-commit path and sets 605F bit 7
+- 0x3891 : observed write site for 0x89 to 0x605F during entry into special mode
 - 0x3A99 : player-related update path using current dir/x/y
 
 ===============================================================================
@@ -767,11 +825,11 @@ INPUT AND CURRENT PLAYER STATE
 - 0x6027 : player X position
 - 0x6028 : player Y position
 - 0x605F : internal movement/special-mode state byte
-		   (bit 7 now strongly linked to entry into the special turn mode)
+		   (bit 7 strongly linked to entry into the special turn mode)
 - 0x6196 : runtime target X
 - 0x6197 : runtime target Y
 - 0x6198 : current special direction
-- 0x61E0 : auxiliary turn/correction flag
+- 0x61E0 : transition/recentering selector
 - 0x9000 / 0x9001 : hardware input ports used by joystick / status logic
 
 ===============================================================================
@@ -806,12 +864,15 @@ SPECIAL INTERACTIVE TURN MODE
 ===============================================================================
 
 State/control routines:
-- 0x3810 : writes to 0x605F in the commit/special-flow path
-- 0x3891 : writes 0x89 to 0x605F during entry into the special mode
 - 0x36C1 : simpler producer path before / outside the full special dispatcher
 - 0x36C6 : clears 0x61E0 on the 0x36C1 path
+- 0x366F : PUSH DE on the Y-aligned special path
 - 0x3754 : writes 0x61E0 = 0x02 in observed turn-handling sequences
 - 0x37EF : writes 0x61E0 = 0x01 in observed aligned follow-up sequences
+- 0x388C : activates the special-mode phase after the initial commit/recommit
+- 0x3891 : observed write site setting 0x605F to 0x89
+- 0x4943 : PUSH DE on the X-aligned special path
+- 0x4948 : clears 0x61E0 again during aligned/simplified handoff
 
 Prepared direction package / commit helpers:
 - 0x36C1 : PUSH DE on the simpler path
