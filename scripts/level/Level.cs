@@ -2,9 +2,9 @@ using Godot;
 using System.Collections.Generic;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
+using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
-using LadyBug.Gameplay.Collectibles;
 
 /// <summary>
 /// Represents one playable level of the game.
@@ -14,27 +14,24 @@ using LadyBug.Gameplay.Collectibles;
 /// loading the logical maze,
 /// owning the runtime rotating-gate system,
 /// exposing playfield step evaluation,
+/// spawning the base flower layout,
 /// and converting between logical cells, arcade-pixel gameplay coordinates,
 /// gate pivots, and Godot scene coordinates.
-///
+/// 
 /// The level intentionally separates:
 /// - logical maze data used for gameplay
 /// - dynamic rotating-gate state used as a movement overlay
+/// - base collectible layout used to spawn flowers
 /// - visual rendering provided by the maze background and placed gate views
-///
+/// 
 /// The player controller uses gameplay anchors in arcade pixels,
 /// while sprite-specific visual offsets are handled separately by the actor.
 /// </remarks>
 [Tool]
 public partial class Level : Node2D
 {
-    private static readonly PackedScene CollectibleScene =
-        GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
-
-    private Node2D _collectiblesRoot = default!;
-    
-    private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
     private const string MazeJsonPath = "res://data/maze.json";
+    private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
 
     // --- Constants ----------------------------------------------------------
 
@@ -42,9 +39,14 @@ public partial class Level : Node2D
     private const int RenderScale = 4;
     private static readonly Vector2I GameplayAnchorArcade = new(8, 7);
 
+    private static readonly PackedScene CollectibleScene =
+        GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
+
     // --- Scene References ---------------------------------------------------
 
     private Node2D _gatesNode = null!;
+    private Node2D _collectiblesRoot = null!;
+
     private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
 
     // --- Exported Properties ------------------------------------------------
@@ -52,7 +54,7 @@ public partial class Level : Node2D
     private Vector2I _playerStartCell = Vector2I.Zero;
 
     /// <summary>
-    /// Logical start cell used to place the player.
+    /// Gets or sets the logical start cell used to place the player.
     /// </summary>
     /// <remarks>
     /// In the editor, changing this property immediately updates the previewed
@@ -97,19 +99,14 @@ public partial class Level : Node2D
     /// authored definitions.
     ///
     /// At runtime, the logical maze is loaded, the runtime gate system is built
-    /// from the gate instances already placed under the Gates node, and then the
-    /// player controller is initialized.
+    /// from the gate instances already placed under the Gates node, the base
+    /// flower layout is loaded, and then the player controller is initialized.
     /// </remarks>
     public override void _Ready()
     {
-        _collectiblesRoot = GetNode<Node2D>("Collectibles");
-        
-        CollectibleLayoutFile collectibleLayout =
-            CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
-        
-        SpawnInitialFlowers(collectibleLayout);
-        
         _gatesNode = GetNode<Node2D>("Gates");
+        _collectiblesRoot = GetNode<Node2D>("Collectibles");
+
         CachePlacedGateViews();
 
         if (Engine.IsEditorHint())
@@ -120,13 +117,62 @@ public partial class Level : Node2D
         }
 
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
+
+        CollectibleLayoutFile collectibleLayout =
+            CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
+
         RefreshPlacedGateViewsFromDefinitions();
         _gateSystem = BuildGateSystemFromPlacedViews();
         SyncGateViewsFromRuntimeState();
 
+        SpawnInitialFlowers(collectibleLayout);
+
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
             player.Initialize(this);
+    }
+
+    // --- Collectibles -------------------------------------------------------
+
+    /// <summary>
+    /// Spawns the base flower layout for the current level.
+    /// </summary>
+    /// <param name="layout">
+    /// The deserialized collectible layout that defines which logical cells
+    /// start with one flower.
+    /// </param>
+    /// <remarks>
+    /// This method currently handles only the initial flower mask.
+    /// Runtime replacements such as hearts, letters, and skulls should be
+    /// applied later on top of this base layout.
+    /// </remarks>
+    private void SpawnInitialFlowers(CollectibleLayoutFile layout)
+    {
+        for (int y = 0; y < layout.Height; y++)
+        {
+            for (int x = 0; x < layout.Width; x++)
+            {
+                if (layout.Cells[y][x] != 1)
+                {
+                    continue;
+                }
+
+                SpawnFlower(new Vector2I(x, y));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Spawns one flower collectible at the given logical maze cell.
+    /// </summary>
+    /// <param name="cell">The logical maze cell where the flower should appear.</param>
+    private void SpawnFlower(Vector2I cell)
+    {
+        var collectible = CollectibleScene.Instantiate<Collectible>();
+        _collectiblesRoot.AddChild(collectible);
+
+        collectible.Position = LogicalCellToScenePosition(cell);
+        collectible.SetFrame(1);
     }
 
     // --- Placed Gate Authoring ---------------------------------------------
@@ -202,16 +248,12 @@ public partial class Level : Node2D
     /// <param name="gateId">Identifier of the gate to push.</param>
     /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
     /// <param name="contactHalf">Half of the gate that is being pushed.</param>
-    /// <returns>
-    /// True if the push is accepted; otherwise false.
-    /// </returns>
+    /// <returns>True if the push is accepted; otherwise false.</returns>
     public bool TryPushGate(int gateId, Vector2I moveDir, GateContactHalf contactHalf)
     {
         bool pushed = _gateSystem.TryPush(gateId, moveDir, contactHalf);
-
         if (pushed)
             SyncGateViewsFromRuntimeState();
-
         return pushed;
     }
 
@@ -306,7 +348,6 @@ public partial class Level : Node2D
             return false;
 
         Vector2I currentCell = ArcadePixelToLogicalCell(arcadePixelPos);
-
         Vector2I probeStart = arcadePixelPos + collisionLead;
         Vector2I probeEnd = arcadePixelPos + direction + collisionLead;
 
@@ -409,8 +450,7 @@ public partial class Level : Node2D
     /// </summary>
     private static bool CrossesCoordinate(int start, int end, int target)
     {
-        return (start <= target && end >= target) ||
-               (start >= target && end <= target);
+        return (start <= target && end >= target) || (start >= target && end <= target);
     }
 
     /// <summary>
@@ -522,8 +562,7 @@ public partial class Level : Node2D
         gateId = -1;
         contactHalf = GateContactHalf.Left;
 
-        if (_gateSystem.TryGetGateByPivot(pivot, out RotatingGateRuntimeState gate) &&
-            gate.BlocksMovement(direction))
+        if (_gateSystem.TryGetGateByPivot(pivot, out RotatingGateRuntimeState gate) && gate.BlocksMovement(direction))
         {
             gateId = gate.Id;
             contactHalf = candidateHalf;
@@ -621,32 +660,7 @@ public partial class Level : Node2D
 
         return quotient;
     }
-    
-    private void SpawnInitialFlowers(CollectibleLayoutFile layout)
-    {
-        for (int y = 0; y < layout.Height; y++)
-        {
-            for (int x = 0; x < layout.Width; x++)
-            {
-                if (layout.Cells[y][x] != 1)
-                {
-                    continue;
-                }
 
-                SpawnFlower(new Vector2I(x, y));
-            }
-        }
-    }
-    
-    private void SpawnFlower(Vector2I cell)
-    {
-        var collectible = CollectibleScene.Instantiate<Collectible>();
-        _collectiblesRoot.AddChild(collectible);
-
-        collectible.Position = LogicalCellToScenePosition(cell);
-        collectible.SetFrame(1);
-    }
-    
     // --- Editor Preview -----------------------------------------------------
 
     /// <summary>
@@ -656,7 +670,6 @@ public partial class Level : Node2D
     {
         Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
         Node2D? player = GetNodeOrNull<Node2D>("Player");
-
         if (maze == null || player == null)
             return;
 
