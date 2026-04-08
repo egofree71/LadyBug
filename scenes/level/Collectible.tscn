@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://cimip8ng5ov82"]
+
+[ext_resource type="Texture2D" uid="uid://dscia0gvjqd7u" path="res://assets/sprites/props/collectibles.png" id="1_qrdq6"]
+[ext_resource type="Script" uid="uid://2ebxlsl2ydam" path="res://scripts/level/Collectible.cs" id="1_tku1g"]
+
+[node name="Collectible" type="Node2D" unique_id=1990701343]
+script = ExtResource("1_tku1g")
+
+[node name="MainSprite" type="Sprite2D" parent="." unique_id=1890040868]
+texture_filter = 1
+texture = ExtResource("1_qrdq6")
+centered = false
+offset = Vector2(-16, -4)
+hframes = 14
+frame = 1

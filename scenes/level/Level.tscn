@@ -15,6 +15,8 @@ texture = ExtResource("2_cne4c")
 centered = false
 offset = Vector2(16, 24)
 
+[node name="Collectibles" type="Node2D" parent="." unique_id=244134799]
+
 [node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
 texture_filter = 1
 position = Vector2(352, 540)

@@ -4,6 +4,7 @@ using LadyBug.Actors;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay.Collectibles;
 
 /// <summary>
 /// Represents one playable level of the game.
@@ -27,6 +28,12 @@ using LadyBug.Gameplay.Maze;
 [Tool]
 public partial class Level : Node2D
 {
+    private static readonly PackedScene CollectibleScene =
+        GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
+
+    private Node2D _collectiblesRoot = default!;
+    
+    private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
     private const string MazeJsonPath = "res://data/maze.json";
 
     // --- Constants ----------------------------------------------------------
@@ -95,6 +102,13 @@ public partial class Level : Node2D
     /// </remarks>
     public override void _Ready()
     {
+        _collectiblesRoot = GetNode<Node2D>("Collectibles");
+        
+        CollectibleLayoutFile collectibleLayout =
+            CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
+        
+        SpawnInitialFlowers(collectibleLayout);
+        
         _gatesNode = GetNode<Node2D>("Gates");
         CachePlacedGateViews();
 
@@ -607,7 +621,32 @@ public partial class Level : Node2D
 
         return quotient;
     }
+    
+    private void SpawnInitialFlowers(CollectibleLayoutFile layout)
+    {
+        for (int y = 0; y < layout.Height; y++)
+        {
+            for (int x = 0; x < layout.Width; x++)
+            {
+                if (layout.Cells[y][x] != 1)
+                {
+                    continue;
+                }
 
+                SpawnFlower(new Vector2I(x, y));
+            }
+        }
+    }
+    
+    private void SpawnFlower(Vector2I cell)
+    {
+        var collectible = CollectibleScene.Instantiate<Collectible>();
+        _collectiblesRoot.AddChild(collectible);
+
+        collectible.Position = LogicalCellToScenePosition(cell);
+        collectible.SetFrame(1);
+    }
+    
     // --- Editor Preview -----------------------------------------------------
 
     /// <summary>

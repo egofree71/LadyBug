@@ -445,9 +445,9 @@ Level / Maze integration:
 
 In practice, long-term movement legality is now intended to remain:
 
-    static maze legality
-    + lane / alignment legality
-    + dynamic rotating gate legality
+	static maze legality
+	+ lane / alignment legality
+	+ dynamic rotating gate legality
 
 What still remains for future work is not the existence of the gate system,
 but its continued fidelity refinement and future enemy interaction.
