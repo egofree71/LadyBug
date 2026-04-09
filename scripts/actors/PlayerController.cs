@@ -22,10 +22,10 @@ public partial class PlayerController : Node2D
     private bool _debugDrawAnchor = false;
 
     // Animated sprite that visually represents the player.
-    private AnimatedSprite2D _animatedSprite;
+    private AnimatedSprite2D _animatedSprite = null!;
 
     // Owning level. Provides coordinate conversion helpers.
-    private Level _level;
+    private Level _level = null!;
 
     // Last-pressed directional input state.
     private readonly PlayerInputState _inputState = new();
@@ -106,6 +106,14 @@ public partial class PlayerController : Node2D
     /// <summary>
     /// Executes exactly one controller tick.
     /// </summary>
+    /// <remarks>
+    /// Collectible consumption is evaluated in two stages:
+    /// - first at the exact snapped anchor reached during a perpendicular turn
+    /// - then across the final movement segment of the tick
+    ///
+    /// This allows flowers to be consumed reliably in turns without making them
+    /// disappear too early when entering the next logical cell.
+    /// </remarks>
     private void RunOneTick()
     {
         _level.AdvanceGateSimulationOneTick();
@@ -120,7 +128,86 @@ public partial class PlayerController : Node2D
 
         PlayerMovementStepResult stepResult = _movementMotor.Step(wantedDir);
 
-        _ = stepResult;
+        if (!stepResult.Moved || stepResult.CurrentDirection == Vector2I.Zero)
+        {
+            return;
+        }
+
+        if (stepResult.SnappedArcadePixelPos is Vector2I snappedPos)
+        {
+            TryConsumeCollectibleAtExactAnchor(snappedPos);
+        }
+
+        Vector2I segmentStart = stepResult.SnappedArcadePixelPos ?? stepResult.PreviousArcadePixelPos;
+
+        TryConsumeCollectibleOnAnchorCrossing(
+            segmentStart,
+            stepResult.CurrentArcadePixelPos,
+            stepResult.CurrentDirection);
+    }
+
+    /// <summary>
+    /// Tries to consume one collectible if the given gameplay position matches
+    /// exactly the anchor of one logical cell.
+    /// </summary>
+    /// <remarks>
+    /// This is mainly used for the intermediate snapped position reached during
+    /// some perpendicular turns.
+    /// </remarks>
+    private void TryConsumeCollectibleAtExactAnchor(Vector2I arcadePixelPos)
+    {
+        Vector2I cell = _level.ArcadePixelToLogicalCell(arcadePixelPos);
+        Vector2I anchor = _level.LogicalCellToArcadePixel(cell);
+
+        if (arcadePixelPos == anchor)
+        {
+            _level.TryConsumeCollectible(cell);
+        }
+    }
+
+    /// <summary>
+    /// Tries to consume one collectible when the final movement segment of the
+    /// tick crosses the anchor of the destination logical cell.
+    /// </summary>
+    private void TryConsumeCollectibleOnAnchorCrossing(
+        Vector2I startArcadePixelPos,
+        Vector2I endArcadePixelPos,
+        Vector2I moveDir)
+    {
+        Vector2I currentCell = _level.ArcadePixelToLogicalCell(endArcadePixelPos);
+        Vector2I currentAnchor = _level.LogicalCellToArcadePixel(currentCell);
+
+        bool crossedAnchor = false;
+
+        if (moveDir.X > 0)
+        {
+            crossedAnchor =
+                startArcadePixelPos.X < currentAnchor.X &&
+                endArcadePixelPos.X >= currentAnchor.X;
+        }
+        else if (moveDir.X < 0)
+        {
+            crossedAnchor =
+                startArcadePixelPos.X > currentAnchor.X &&
+                endArcadePixelPos.X <= currentAnchor.X;
+        }
+        else if (moveDir.Y > 0)
+        {
+            crossedAnchor =
+                startArcadePixelPos.Y < currentAnchor.Y &&
+                endArcadePixelPos.Y >= currentAnchor.Y;
+        }
+        else if (moveDir.Y < 0)
+        {
+            crossedAnchor =
+                startArcadePixelPos.Y > currentAnchor.Y &&
+                endArcadePixelPos.Y <= currentAnchor.Y;
+        }
+
+        if (crossedAnchor)
+        {
+            _level.TryConsumeCollectible(currentCell);
+        }
     }
 
     /// <summary>

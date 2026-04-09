@@ -73,11 +73,12 @@ public sealed class PlayerMovementMotor
     {
         Vector2I previousPixelPos = _arcadePixelPos;
         Vector2I previousDirection = _currentDir;
+        Vector2I? snappedArcadePixelPos = null;
 
         if (wantedDir == Vector2I.Zero)
         {
             _currentDir = Vector2I.Zero;
-            return BuildStepResult(previousPixelPos, previousDirection);
+            return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
         }
 
         if (_currentDir == Vector2I.Zero)
@@ -85,7 +86,14 @@ public sealed class PlayerMovementMotor
             Vector2I originalPixelPos = _arcadePixelPos;
 
             if (!CanStartOrResumeInDirection(wantedDir))
-                return BuildStepResult(previousPixelPos, previousDirection);
+            {
+                return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
+            }
+
+            if (_arcadePixelPos != originalPixelPos)
+            {
+                snappedArcadePixelPos = _arcadePixelPos;
+            }
 
             PlayfieldStepResult previewStep = EvaluateOnePixelStep(wantedDir);
             previewStep = ResolveGatePushIfNeeded(previewStep, wantedDir);
@@ -93,7 +101,7 @@ public sealed class PlayerMovementMotor
             if (!previewStep.Allowed)
             {
                 _arcadePixelPos = originalPixelPos;
-                return BuildStepResult(previousPixelPos, previousDirection);
+                return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
             }
 
             _currentDir = wantedDir;
@@ -112,6 +120,11 @@ public sealed class PlayerMovementMotor
                     Vector2I originalPixelPos = _arcadePixelPos;
                     TrySnapToRailForDirection(wantedDir);
 
+                    if (_arcadePixelPos != originalPixelPos)
+                    {
+                        snappedArcadePixelPos = _arcadePixelPos;
+                    }
+
                     PlayfieldStepResult turnPreview = EvaluateOnePixelStep(wantedDir);
                     turnPreview = ResolveGatePushIfNeeded(turnPreview, wantedDir);
 
@@ -124,7 +137,7 @@ public sealed class PlayerMovementMotor
                     {
                         _arcadePixelPos = originalPixelPos;
                         _currentDir = Vector2I.Zero;
-                        return BuildStepResult(previousPixelPos, previousDirection);
+                        return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
                     }
                 }
                 else
@@ -145,13 +158,13 @@ public sealed class PlayerMovementMotor
         if (!step.Allowed)
         {
             _currentDir = Vector2I.Zero;
-            return BuildStepResult(previousPixelPos, previousDirection);
+            return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
         }
 
         _arcadePixelPos += _currentDir;
         RecenterOnCurrentRail();
 
-        return BuildStepResult(previousPixelPos, previousDirection);
+        return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
     }
 
     /// <summary>
@@ -196,20 +209,6 @@ public sealed class PlayerMovementMotor
     private bool CanAttemptPerpendicularTurnNow(Vector2I wantedDir)
     {
         return CanSnapToRailForDirection(wantedDir);
-    }
-
-    /// <summary>
-    /// Returns whether the gameplay position exactly matches the logical anchor
-    /// of its current cell.
-    /// </summary>
-    /// <returns>
-    /// True when the player is exactly on the current cell anchor; otherwise false.
-    /// </returns>
-    private bool IsExactlyOnLogicalCellAnchor()
-    {
-        Vector2I logicalCell = _level.ArcadePixelToLogicalCell(_arcadePixelPos);
-        Vector2I anchorPixel = _level.LogicalCellToArcadePixel(logicalCell);
-        return _arcadePixelPos == anchorPixel;
     }
 
     /// <summary>
@@ -368,10 +367,15 @@ public sealed class PlayerMovementMotor
     /// </summary>
     /// <param name="previousPixelPos">Gameplay position before the tick.</param>
     /// <param name="previousDirection">Effective movement direction before the tick.</param>
+    /// <param name="snappedArcadePixelPos">
+    /// Intermediate gameplay position reached by one rail snap during the tick,
+    /// or <see langword="null"/> when no snap occurred.
+    /// </param>
     /// <returns>A structured result describing the changes of the tick.</returns>
     private PlayerMovementStepResult BuildStepResult(
         Vector2I previousPixelPos,
-        Vector2I previousDirection)
+        Vector2I previousDirection,
+        Vector2I? snappedArcadePixelPos)
     {
         bool moved = _arcadePixelPos != previousPixelPos;
         bool directionChanged = _currentDir != previousDirection;
@@ -383,6 +387,7 @@ public sealed class PlayerMovementMotor
             stopped,
             previousPixelPos,
             _arcadePixelPos,
+            snappedArcadePixelPos,
             previousDirection,
             _currentDir,
             _offsetDir);

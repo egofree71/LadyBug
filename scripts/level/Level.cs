@@ -49,6 +49,9 @@ public partial class Level : Node2D
 
     private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
 
+    // Lookup of runtime collectible views by logical cell.
+    private readonly Dictionary<Vector2I, Collectible> _collectiblesByCell = new();
+
     // --- Exported Properties ------------------------------------------------
 
     private Vector2I _playerStartCell = Vector2I.Zero;
@@ -148,6 +151,8 @@ public partial class Level : Node2D
     /// </remarks>
     private void SpawnInitialFlowers(CollectibleLayoutFile layout)
     {
+        _collectiblesByCell.Clear();
+
         for (int y = 0; y < layout.Height; y++)
         {
             for (int x = 0; x < layout.Width; x++)
@@ -173,6 +178,41 @@ public partial class Level : Node2D
 
         collectible.Position = LogicalCellToScenePosition(cell);
         collectible.ShowFlower();
+
+        _collectiblesByCell[cell] = collectible;
+    }
+
+    /// <summary>
+    /// Removes the collectible currently present at the given logical cell.
+    /// </summary>
+    /// <param name="cell">The logical cell to clear.</param>
+    /// <returns>
+    /// <see langword="true"/> if one collectible was found and removed;
+    /// otherwise, <see langword="false"/>.
+    /// </returns>
+    private bool RemoveCollectible(Vector2I cell)
+    {
+        if (!_collectiblesByCell.TryGetValue(cell, out Collectible? collectible))
+        {
+            return false;
+        }
+
+        _collectiblesByCell.Remove(cell);
+        collectible.QueueFree();
+        return true;
+    }
+
+    /// <summary>
+    /// Tries to consume the collectible currently present at the given logical cell.
+    /// </summary>
+    /// <param name="cell">The logical cell to evaluate.</param>
+    /// <returns>
+    /// <see langword="true"/> if one collectible was found and consumed;
+    /// otherwise, <see langword="false"/>.
+    /// </returns>
+    public bool TryConsumeCollectible(Vector2I cell)
+    {
+        return RemoveCollectible(cell);
     }
 
     // --- Placed Gate Authoring ---------------------------------------------
