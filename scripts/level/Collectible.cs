@@ -1,7 +1,12 @@
 using Godot;
 
+/// <summary>
+/// Represents one collectible view placed in the level scene.
+/// </summary>
 public partial class Collectible : Node2D
 {
+    private const int FlowerFrame = 1;
+
     private Sprite2D _mainSprite = default!;
 
     public override void _Ready()
@@ -9,8 +14,11 @@ public partial class Collectible : Node2D
         _mainSprite = GetNode<Sprite2D>("MainSprite");
     }
 
-    public void SetFrame(int frame)
+    /// <summary>
+    /// Displays the flower visual.
+    /// </summary>
+    public void ShowFlower()
     {
-        _mainSprite.Frame = frame;
+        _mainSprite.Frame = FlowerFrame;
     }
 }

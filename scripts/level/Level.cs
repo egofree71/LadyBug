@@ -172,7 +172,7 @@ public partial class Level : Node2D
         _collectiblesRoot.AddChild(collectible);
 
         collectible.Position = LogicalCellToScenePosition(cell);
-        collectible.SetFrame(1);
+        collectible.ShowFlower();
     }
 
     // --- Placed Gate Authoring ---------------------------------------------
