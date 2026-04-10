@@ -30,6 +30,11 @@ using LadyBug.Gameplay.Maze;
 [Tool]
 public partial class Level : Node2D
 {
+    [Export(PropertyHint.Range, "1,999,1")]
+    private int _levelNumber = 1;
+
+    private readonly RandomNumberGenerator _rng = new();
+    
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
 
@@ -130,6 +135,13 @@ public partial class Level : Node2D
 
         SpawnInitialFlowers(collectibleLayout);
 
+        _rng.Randomize();
+
+        CollectibleSpawnPlan spawnPlan =
+            CollectibleSpawnPlanner.Generate(_levelNumber, _rng);
+
+        ApplySpecialCollectibleSpawnPlan(spawnPlan);
+        
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
             player.Initialize(this);
@@ -215,6 +227,57 @@ public partial class Level : Node2D
         return RemoveCollectible(cell);
     }
 
+    /// <summary>
+    /// Applies the generated start-of-level special collectible plan on top of the
+    /// already spawned base flower layout.
+    /// </summary>
+    /// <param name="spawnPlan">Generated placements for letters, hearts, and skulls.</param>
+    private void ApplySpecialCollectibleSpawnPlan(CollectibleSpawnPlan spawnPlan)
+    {
+        foreach (CollectiblePlacement placement in spawnPlan.Placements)
+        {
+            if (!_collectiblesByCell.TryGetValue(placement.Cell, out Collectible? collectible))
+            {
+                GD.PushWarning(
+                    $"No base collectible found at logical cell {placement.Cell} " +
+                    $"for special collectible placement.");
+                continue;
+            }
+
+            ApplyCollectiblePlacement(collectible, placement);
+        }
+    }
+
+    /// <summary>
+    /// Applies one generated collectible placement to one existing collectible view.
+    /// </summary>
+    /// <param name="collectible">Existing collectible view at the target cell.</param>
+    /// <param name="placement">Generated special collectible placement.</param>
+    private static void ApplyCollectiblePlacement(
+        Collectible collectible,
+        CollectiblePlacement placement)
+    {
+        switch (placement.Kind)
+        {
+            case CollectibleKind.Heart:
+                collectible.ShowHeartRed();
+                break;
+
+            case CollectibleKind.Letter:
+                collectible.ShowLetterRed(placement.Letter);
+                break;
+
+            case CollectibleKind.Skull:
+                collectible.ShowSkull();
+                break;
+
+            case CollectibleKind.Flower:
+            default:
+                collectible.ShowFlower();
+                break;
+        }
+    }
+    
     // --- Placed Gate Authoring ---------------------------------------------
 
     /// <summary>

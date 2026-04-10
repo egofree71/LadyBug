@@ -13,3 +13,11 @@ centered = false
 offset = Vector2(-16, -4)
 hframes = 14
 frame = 1
+
+[node name="OverlaySprite" type="Sprite2D" parent="." unique_id=1756355267]
+texture_filter = 1
+position = Vector2(-14, -4)
+texture = ExtResource("1_qrdq6")
+centered = false
+hframes = 14
+frame = 3
