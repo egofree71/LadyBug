@@ -18,6 +18,10 @@ current_implementation.md.
 - current_implementation.md = what already exists in the codebase now
 - architecture.md = the global target structure of the whole game
 
+This document should stay more stable than current_implementation.md.
+It may evolve when reverse-engineering results change the global structure,
+but it is not intended to be updated for every implementation detail.
+
 ===============================================================================
 1. ARCHITECTURE GOAL
 ===============================================================================
@@ -78,7 +82,7 @@ The final project architecture is intended to have these major layers:
 5) Logical Gameplay Systems
    - MazeGrid
    - dynamic gate state
-   - item / pickup rules
+   - collectible placement / pickup rules
    - score / bonus logic
    - enemy target / movement logic
 
@@ -110,6 +114,7 @@ assets/
 
 data/
 ├─ maze.json
+├─ collectibles_layout.json
 ├─ stage_config.json
 ├─ items.json
 └─ high_scores.json
@@ -130,7 +135,8 @@ scenes/
 │  └─ HighScoreScreen.tscn
 ├─ level/
 │  ├─ Level.tscn
-│  └─ RotatingGate.tscn
+│  ├─ RotatingGate.tscn
+│  └─ Collectible.tscn
 ├─ player/
 │  └─ Player.tscn
 ├─ enemies/
@@ -139,9 +145,7 @@ scenes/
 │  ├─ Bulldozer.tscn
 │  └─ OtherEnemyVariants.tscn
 ├─ props/
-│  ├─ Collectible.tscn
-│  ├─ BonusVegetable.tscn
-│  └─ BonusLetter.tscn
+│  └─ BonusVegetable.tscn
 └─ ui/
    └─ Hud.tscn
 
@@ -154,7 +158,8 @@ scripts/
 │  └─ HighScoreScreen.cs
 ├─ level/
 │  ├─ Level.cs
-│  └─ RotatingGateView.cs
+│  ├─ RotatingGateView.cs
+│  └─ Collectible.cs
 ├─ actors/
 │  ├─ PlayerController.cs
 │  ├─ PlayerInputState.cs
@@ -182,11 +187,17 @@ scripts/
 │  │  ├─ GateTurningVisual.cs
 │  │  ├─ GateVisualState.cs
 │  │  └─ RotatingGateRuntimeState.cs
-│  ├─ items/
-│  │  ├─ CollectibleController.cs
-│  │  ├─ BonusVegetableController.cs
-│  │  ├─ BonusLetterController.cs
-│  │  └─ ItemSpawnLogic.cs
+│  ├─ collectibles/
+│  │  ├─ CollectibleKind.cs
+│  │  ├─ CollectibleColor.cs
+│  │  ├─ LetterKind.cs
+│  │  ├─ CollectibleAnchorFamily.cs
+│  │  ├─ CollectibleAnchorFamilies.cs
+│  │  ├─ CollectibleLayoutFile.cs
+│  │  ├─ CollectibleLoader.cs
+│  │  ├─ CollectiblePlacement.cs
+│  │  ├─ CollectibleSpawnPlan.cs
+│  │  └─ CollectibleSpawnPlanner.cs
 │  ├─ scoring/
 │  │  ├─ ScoreService.cs
 │  │  ├─ BonusRules.cs
@@ -335,10 +346,9 @@ Level (Node2D)
 ├─ MazeBackground (Sprite2D)
 ├─ Gates (Node2D)
 │  └─ RotatingGate instances
-├─ Items (Node2D)
-│  ├─ Collectible instances
-│  ├─ BonusVegetable instances
-│  └─ BonusLetter instances
+├─ Collectibles (Node2D)
+│  ├─ flower / heart / letter / skull instances
+│  └─ future bonus item instances when useful
 ├─ Actors (Node2D)
 │  ├─ Player
 │  └─ Enemy instances
@@ -349,6 +359,8 @@ Notes:
 - moving / interactive objects should remain separate from the static background
 - gate view instances can be pre-placed in Level.tscn and converted into a
   separate runtime gate system during level initialization
+- the current collectible direction is to spawn a base flower layout first,
+  then replace selected cells with special collectibles
 
 ===============================================================================
 7. PLAYER ARCHITECTURE
@@ -445,9 +457,9 @@ Level / Maze integration:
 
 In practice, long-term movement legality is now intended to remain:
 
-	static maze legality
-	+ lane / alignment legality
-	+ dynamic rotating gate legality
+    static maze legality
+    + lane / alignment legality
+    + dynamic rotating gate legality
 
 What still remains for future work is not the existence of the gate system,
 but its continued fidelity refinement and future enemy interaction.
@@ -456,33 +468,48 @@ but its continued fidelity refinement and future enemy interaction.
 10. ITEM / COLLECTIBLE ARCHITECTURE
 ===============================================================================
 
-The final game should include several categories of items and pickups.
+The game now has an initial collectible foundation, but not yet the final
+collectible gameplay architecture.
 
-Expected item families:
-- standard collectibles
-- flowers / hearts / letters if relevant to game behavior
+Current direction:
+- a base flower layout is loaded from data/collectibles_layout.json
+- the flower layout is represented as one collectible or empty cell per logical
+  maze cell
+- the level spawns a visible flower field from that base layout
+- a separate start-of-level planner selects the initial letters, hearts, and
+  skulls using anchor families and random draws
+- selected special collectibles replace some of the already spawned flowers
+
+This direction keeps a useful separation between:
+- static base layout data
+- start-of-level special placement logic
+- future pickup / scoring / color-cycle gameplay logic
+
+Expected long-term item families:
+- flowers
+- hearts
+- letters
+- skulls
 - bonus vegetables
-- special score items
+- other future score-related pickups if needed
 
 Expected responsibilities:
 - placement / visibility
 - pickup rules
 - score contribution
-- bonus progression
+- letter / bonus progression
+- color-cycle state where applicable
 
-Possible architecture:
+Likely long-term architecture:
+- base collectible placement data
+- collectible spawn planning
+- collectible runtime state
+- pickup / scoring rules
+- bonus item appearance logic
 
-CollectibleController
-- base logic for common collectible behavior
-
-BonusVegetableController
-- logic specific to bonus vegetable appearance / lifetime / score
-
-BonusLetterController
-- logic specific to letter collection or bonus progression
-
-ItemSpawnLogic
-- stage-specific appearance and timing rules
+Important:
+The current collectible system should remain driven by logical maze cells,
+not by free-form scene-space placement.
 
 ===============================================================================
 11. HUD / UI ARCHITECTURE
@@ -525,11 +552,13 @@ into a giant all-purpose gameplay object.
 In other words:
 - MazeGrid = static maze truth
 - rotating gates = dynamic movement overlay
+- collectibles = level-owned runtime objects on top of the board
 - actors = movement clients
 - Level = runtime coordinator
 
 Important:
 maze.json is intended to remain focused on static maze data.
+Collectible layout data should remain separate from static wall data.
 Rotating gates can be authored in the level scene while still being converted
 into a separate runtime system at initialization.
 
@@ -564,9 +593,13 @@ The following part of the target architecture is already implemented now:
 - Main scene
 - Level scene
 - RotatingGate scene
+- Collectible scene
 - Player scene
 - logical maze loading from JSON
+- base collectible layout loading from JSON
 - MazeGrid / MazeCell / WallFlags / MazeLoader
+- collectible layout loading and flower field spawning
+- start-of-level special collectible placement planning
 - PlayerController
 - PlayerInputState
 - PlayerMovementMotor
@@ -602,7 +635,9 @@ The largest remaining systems are:
 - EnemyController and enemy runtime logic
 - enemy AI / movement helpers
 - enemy interaction with rotating gates
-- collectibles / letters / bonus vegetables
+- collectible gameplay rules and pickup consequences
+- collectible color cycling
+- bonus vegetables
 - score service and high-score persistence
 - gameplay HUD
 - stage progression / stage flow controller
@@ -639,9 +674,11 @@ It should ultimately contain:
 - scoring and high scores
 - HUD and other UI
 
-The project already has a solid movement, maze, and rotating-gate foundation.
+The project already has a solid movement, maze, rotating-gate, and early
+collectible foundation.
+
 The next major architectural expansions should now happen around:
 - alignment / turn-window fidelity refinement
 - enemies
 - session / screen flow
-- collectibles / scoring systems
+- collectible gameplay rules and scoring systems
