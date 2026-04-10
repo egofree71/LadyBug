@@ -1,10 +1,6 @@
-===============================================================================
-ENEMY MOVEMENT
-===============================================================================
+# Enemy Movement
 
-===============================================================================
-GOAL
-===============================================================================
+## Goal
 
 This document summarizes what we currently know about enemy movement in the arcade
 game Lady Bug, based on reverse engineering of:
@@ -16,11 +12,9 @@ game Lady Bug, based on reverse engineering of:
 The goal is not to emulate the Z80 instruction by instruction, but to reconstruct
 the gameplay logic as faithfully as possible in Godot 4.6.1 with C#.
 
-===============================================================================
-CONFIDENCE LEVELS
-===============================================================================
+## Confidence Levels
 
-This document uses three confidence levels:
+**This document uses three confidence levels:**
 
 - Confirmed
   Backed directly by code paths we analyzed.
@@ -31,40 +25,36 @@ This document uses three confidence levels:
 - Open
   Still partially unclear and should be treated carefully during implementation.
 
-===============================================================================
-HIGH-LEVEL OVERVIEW
-===============================================================================
+## High-Level Overview
 
 Enemy movement in Lady Bug is not purely random and not a permanent direct chase.
 
-It combines:
+**It combines:**
 
 - a base preferred direction
 - local validation against the maze and doors
 - temporary BFS-guided chase phases toward Lady Bug
 - forced corrections in some door-related situations
 
-So the system is hybrid:
+**So the system is hybrid:**
 
 - sometimes enemies follow a general movement pattern
 - sometimes one of them temporarily gets a much more direct path toward the player
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x407E : global enemy update loop
 - 0x42BA : per-enemy decision and movement
 - 0x447D : BFS map construction from Lady Bug
 - 0x46D8 : BFS override on enemy preferred directions
 
-===============================================================================
-ENEMY UPDATE LOOP
-===============================================================================
+## Enemy Update Loop
 
 Confirmed
 
 The global enemy update loop is centered around routine 0x407E.
 
-Its role is roughly:
+**Its role is roughly:**
 
 1. update some global enemy state
 2. prepare preferred directions for enemies
@@ -83,7 +73,7 @@ In a Godot rewrite, this should become something like:
    - validate direction
    - move one pixel
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x407E : global enemy loop
 - 0x42BA : per-enemy update
@@ -91,15 +81,13 @@ Relevant routines:
 - 0x40CC : transforms global control state
 - 0x2E5C : prepares base preferred directions
 
-===============================================================================
-ENEMY DATA STRUCTURE
-===============================================================================
+## Enemy Data Structure
 
 Confirmed
 
 The 4 enemies are stored from 0x602B, with 5 bytes per enemy.
 
-Practical structure:
+**Practical structure:**
 
 - +0 : direction + flags
 - +1 : x
@@ -107,7 +95,7 @@ Practical structure:
 - +3 : sprite-related
 - +4 : attribute-related
 
-Direction encoding is:
+**Direction encoding is:**
 
 - 1 = left
 - 2 = up
@@ -120,26 +108,28 @@ Suggested C# model
 
 public sealed class MonsterEntity
 {
-	public int Id;
-	public int X;
-	public int Y;
-	public Dir Direction;
-	public bool Active;
+```text
+    public int Id;
+    public int X;
+    public int Y;
+    public Dir Direction;
+    public bool Active;
+```
 
-	public Dir PreferredDirection;
-	public int ChaseTimer;
+```text
+    public Dir PreferredDirection;
+    public int ChaseTimer;
+```
 }
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x43F0 : copies current enemy direction/x/y into temporary work state
 - 0x43CE : writes updated direction/x/y back into enemy structure
 - 0x1FC7 : sprite-building code that reads enemy structures
 - 0x3061 : enemy initialization path
 
-===============================================================================
-MOVEMENT GRANULARITY
-===============================================================================
+## Movement Granularity
 
 Confirmed
 
@@ -148,7 +138,7 @@ Enemy movement is pixel by pixel.
 Routine 0x4224 shows that one update step moves the enemy by exactly one pixel
 in the current direction.
 
-Equivalent behavior:
+**Equivalent behavior:**
 
 - left  -> x--
 - up    -> y--
@@ -160,13 +150,11 @@ Implementation note
 Do not move enemies tile by tile.
 Use integer pixel positions.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x4224 : one-pixel movement step
 
-===============================================================================
-DECISION POINTS
-===============================================================================
+## Decision Points
 
 Confirmed
 
@@ -175,26 +163,24 @@ An enemy does not choose a new direction at every pixel.
 The main decision is normally taken only when the enemy reaches the logical center
 of a maze cell.
 
-The center test is equivalent to:
+**The center test is equivalent to:**
 
 - x & 0x0F == 0x08
 - y & 0x0F == 0x06
 
 Practical meaning
 
-Between two cell centers:
+**Between two cell centers:**
 
 - the enemy usually keeps going in the same direction
 - unless a special door-related rule forces a reversal
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x427E : decision-center test
 - 0x42D2 : loads current candidate direction/x/y before center test
 
-===============================================================================
-PREFERRED DIRECTION
-===============================================================================
+## Preferred Direction
 
 Confirmed
 
@@ -204,14 +190,14 @@ This preferred direction is later used by the per-enemy logic at intersections.
 
 Confirmed / Probable
 
-The preferred direction can come from:
+**The preferred direction can come from:**
 
 - a base behavior
 - a temporary BFS chase override
 
 The base behavior is built by routines including 0x2E5C, 0x40F8, and 0x40CC.
 
-What is directly supported by the code:
+**What is directly supported by the code:**
 
 - there is a global state influencing base preferred directions
 - this state depends on:
@@ -222,7 +208,7 @@ What is directly supported by the code:
 
 Important wording note
 
-It is safest to say:
+**It is safest to say:**
 
 "Outside BFS chase phases, enemies receive a preferred direction from routines
 driven by a global gameplay state. That state is influenced by level, elapsed
@@ -230,16 +216,14 @@ time, and difficulty, and some branches also include a pseudo-random component."
 
 This is more rigorous than saying simply "they move randomly".
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x2E5C : base preferred-direction preparation
 - 0x40F8 : builds global control value in 0x61C3
 - 0x40CC : derives movement-control state from 0x61C3
 - 0x42E6 : tries preferred direction at an intersection
 
-===============================================================================
-BFS-GUIDED CHASE
-===============================================================================
+## BFS-Guided Chase
 
 Confirmed
 
@@ -260,7 +244,7 @@ The BFS result does not store "distance only".
 For each reachable cell, it stores the direction that should be taken from that
 cell to move back toward Lady Bug.
 
-So in modern terms:
+**So in modern terms:**
 
 - this is a BFS parent-direction map
 - not just a scalar distance field
@@ -271,7 +255,7 @@ If an enemy is in a cell whose BFS direction is "left", that means:
 
 - from this cell, going left moves it toward Lady Bug
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x447D : BFS construction
 - 0x45C4 : clears low nibbles before BFS rebuild
@@ -279,21 +263,19 @@ Relevant routines:
 - 0x44CA : one half of BFS wave propagation
 - 0x4542 : other half of BFS wave propagation
 
-===============================================================================
-CHASE TIMERS
-===============================================================================
+## Chase Timers
 
 Confirmed
 
 The 4 bytes 0x61CE..0x61D1 are per-enemy chase timers.
 
-If the timer of enemy i is greater than zero:
+**If the timer of enemy i is greater than zero:**
 
 1. the game reads that enemy’s current cell in the BFS map
 2. if a BFS direction is available there
 3. it overrides the normal preferred direction
 
-So:
+**So:**
 
 ChaseTimer > 0 means the enemy is temporarily allowed to use direct BFS guidance
 toward Lady Bug.
@@ -307,15 +289,13 @@ In Godot/C#, model this explicitly as:
 When ChaseTimer > 0, replace the enemy’s base preferred direction with the BFS
 direction from its current cell.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x46D8 : overrides preferred direction from BFS when timer > 0
 - 0x3A4C : decrements chase timers about once per second
 - 0x0751 : startup/reset path that clears these counters
 
-===============================================================================
-CHASE ACTIVATION PATTERN
-===============================================================================
+## Chase Activation Pattern
 
 Confirmed
 
@@ -323,7 +303,7 @@ Chase is not always active.
 
 The game activates it in time windows.
 
-There is a frame divider / second-like counter system involving:
+**There is a frame divider / second-like counter system involving:**
 
 - 0x61B6
 - 0x61B7
@@ -332,7 +312,7 @@ There is a frame divider / second-like counter system involving:
 
 Confirmed
 
-Rough behavior:
+**Rough behavior:**
 
 - about once per second:
   - 0x61B8 increments
@@ -354,27 +334,25 @@ is simply lost.
 
 Practical meaning
 
-This is an important part of the feel of the original game:
+**This is an important part of the feel of the original game:**
 
 - enemies do not all switch into direct pursuit together
 - the game creates alternating pressure
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x46D8 : main chase activation logic
 - 0x3A4C : one-second-like timing updates
 - 0x471E..0x4731 : round-robin choice and skip if already active
 
-===============================================================================
-CHASE FREQUENCY BY LEVEL
-===============================================================================
+## Chase Frequency By Level
 
 Confirmed
 
 The code derives a small pattern value from the current level, then checks
 conditions on 0x61B8.
 
-Equivalent behavior:
+**Equivalent behavior:**
 
 - some levels activate chase windows roughly every 8 seconds
 - others every 4 seconds
@@ -387,16 +365,14 @@ Practical meaning
 Difficulty is not only about speed.
 It also changes how often enemies get direct guidance toward the player.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x1F26 : current level lookup
 - 0x4788 : level-to-pattern table
 - 0x47A6 : pattern translation table
 - 0x46FB..0x4714 : checks activation window against 0x61B8
 
-===============================================================================
-CHASE DURATION
-===============================================================================
+## Chase Duration
 
 Confirmed
 
@@ -409,22 +385,20 @@ The chosen duration also grows with elapsed time.
 
 Practical meaning
 
-As the round continues:
+**As the round continues:**
 
 - chase windows tend to last longer
 
 This should be reproduced, because it contributes to the escalating tension.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x4734..0x4752 : chooses chase duration table and loads timer
 - 0x47AE : first duration table
 - 0x47CD : second duration table
 - 0x9002 : DIP switch input (difficulty bits)
 
-===============================================================================
-LOGICAL MAZE MAP (0x6200)
-===============================================================================
+## LOGICAL MAZE MAP (0x6200)
 
 Confirmed
 
@@ -432,14 +406,14 @@ The logical maze map is stored in 0x6200..0x62AF.
 
 It behaves like an 11x16 grid.
 
-Each cell uses:
+**Each cell uses:**
 
 - high nibble = allowed directions
 - low nibble  = BFS direction toward Lady Bug
 
 Confirmed
 
-Allowed direction bits use the same encoding:
+**Allowed direction bits use the same encoding:**
 
 - 1 = left
 - 2 = up
@@ -450,27 +424,25 @@ Important correction
 
 The high nibble represents allowed directions, not blocked ones.
 
-This matters because:
+**This matters because:**
 
 - maze validation checks whether the requested direction is present
 - BFS propagation also follows these allowed-direction bits
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x45FD : initializes high-nibble maze structure from ROM tables
 - 0x3911 : validates direction against logical maze cell
 - 0x447D : writes low-nibble BFS guidance
 - 0x45DC : maps pixel coordinates to cell index
 
-===============================================================================
-DOOR INFLUENCE ON NAVIGATION
-===============================================================================
+## Door Influence On Navigation
 
 Confirmed
 
 Doors dynamically modify the logical maze map.
 
-Two central door tile states are clearly recognized:
+**Two central door tile states are clearly recognized:**
 
 - 0x36 = horizontal opening
 - 0x3E = vertical opening
@@ -479,7 +451,7 @@ Confirmed
 
 Specific routines modify the allowed directions around 20 special door locations.
 
-This means door orientation changes:
+**This means door orientation changes:**
 
 - which passages are open
 - how BFS propagates
@@ -490,23 +462,21 @@ Practical meaning
 Doors are not just a rendering concern.
 They are part of enemy AI and navigation.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x463A : initializes door influence in logical maze map
 - 0x467B : updates door influence dynamically
 - 0x46C4 : table of 20 special door cell indices
 - 0x0D1D : table used to locate relevant video/door tiles
 
-===============================================================================
-LOCAL DIRECTION VALIDATION
-===============================================================================
+## Local Direction Validation
 
 Confirmed
 
 At a decision point, the enemy does not automatically accept its preferred
 direction.
 
-It is checked in two stages:
+**It is checked in two stages:**
 
 1. maze logic validation
 2. door graphic / local tile validation
@@ -530,16 +500,14 @@ In a Godot rewrite, keep these as two separate tests:
 
 Do not merge them too early.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x3911 : cell-level direction validation
 - 0x4130 : door-local validation
 - 0x42E6 : calls both tests for preferred direction
 - 0x4241 : calls both tests while searching fallbacks
 
-===============================================================================
-FALLBACK DIRECTION
-===============================================================================
+## Fallback Direction
 
 Confirmed
 
@@ -550,25 +518,23 @@ This is handled by 0x4241.
 
 Practical meaning
 
-The enemy logic is not:
+**The enemy logic is not:**
 
 - "pick one direction and stop if blocked"
 
-It is:
+**It is:**
 
 1. try preferred direction
 2. if invalid, search fallback direction
 3. move using the accepted one
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x4241 : fallback-direction search
 - 0x42E6 : first tries preferred direction before fallback
 - 0x430C : writes accepted direction back into candidate state
 
-===============================================================================
-FORCED REVERSAL OUTSIDE INTERSECTIONS
-===============================================================================
+## Forced Reversal Outside Intersections
 
 Confirmed
 
@@ -579,7 +545,7 @@ This is linked to special door-related tile situations.
 
 Practical meaning
 
-Outside intersections:
+**Outside intersections:**
 
 - normally keep going straight
 - but if a door state makes the current path invalid in a special way,
@@ -587,19 +553,17 @@ Outside intersections:
 
 This is important for faithful edge cases around rotating doors.
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x4189 : special reversal test
 - 0x433A : non-intersection movement branch
 - 0x4347..0x4356 : computes opposite direction
 
-===============================================================================
-ENEMY MOVEMENT ALGORITHM (READABLE SUMMARY)
-===============================================================================
+## Enemy Movement Algorithm (Readable Summary)
 
 Normal case
 
-For each enemy:
+**For each enemy:**
 
 1. if inactive, do nothing
 2. if at a decision center:
@@ -607,15 +571,17 @@ For each enemy:
    - if chase timer active, use BFS direction toward Lady Bug
    - otherwise use base preferred direction
    - validate the direction against:
-	 - allowed directions in the maze map
-	 - local door constraints
+```text
+     - allowed directions in the maze map
+     - local door constraints
+```
    - if invalid, choose a fallback direction
 3. if not at a decision center:
    - continue in the current direction
    - unless a door rule forces reversal
 4. move by one pixel
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x407E : frame-level enemy update loop
 - 0x42BA : per-enemy decision logic
@@ -625,47 +591,59 @@ Relevant routines:
 - 0x4241 : fallback selection
 - 0x4189 : forced reversal outside intersections
 
-===============================================================================
-PSEUDO-CODE (SEMI-TECHNICAL)
-===============================================================================
+## Pseudo-Code (Semi-Technical)
 
-For each active enemy:
+**For each active enemy:**
 
-	if enemy is at cell decision center:
+```text
+    if enemy is at cell decision center:
+```
 
-		preferred_dir = base preferred direction
+```text
+        preferred_dir = base preferred direction
+```
 
-		if ChaseTimer > 0:
-			if BFS direction exists in current cell:
-				preferred_dir = BFS direction
+```text
+        if ChaseTimer > 0:
+            if BFS direction exists in current cell:
+                preferred_dir = BFS direction
+```
 
-		if preferred_dir is allowed by maze cell
-		   and not blocked by local door rule:
-			final_dir = preferred_dir
-		else:
-			final_dir = choose fallback valid direction
+```text
+        if preferred_dir is allowed by maze cell
+           and not blocked by local door rule:
+            final_dir = preferred_dir
+        else:
+            final_dir = choose fallback valid direction
+```
 
-	else:
+```text
+    else:
+```
 
-		final_dir = current direction
+```text
+        final_dir = current direction
+```
 
-		if special door rule forces reversal:
-			final_dir = opposite(final_dir)
+```text
+        if special door rule forces reversal:
+            final_dir = opposite(final_dir)
+```
 
-	move one pixel in final_dir
+```text
+    move one pixel in final_dir
+```
 
-Relevant routines:
+**Relevant routines:**
 
 - 0x42D2 : loads candidate dir/x/y
 - 0x42DD : branches depending on center-of-cell test
 - 0x43BA : performs movement step on candidate state
 - 0x43CE : commits final dir/x/y back to enemy structure
 
-===============================================================================
-RECOMMENDED GODOT/C# ARCHITECTURE
-===============================================================================
+## Recommended Godot/C# Architecture
 
-Suggested responsibilities:
+**Suggested responsibilities:**
 
 - MazeManager
   Owns static maze data and cell conversions.
@@ -694,7 +672,7 @@ Suggested responsibilities:
 - MonsterEntity
   Stores enemy state.
 
-Relevant routines for correspondence:
+**Relevant routines for correspondence:**
 
 - 0x45DC : cell conversion logic
 - 0x45FD / 0x463A / 0x467B : logical maze + door updates
@@ -702,9 +680,7 @@ Relevant routines for correspondence:
 - 0x46D8 : chase override
 - 0x3911 / 0x4130 / 0x4189 : validation and reversal logic
 
-===============================================================================
-RECOMMENDED IMPLEMENTATION ORDER
-===============================================================================
+## Recommended Implementation Order
 
 1. implement logical cell grid
 2. implement enemy pixel movement
@@ -715,7 +691,7 @@ RECOMMENDED IMPLEMENTATION ORDER
 7. implement local door rejection and forced reversal
 8. refine base preferred direction generation
 
-Useful correspondence while implementing:
+**Useful correspondence while implementing:**
 
 - step 1:
   - 0x45FD
@@ -745,9 +721,7 @@ Useful correspondence while implementing:
   - 0x4189
   - 0x4241
 
-===============================================================================
-WHAT IS SOLID ENOUGH TO IMPLEMENT NOW
-===============================================================================
+## What Is Solid Enough To Implement Now
 
 Confirmed enough for implementation
 
@@ -768,9 +742,7 @@ Still somewhat open
 
 These are not blockers for a faithful first implementation.
 
-===============================================================================
-RECOMMENDED IMPLEMENTATION PHILOSOPHY
-===============================================================================
+## Recommended Implementation Philosophy
 
 For Godot/C#, do not try to mimic the original memory layout literally.
 
@@ -787,16 +759,14 @@ Instead, preserve the original gameplay principles:
 That should get you very close to the original behavior while keeping the code
 clean.
 
-Recommended documentation habit:
+**Recommended documentation habit:**
 
 - when implementing a subsystem, add a short comment with the original arcade
   routine address
 - keep a mapping table between Godot classes and arcade routines
 - use the addresses above as anchors for later verification in Ghidra
 
-===============================================================================
-ARCADE ROUTINE INDEX
-===============================================================================
+## Arcade Routine Index
 
 This section provides a compact mapping between the reverse-engineered arcade
 routines and their practical meaning for enemy movement.
@@ -804,52 +774,40 @@ routines and their practical meaning for enemy movement.
 Use it as a quick reference while reading the disassembly or implementing the
 Godot/C# version.
 
-===============================================================================
-CORE ENEMY UPDATE
-===============================================================================
+## Core Enemy Update
 
 - 0x407E : global enemy update loop
 - 0x42BA : per-enemy decision and movement
 - 0x43F0 : copies current enemy dir/x/y into temporary work state
 - 0x43CE : writes updated dir/x/y back into enemy structure
 
-===============================================================================
-MOVEMENT AND DECISION POINTS
-===============================================================================
+## Movement And Decision Points
 
 - 0x4224 : one-pixel movement step
 - 0x427E : center-of-cell test
 - 0x42D2 : loads candidate dir/x/y before center test
 - 0x43BA : applies movement step to candidate state
 
-===============================================================================
-DIRECTION SELECTION
-===============================================================================
+## Direction Selection
 
 - 0x42E6 : tries preferred direction at an intersection
 - 0x4241 : searches fallback direction if preferred one fails
 - 0x430C : writes accepted direction back into candidate state
 
-===============================================================================
-MAZE AND DOOR VALIDATION
-===============================================================================
+## Maze And Door Validation
 
 - 0x3911 : validates direction against logical maze cell
 - 0x4130 : door-local validation near the enemy
 - 0x4189 : special test that can force a reversal outside intersections
 - 0x4347..0x4356 : computes opposite direction
 
-===============================================================================
-BASE PREFERRED-DIRECTION GENERATION
-===============================================================================
+## Base Preferred-Direction Generation
 
 - 0x2E5C : prepares base preferred directions for enemies
 - 0x40F8 : builds a global control value in 0x61C3
 - 0x40CC : transforms global control state into movement-related state
 
-===============================================================================
-BFS CHASE SYSTEM
-===============================================================================
+## BFS Chase System
 
 - 0x447D : builds BFS guidance map from Lady Bug
 - 0x45C4 : clears low nibbles before BFS rebuild
@@ -857,25 +815,19 @@ BFS CHASE SYSTEM
 - 0x4542 : other half of BFS wave propagation
 - 0x46D8 : overrides preferred directions from BFS when chase timer is active
 
-===============================================================================
-COORDINATE AND GRID HELPERS
-===============================================================================
+## Coordinate And Grid Helpers
 
 - 0x45DC : converts pixel coordinates to maze cell index
 - 0x45FD : initializes logical maze map from ROM data
 
-===============================================================================
-DOOR HANDLING
-===============================================================================
+## Door Handling
 
 - 0x463A : initializes door influence in logical maze map
 - 0x467B : updates door influence dynamically
 - 0x46C4 : table of 20 special door cell indices
 - 0x0D1D : table used to locate relevant door/video tiles
 
-===============================================================================
-CHASE TIMERS AND ACTIVATION
-===============================================================================
+## Chase Timers And Activation
 
 - 0x3A4C : one-second-like timing update, decrements chase timers
 - 0x0751 : startup/reset path that clears chase counters
@@ -887,17 +839,13 @@ CHASE TIMERS AND ACTIVATION
 - 0x47AE : first chase-duration table
 - 0x47CD : second chase-duration table
 
-===============================================================================
-PLAYER-RELATED INPUT TO ENEMY AI
-===============================================================================
+## Player-Related Input To Enemy AI
 
 - 0x6027 / 0x6028 : Lady Bug position used as BFS source
 - 0x9002 : DIP switch input, including difficulty bits
 - 0x9001 : hardware-related status input used by some timing paths
 
-===============================================================================
-ENEMY DATA LOCATIONS
-===============================================================================
+## Enemy Data Locations
 
 - 0x602B..        : enemy structures, 5 bytes per enemy
 - 0x61C4..0x61C7  : preferred directions for enemies
