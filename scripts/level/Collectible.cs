@@ -8,16 +8,16 @@ public partial class Collectible : Node2D
     private const int HeartRingFrame = 2;
     private const int HeartCenterFrame = 3;
 
-    private const int LetterAFrame = 4;
-    private const int LetterCFrame = 5;
-    private const int LetterEFrame = 6;
-    private const int LetterIFrame = 7;
-    private const int LetterLFrame = 8;
-    private const int LetterPFrame = 9;
-    private const int LetterRFrame = 10;
-    private const int LetterSFrame = 11;
-    private const int LetterTFrame = 12;
-    private const int LetterXFrame = 13;
+    private const int LetterEFrame = 4;
+    private const int LetterXFrame = 5;
+    private const int LetterTFrame = 6;
+    private const int LetterRFrame = 7;
+    private const int LetterAFrame = 8;
+    private const int LetterSFrame = 9;
+    private const int LetterPFrame = 10;
+    private const int LetterCFrame = 11;
+    private const int LetterIFrame = 12;
+    private const int LetterLFrame = 13;
 
     private Sprite2D _mainSprite = default!;
     private Sprite2D _overlaySprite = default!;
