@@ -1,5 +1,9 @@
 namespace LadyBug.Gameplay.Collectibles;
 
+/// <summary>
+/// Represents the logical color assigned to a collectible for planning or
+/// rendering purposes.
+/// </summary>
 public enum CollectibleColor
 {
     None = 0,

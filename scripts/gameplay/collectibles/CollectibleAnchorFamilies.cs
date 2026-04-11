@@ -1,10 +1,25 @@
+// scripts/gameplay/collectibles/CollectibleAnchorFamilies.cs
+
 using System.Collections.Generic;
 using Godot;
 
 namespace LadyBug.Gameplay.Collectibles;
 
+/// <summary>
+/// Provides the three logical anchor families used by the start-of-level
+/// collectible spawn planner.
+/// </summary>
+/// <remarks>
+/// Each family contains candidate logical cells expressed in the gameplay maze
+/// coordinate system. The spawn planner draws four distinct anchors without
+/// replacement from each family and uses those ordered draws for letters,
+/// hearts, and skulls.
+/// </remarks>
 public static class CollectibleAnchorFamilies
 {
+    /// <summary>
+    /// Candidate anchor cells for family A.
+    /// </summary>
     public static readonly IReadOnlyList<Vector2I> FamilyA = new[]
     {
         new Vector2I(0, 1),
@@ -19,6 +34,9 @@ public static class CollectibleAnchorFamilies
         new Vector2I(7, 0)
     };
 
+    /// <summary>
+    /// Candidate anchor cells for family B.
+    /// </summary>
     public static readonly IReadOnlyList<Vector2I> FamilyB = new[]
     {
         new Vector2I(0, 10),
@@ -38,6 +56,9 @@ public static class CollectibleAnchorFamilies
         new Vector2I(4, 5)
     };
 
+    /// <summary>
+    /// Candidate anchor cells for family C.
+    /// </summary>
     public static readonly IReadOnlyList<Vector2I> FamilyC = new[]
     {
         new Vector2I(6, 10),
