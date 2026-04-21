@@ -36,11 +36,11 @@ public static class PlayerMovementTuning
     public const int CollisionLeadLeft = 8;
 
     // Forward probe distance used when moving right.
-    public const int CollisionLeadRight = 6;
+    public const int CollisionLeadRight = 7;
 
     // Forward probe distance used when moving up.
-    public const int CollisionLeadUp = 9;
+    public const int CollisionLeadUp = 8;
 
     // Forward probe distance used when moving down.
-    public const int CollisionLeadDown = 6;
+    public const int CollisionLeadDown = 7;
 }

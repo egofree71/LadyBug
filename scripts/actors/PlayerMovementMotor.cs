@@ -100,7 +100,12 @@ public sealed class PlayerMovementMotor
 
             if (!previewStep.Allowed)
             {
-                _arcadePixelPos = originalPixelPos;
+                // Important:
+                // keep any rail snap that was just applied, but do not advance into
+                // the blocked direction. This matches the expected "alignment
+                // correction without movement" behavior seen near logical-cell
+                // centers and maze corners.
+                _currentDir = Vector2I.Zero;
                 return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
             }
 
@@ -135,7 +140,8 @@ public sealed class PlayerMovementMotor
                     }
                     else
                     {
-                        _arcadePixelPos = originalPixelPos;
+                        // Keep the snapped alignment, but do not move into the
+                        // blocked perpendicular direction.
                         _currentDir = Vector2I.Zero;
                         return BuildStepResult(previousPixelPos, previousDirection, snappedArcadePixelPos);
                     }
