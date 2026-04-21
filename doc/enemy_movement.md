@@ -109,16 +109,16 @@ Suggested C# model
 public sealed class MonsterEntity
 {
 ```text
-    public int Id;
-    public int X;
-    public int Y;
-    public Dir Direction;
-    public bool Active;
+	public int Id;
+	public int X;
+	public int Y;
+	public Dir Direction;
+	public bool Active;
 ```
 
 ```text
-    public Dir PreferredDirection;
-    public int ChaseTimer;
+	public Dir PreferredDirection;
+	public int ChaseTimer;
 ```
 }
 
@@ -572,8 +572,8 @@ Normal case
    - otherwise use base preferred direction
    - validate the direction against:
 ```text
-     - allowed directions in the maze map
-     - local door constraints
+	 - allowed directions in the maze map
+	 - local door constraints
 ```
    - if invalid, choose a fallback direction
 3. if not at a decision center:
@@ -596,42 +596,42 @@ Normal case
 **For each active enemy:**
 
 ```text
-    if enemy is at cell decision center:
+	if enemy is at cell decision center:
 ```
 
 ```text
-        preferred_dir = base preferred direction
+		preferred_dir = base preferred direction
 ```
 
 ```text
-        if ChaseTimer > 0:
-            if BFS direction exists in current cell:
-                preferred_dir = BFS direction
+		if ChaseTimer > 0:
+			if BFS direction exists in current cell:
+				preferred_dir = BFS direction
 ```
 
 ```text
-        if preferred_dir is allowed by maze cell
-           and not blocked by local door rule:
-            final_dir = preferred_dir
-        else:
-            final_dir = choose fallback valid direction
+		if preferred_dir is allowed by maze cell
+		   and not blocked by local door rule:
+			final_dir = preferred_dir
+		else:
+			final_dir = choose fallback valid direction
 ```
 
 ```text
-    else:
+	else:
 ```
 
 ```text
-        final_dir = current direction
+		final_dir = current direction
 ```
 
 ```text
-        if special door rule forces reversal:
-            final_dir = opposite(final_dir)
+		if special door rule forces reversal:
+			final_dir = opposite(final_dir)
 ```
 
 ```text
-    move one pixel in final_dir
+	move one pixel in final_dir
 ```
 
 **Relevant routines:**

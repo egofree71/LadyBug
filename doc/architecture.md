@@ -436,9 +436,9 @@ They should not be treated as a visual-only feature.
 In practice, long-term movement legality is now intended to remain:
 
 ```text
-    static maze legality
-    + lane / alignment legality
-    + dynamic rotating gate legality
+	static maze legality
+	+ lane / alignment legality
+	+ dynamic rotating gate legality
 ```
 
 What still remains for future work is not the existence of the gate system,

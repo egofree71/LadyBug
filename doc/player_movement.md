@@ -13,7 +13,7 @@ Project: Lady Bug remake in Godot 4.6.1 (.NET) with C#
 **The goal is NOT to use a modern free-movement system such as:**
 
 ```text
-    Position += direction * Speed * delta;
+	Position += direction * Speed * delta;
 ```
 
 Instead, the goal is to reproduce the original arcade behavior as closely as
@@ -38,7 +38,7 @@ possible.
 **Example:**
 
 ```text
-    Position += _moveDirection * Speed * delta;
+	Position += _moveDirection * Speed * delta;
 ```
 
 **Problems with this approach:**
@@ -79,24 +79,24 @@ while remaining easy to refine.
 **Movement is updated at a fixed tick rate:**
 
 ```text
-    TickRate = 60.1145 Hz
+	TickRate = 60.1145 Hz
 ```
 
 **And:**
 
 ```text
-    TickDuration = 1.0 / TickRate
+	TickDuration = 1.0 / TickRate
 ```
 
 **The update loop uses an accumulator:**
 
 ```text
-    _accumulator += delta;
-    while (_accumulator >= TickDuration)
-    {
-        _accumulator -= TickDuration;
-        RunOneTick();
-    }
+	_accumulator += delta;
+	while (_accumulator >= TickDuration)
+	{
+		_accumulator -= TickDuration;
+		RunOneTick();
+	}
 ```
 
 **Purpose:**
@@ -109,7 +109,7 @@ while remaining easy to refine.
 **The gameplay position is stored as integer arcade-pixel coordinates:**
 
 ```text
-    Vector2I _arcadePixelPos;
+	Vector2I _arcadePixelPos;
 ```
 
 **Purpose:**
@@ -132,7 +132,7 @@ Rendering is synchronized from the gameplay position after the simulation step.
 **Example:**
 
 ```text
-    _arcadePixelPos += _currentDir;
+	_arcadePixelPos += _currentDir;
 ```
 
 **This means:**
@@ -152,7 +152,7 @@ The current code distinguishes several movement-related directions.
 ### 7.1 Wanted Direction
 
 ```text
-    wantedDir / _wantedDir
+	wantedDir / _wantedDir
 ```
 
 **Meaning:**
@@ -162,7 +162,7 @@ The current code distinguishes several movement-related directions.
 ### 7.2 Current Direction
 
 ```text
-    _currentDir
+	_currentDir
 ```
 
 **Meaning:**
@@ -171,7 +171,7 @@ The current code distinguishes several movement-related directions.
 ### 7.3 Facing Direction
 
 ```text
-    _facingDir
+	_facingDir
 ```
 
 **Meaning:**
@@ -184,7 +184,7 @@ movement motor has accepted that direction.
 ### 7.4 Offset Direction
 
 ```text
-    _offsetDir
+	_offsetDir
 ```
 
 **Meaning:**
@@ -259,14 +259,14 @@ The player moves along internal lanes inside each 16x16 maze cell.
 **Reverse engineering now strongly supports checks of the form:**
 
 ```text
-    X & 0x0F == 0x08
-    Y & 0x0F == 0x06
+	X & 0x0F == 0x08
+	Y & 0x0F == 0x06
 ```
 
 **Historical earlier observations also saw:**
 
 ```text
-    Y & 0x0F == 0x07
+	Y & 0x0F == 0x07
 ```
 
 **But the current best-supported special-mode branching uses:**
@@ -285,7 +285,7 @@ So the game is checking sub-cell alignment.
 **Observed condition:**
 
 ```text
-    X & 0x0F == 0x08
+	X & 0x0F == 0x08
 ```
 
 **Interpretation:**
@@ -298,7 +298,7 @@ So the game is checking sub-cell alignment.
 **Observed condition:**
 
 ```text
-    Y & 0x0F == 0x06
+	Y & 0x0F == 0x06
 ```
 
 **Interpretation:**
@@ -330,7 +330,7 @@ movement/turning contexts.
 In practice, the gameplay anchor currently used by Level is:
 
 ```text
-    GameplayAnchorArcade = new(8, 7)
+	GameplayAnchorArcade = new(8, 7)
 ```
 
 **And the movement tuning currently uses:**
@@ -410,7 +410,7 @@ The movement model is now also connected to the rotating-gate system.
 In practice, the current movement rule is approximately:
 
 ```text
-    step allowed = lane/alignment state + maze legality + gate state
+	step allowed = lane/alignment state + maze legality + gate state
 ```
 
 This is now implemented.
@@ -768,14 +768,14 @@ All addresses below refer to the currently analyzed Lady Bug ROM/disassembly.
 
 - 0x3652 : normalizes directional input into logical direction bits
 ```text
-           (01 left / 02 down / 04 right / 08 up)
+		   (01 left / 02 down / 04 right / 08 up)
 ```
 - 0x6026 : current effective player direction
 - 0x6027 : player X position
 - 0x6028 : player Y position
 - 0x605F : internal movement/special-mode state byte
 ```text
-           (bit 7 strongly linked to entry into the special turn mode)
+		   (bit 7 strongly linked to entry into the special turn mode)
 ```
 - 0x6196 : runtime target X
 - 0x6197 : runtime target Y
@@ -806,8 +806,8 @@ All addresses below refer to the currently analyzed Lady Bug ROM/disassembly.
 - Y % 16 == 6 : preferred horizontal alignment for special Y-aligned branch
 - Y % 16 == 7 : still a useful practical horizontal lane travel center in the
 ```text
-                current remake-side interpretation, but not the main confirmed
-                special-branch test
+				current remake-side interpretation, but not the main confirmed
+				special-branch test
 ```
 
 ## SPECIAL Interactive Turn Mode

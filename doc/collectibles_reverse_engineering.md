@@ -194,7 +194,7 @@ place_heart(pickC[1])
 
 skull_positions = [pickA[2], pickB[2], pickC[2], pickA[3], pickB[3], pickC[3]]
 for i in range(skull_count_for_level(level)):
-    place_skull(skull_positions[i])
+	place_skull(skull_positions[i])
 ```
 
 ## Current Scope Limit
