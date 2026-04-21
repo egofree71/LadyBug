@@ -21,6 +21,12 @@ public partial class PlayerController : Node2D
     [Export]
     private bool _debugDrawAnchor = false;
 
+    [Export]
+    private bool _debugDrawCoordinates = false;
+
+    [Export]
+    private Vector2 _debugCoordinatesOffset = new Vector2(18, -22);
+    
     // Animated sprite that visually represents the player.
     private AnimatedSprite2D _animatedSprite = null!;
 
@@ -71,7 +77,7 @@ public partial class PlayerController : Node2D
         Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
         
-        if (_debugDrawAnchor)
+        if (_debugDrawAnchor || _debugDrawCoordinates)
             QueueRedraw();
     }
 
@@ -272,11 +278,39 @@ public partial class PlayerController : Node2D
     /// </summary>
     public override void _Draw()
     {
-        if (!_debugDrawAnchor)
-            return;
+        if (_debugDrawAnchor)
+        {
+            DrawLine(new Vector2(-6, 0), new Vector2(6, 0), Colors.Cyan, 1.5f);
+            DrawLine(new Vector2(0, -6), new Vector2(0, 6), Colors.Cyan, 1.5f);
+            DrawCircle(Vector2.Zero, 2.0f, Colors.Cyan);
+        }
 
-        DrawLine(new Vector2(-6, 0), new Vector2(6, 0), Colors.Cyan, 1.5f);
-        DrawLine(new Vector2(0, -6), new Vector2(0, 6), Colors.Cyan, 1.5f);
-        DrawCircle(Vector2.Zero, 2.0f, Colors.Cyan);
+        if (_debugDrawCoordinates)
+        {
+            Font font = ThemeDB.FallbackFont;
+            if (font != null)
+            {
+                Vector2I pos = _movementMotor.ArcadePixelPos;
+
+                int mameX = pos.X;
+                int mameY = 0xDD - pos.Y;
+
+                string text = $"X={mameX:X2} Y={mameY:X2}";
+                Vector2 p = _debugCoordinatesOffset;
+
+                // contour noir
+                DrawString(font, p + new Vector2(-1, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2( 0, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2( 1, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2(-1,  0), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2( 1,  0), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2(-1,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2( 0,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+                DrawString(font, p + new Vector2( 1,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
+
+                // texte principal
+                DrawString(font, p, text, HorizontalAlignment.Left, -1.0f, 16, Colors.White);
+            }
+        }
     }
 }
