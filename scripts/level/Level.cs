@@ -783,7 +783,7 @@ public partial class Level : Node2D
             AnimatedSprite2D? animatedSprite = player.GetNodeOrNull<AnimatedSprite2D>("AnimatedSprite2D");
             if (animatedSprite != null)
             {
-                Vector2 spriteOffset = ArcadeDeltaToSceneDelta(new Vector2I(5, 7));
+                Vector2 spriteOffset = ArcadeDeltaToSceneDelta(new Vector2I(5, 8));
                 animatedSprite.Position = spriteOffset;
             }
 

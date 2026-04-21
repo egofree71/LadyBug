@@ -70,7 +70,7 @@ public partial class PlayerController : Node2D
 
         Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
-
+        
         if (_debugDrawAnchor)
             QueueRedraw();
     }

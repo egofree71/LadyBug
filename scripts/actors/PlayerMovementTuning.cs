@@ -30,7 +30,7 @@ public static class PlayerMovementTuning
     public static readonly Vector2I SpriteRenderOffsetRightArcade = new(4, 8);
 
     // Render offset used while the player is effectively moving vertically.
-    public static readonly Vector2I SpriteRenderOffsetVerticalArcade = new(5, 7);
+    public static readonly Vector2I SpriteRenderOffsetVerticalArcade = new(5, 8);
 
     // Forward probe distance used when moving left.
     public const int CollisionLeadLeft = 8;
