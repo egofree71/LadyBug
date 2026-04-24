@@ -14,7 +14,7 @@ using LadyBug.Gameplay.Maze;
 /// loading the logical maze,
 /// owning the runtime rotating-gate system,
 /// exposing playfield step evaluation,
-/// spawning the base flower layout,
+/// owning the runtime collectible field,
 /// and coordinating board objects that belong to one active level.
 ///
 /// Coordinate conversions are delegated to <see cref="LevelCoordinateSystem"/>,
@@ -24,7 +24,7 @@ using LadyBug.Gameplay.Maze;
 /// The level intentionally separates:
 /// - logical maze data used for gameplay
 /// - dynamic rotating-gate state used as a movement overlay
-/// - base collectible layout used to spawn flowers
+/// - collectible field runtime used for spawned pickups
 /// - visual rendering provided by the maze background and placed gate views
 ///
 /// The player controller uses gameplay anchors in arcade pixels,
@@ -48,18 +48,12 @@ public partial class Level : Node2D
         renderScale: 4,
         gameplayAnchorArcade: new Vector2I(8, 7));
 
-    private static readonly PackedScene CollectibleScene =
-        GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
-
     // --- Scene References ---------------------------------------------------
 
     private Node2D _gatesNode = null!;
     private Node2D _collectiblesRoot = null!;
 
     private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
-
-    // Lookup of runtime collectible views by logical cell.
-    private readonly Dictionary<Vector2I, Collectible> _collectiblesByCell = new();
 
     // --- Exported Properties ------------------------------------------------
 
@@ -91,6 +85,7 @@ public partial class Level : Node2D
     private MazeGrid _mazeGrid = null!;
     private GateSystem _gateSystem = null!;
     private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
+    private CollectibleFieldRuntime _collectibleField = null!;
 
     /// <summary>
     /// Gets the runtime logical maze used by gameplay actors.
@@ -143,14 +138,17 @@ public partial class Level : Node2D
             GatePivotToArcadePixel);
         SyncGateViewsFromRuntimeState();
 
-        SpawnInitialFlowers(collectibleLayout);
+        _collectibleField = new CollectibleFieldRuntime(
+            _collectiblesRoot,
+            LogicalCellToScenePosition);
+        _collectibleField.SpawnInitialFlowers(collectibleLayout);
 
         _rng.Randomize();
 
         CollectibleSpawnPlan spawnPlan =
             CollectibleSpawnPlanner.Generate(_levelNumber, _rng);
 
-        ApplySpecialCollectibleSpawnPlan(spawnPlan);
+        _collectibleField.ApplySpecialCollectibleSpawnPlan(spawnPlan);
 
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
@@ -158,71 +156,6 @@ public partial class Level : Node2D
     }
 
     // --- Collectibles -------------------------------------------------------
-
-    /// <summary>
-    /// Spawns the base flower layout for the current level.
-    /// </summary>
-    /// <param name="layout">
-    /// The deserialized collectible layout that defines which logical cells
-    /// start with one flower.
-    /// </param>
-    /// <remarks>
-    /// This method currently handles only the initial flower mask.
-    /// Runtime replacements such as hearts, letters, and skulls should be
-    /// applied later on top of this base layout.
-    /// </remarks>
-    private void SpawnInitialFlowers(CollectibleLayoutFile layout)
-    {
-        _collectiblesByCell.Clear();
-
-        for (int y = 0; y < layout.Height; y++)
-        {
-            for (int x = 0; x < layout.Width; x++)
-            {
-                if (layout.Cells[y][x] != 1)
-                {
-                    continue;
-                }
-
-                SpawnFlower(new Vector2I(x, y));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Spawns one flower collectible at the given logical maze cell.
-    /// </summary>
-    /// <param name="cell">The logical maze cell where the flower should appear.</param>
-    private void SpawnFlower(Vector2I cell)
-    {
-        var collectible = CollectibleScene.Instantiate<Collectible>();
-        _collectiblesRoot.AddChild(collectible);
-
-        collectible.Position = LogicalCellToScenePosition(cell);
-        collectible.ShowFlower();
-
-        _collectiblesByCell[cell] = collectible;
-    }
-
-    /// <summary>
-    /// Removes the collectible currently present at the given logical cell.
-    /// </summary>
-    /// <param name="cell">The logical cell to clear.</param>
-    /// <returns>
-    /// <see langword="true"/> if one collectible was found and removed;
-    /// otherwise, <see langword="false"/>.
-    /// </returns>
-    private bool RemoveCollectible(Vector2I cell)
-    {
-        if (!_collectiblesByCell.TryGetValue(cell, out Collectible? collectible))
-        {
-            return false;
-        }
-
-        _collectiblesByCell.Remove(cell);
-        collectible.QueueFree();
-        return true;
-    }
 
     /// <summary>
     /// Tries to consume the collectible currently present at the given logical cell.
@@ -234,58 +167,7 @@ public partial class Level : Node2D
     /// </returns>
     public bool TryConsumeCollectible(Vector2I cell)
     {
-        return RemoveCollectible(cell);
-    }
-
-    /// <summary>
-    /// Applies the generated start-of-level special collectible plan on top of the
-    /// already spawned base flower layout.
-    /// </summary>
-    /// <param name="spawnPlan">Generated placements for letters, hearts, and skulls.</param>
-    private void ApplySpecialCollectibleSpawnPlan(CollectibleSpawnPlan spawnPlan)
-    {
-        foreach (CollectiblePlacement placement in spawnPlan.Placements)
-        {
-            if (!_collectiblesByCell.TryGetValue(placement.Cell, out Collectible? collectible))
-            {
-                GD.PushWarning(
-                    $"No base collectible found at logical cell {placement.Cell} " +
-                    $"for special collectible placement.");
-                continue;
-            }
-
-            ApplyCollectiblePlacement(collectible, placement);
-        }
-    }
-
-    /// <summary>
-    /// Applies one generated collectible placement to one existing collectible view.
-    /// </summary>
-    /// <param name="collectible">Existing collectible view at the target cell.</param>
-    /// <param name="placement">Generated special collectible placement.</param>
-    private static void ApplyCollectiblePlacement(
-        Collectible collectible,
-        CollectiblePlacement placement)
-    {
-        switch (placement.Kind)
-        {
-            case CollectibleKind.Heart:
-                collectible.ShowHeartRed();
-                break;
-
-            case CollectibleKind.Letter:
-                collectible.ShowLetterRed(placement.Letter);
-                break;
-
-            case CollectibleKind.Skull:
-                collectible.ShowSkull();
-                break;
-
-            case CollectibleKind.Flower:
-            default:
-                collectible.ShowFlower();
-                break;
-        }
+        return _collectibleField.TryConsume(cell);
     }
 
     // --- Placed Gate Authoring ---------------------------------------------
