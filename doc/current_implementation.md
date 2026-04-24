@@ -56,9 +56,15 @@ scripts/
 ├─ actors/
 │  ├─ PlayerController.cs
 │  ├─ PlayerInputState.cs
+│  ├─ PlayerMovementDebugTrace.cs
 │  ├─ PlayerMovementMotor.cs
+│  ├─ PlayerMovementSegment.cs
 │  ├─ PlayerMovementStepResult.cs
-│  └─ PlayerMovementTuning.cs
+│  ├─ PlayerMovementTuning.cs
+│  ├─ PlayerTurnAssistFlags.cs
+│  ├─ PlayerTurnPath.cs
+│  ├─ PlayerTurnWindowDecision.cs
+│  └─ PlayerTurnWindowResolver.cs
 ├─ gameplay/
 │  ├─ collectibles/
 │  │  ├─ CollectibleAnchorFamilies.cs
@@ -267,9 +273,15 @@ Player (Node2D)
 
 **Current movement helper scripts:**
 - scripts/actors/PlayerInputState.cs
+- scripts/actors/PlayerMovementDebugTrace.cs
 - scripts/actors/PlayerMovementMotor.cs
+- scripts/actors/PlayerMovementSegment.cs
 - scripts/actors/PlayerMovementStepResult.cs
 - scripts/actors/PlayerMovementTuning.cs
+- scripts/actors/PlayerTurnAssistFlags.cs
+- scripts/actors/PlayerTurnPath.cs
+- scripts/actors/PlayerTurnWindowDecision.cs
+- scripts/actors/PlayerTurnWindowResolver.cs
 
 **Current visual setup:**
 - AnimatedSprite2D uses the player spritesheet
@@ -278,6 +290,11 @@ Player (Node2D)
   - move_up
 - left is handled by FlipH
 - down is handled by FlipV
+
+**Current debug support:**
+- PlayerController can draw the cyan gameplay anchor
+- PlayerController can display debug arcade coordinates near the player
+- PlayerMovementDebugTrace can print detailed movement traces, but logging is disabled by default
 
 ## 4. Logical Maze System
 
@@ -348,8 +365,7 @@ The project already includes a logical maze system separated from the visual maz
 - scripts/gameplay/maze/MazeStepResult.cs
 
 **Purpose:**
-- represent the result of evaluating one attempted arcade-pixel movement step
-  against the logical static maze
+- represent the result of evaluating one attempted arcade-pixel movement step against the logical static maze
 
 **Current use:**
 - returned by MazeGrid.EvaluateArcadePixelStep(...)
@@ -372,8 +388,7 @@ The project already includes a logical maze system separated from the visual maz
 
 **Important:**
 - CanMove() blocks movement outside maze bounds
-- EvaluateArcadePixelStep(...) is the current bridge between pixel movement
-  and static maze legality only
+- EvaluateArcadePixelStep(...) is the bridge between pixel movement and static maze legality only
 
 ### 4.6 MazeLoader
 
@@ -390,13 +405,12 @@ The project already includes a logical maze system separated from the visual maz
 
 ## 5. Collectible System
 
-Collectibles are now implemented as a separate runtime and visual system.
+Collectibles are implemented as a separate runtime and visual system.
 
 **Current structure:**
 - the base flower layout is loaded from JSON
 - collectible views are spawned at runtime under Level/Collectibles
-- start-of-level special collectibles are generated from anchor families
-  and replace some of the base flowers visually
+- start-of-level special collectibles are generated from anchor families and replace some of the base flowers visually
 - collectible visuals are kept separate from the static maze and gates
 
 Current collectible-related files:
@@ -433,12 +447,10 @@ Current collectible-related files:
 **Current responsibilities:**
 - spawn the base flower layout at level initialization
 - keep one collectible view per occupied logical cell
-- support removal of one collectible by logical cell through the existing
-  consumption hook used by the prototype player movement
+- support removal of one collectible by logical cell through the current player pickup hook
 
 Important current limitation:
-- the runtime collectible field does not yet store type-specific gameplay state
-  beyond what is currently needed for visual setup and prototype removal
+- the runtime collectible field does not yet store type-specific gameplay state beyond what is currently needed for visual setup and prototype removal
 
 ### 5.3 Start-of-level special collectible placement
 
@@ -450,12 +462,10 @@ Important current limitation:
 - the planner uses three anchor families named A, B, and C
 - four anchors are drawn without replacement in each family
 - letters use draw[0], hearts use draw[1], and skulls use draw[2] then draw[3]
-- the three letters are first selected by family, then permuted across the
-  three family placements
+- the three letters are first selected by family, then permuted across the three family placements
 
 Current implementation detail:
-- anchor family coordinates are now expressed directly in the Godot logical
-  cell coordinate system, with origin at the top-left of the maze
+- anchor family coordinates are expressed directly in the Godot logical-cell coordinate system, with origin at the top-left of the maze
 
 Current temporary visual behavior:
 - letters are currently displayed in red
@@ -463,20 +473,24 @@ Current temporary visual behavior:
 - skulls are currently displayed in white
 - color cycling is not implemented yet
 
-### 5.4 Collectible rendering
+### 5.4 Collectible rendering and pickup timing
 
 **Current rendering behavior:**
 - Level spawns one Collectible scene per occupied logical cell
 - scene placement uses the existing logical-cell-to-scene conversion helpers
 - flowers are displayed from the base layout
-- start-of-level letters, hearts, and skulls are displayed by changing the
-  visual state of selected collectible instances
-- the heart uses an overlay sprite so the inner heart can remain fixed while
-  the outer ring uses the intended temporary color
+- start-of-level letters, hearts, and skulls are displayed by changing the visual state of selected collectible instances
+- the heart uses an overlay sprite so the inner heart can remain fixed while the outer ring uses the intended temporary color
+
+**Current pickup behavior:**
+- PlayerController consumes collectibles when the movement motor reports that the player crossed a collectible anchor
+- PlayerMovementStepResult exposes the real movement segments completed during the tick
+- assisted turns can produce more than one movement segment in one tick
+- checking all movement segments avoids missing collectibles during assisted turns
 
 ## 6. Rotating Gate System
 
-Rotating gates are now implemented as a dynamic gameplay system.
+Rotating gates are implemented as a dynamic gameplay system.
 
 **Current structure:**
 - gate views are authored in Level.tscn
@@ -557,6 +571,7 @@ Level.cs is currently the runtime coordinator for the prototype level.
 - convert arcade-pixel positions into logical cells
 - convert arcade-pixel positions and deltas into scene-space positions
 - combine static maze legality and dynamic gate legality into PlayfieldStepResult
+- accept rotating-gate push requests from the movement motor
 - initialize the player after the maze, collectibles, and gate system have been prepared
 - update player and gate previews in the editor
 
@@ -568,7 +583,7 @@ Level.cs is currently the runtime coordinator for the prototype level.
 - the logical cell coordinate system currently starts at the top-left with (0, 0)
 
 **Important design point:**
-- Level is the source of truth for coordinate conversion between:
+- Level remains the source of truth for coordinate conversion between:
   - logical cells
   - arcade-pixel gameplay coordinates
   - gate pivots
@@ -576,22 +591,28 @@ Level.cs is currently the runtime coordinator for the prototype level.
 
 ## 8. Player Movement System
 
-The current player movement system is no longer the old smooth cell-to-cell
-prototype.
-
-It is now a more faithful arcade-oriented movement model built around
-small dedicated helper classes.
+The current player movement system is an arcade-oriented fixed-tick model.
+It includes reverse-engineered assisted-turn behavior and is split into dedicated helper classes.
 
 **Current player-related files:**
 - PlayerController.cs
 - PlayerInputState.cs
+- PlayerMovementDebugTrace.cs
 - PlayerMovementMotor.cs
+- PlayerMovementSegment.cs
 - PlayerMovementStepResult.cs
 - PlayerMovementTuning.cs
+- PlayerTurnAssistFlags.cs
+- PlayerTurnPath.cs
+- PlayerTurnWindowDecision.cs
+- PlayerTurnWindowResolver.cs
 
 **Additional movement-related integration:**
 - PlayfieldStepKind.cs
 - PlayfieldStepResult.cs
+- MazeGrid / MazeStepResult
+- GateSystem / RotatingGateRuntimeState
+- Level.EvaluateArcadePixelStepWithGates(...)
 
 ### 8.1 PlayerController
 
@@ -604,14 +625,14 @@ small dedicated helper classes.
 - forward input events to PlayerInputState
 - advance PlayerMovementMotor at fixed tick rate
 - advance gate timers once per simulation tick
-- update facing animation
+- update facing animation immediately from input
 - apply gameplay position and render offset to the scene node
-- trigger the current prototype collectible consumption hook during movement
+- consume collectibles along every movement segment reported by the motor
 
 **Important:**
-- PlayerController is intentionally much lighter than before
-- gameplay movement rules are no longer implemented directly in this class
-- collectible handling in this class is currently limited to prototype removal timing
+- PlayerController is intentionally light
+- gameplay movement rules are not implemented directly in this class
+- collectible pickup handling is still prototype-level, but now follows the real per-tick movement path
 
 ### 8.2 PlayerInputState
 
@@ -640,58 +661,87 @@ small dedicated helper classes.
 - sprite render offsets
 - directional collision probe distances
 
-### 8.4 PlayerMovementStepResult
-
-**File:**
-- scripts/actors/PlayerMovementStepResult.cs
-
-**Purpose:**
-- represent the outcome of one movement-motor tick
-
-**Current use:**
-- returned by PlayerMovementMotor.Step(...)
-- includes the current structured movement result data needed by the controller
-  for prototype movement-side reactions
-
-### 8.5 PlayerMovementMotor
+### 8.4 PlayerMovementMotor
 
 **File:**
 - scripts/actors/PlayerMovementMotor.cs
 
 **Purpose:**
-- own the gameplay movement state
-- apply arcade-style movement rules one tick at a time
+- own the player gameplay movement state
+- apply arcade-style movement rules one fixed tick at a time
 
 **Current responsibilities:**
 - store the gameplay arcade-pixel position
 - store the effective movement direction
-- store the render-offset direction
-- stop immediately when no input is held
-- resume movement only when the requested lane can be used
-- apply rail snap
-- validate each attempted movement step against the active playfield
-- move exactly one pixel per valid tick
-- apply conservative straight-line recentering
-- resolve gate pushes and same-tick re-evaluation
-- return a structured tick result
+- preserve movement context across short taps
+- latch requested directions before some direction changes become effective
+- use PlayerTurnWindowResolver to classify turn windows
+- resolve normal movement, close-range alignment assists, and full assisted turns
+- validate every committed pixel segment against the active playfield
+- resolve pushable rotating gates and re-evaluate the same step
+- return the complete set of one-pixel movement segments completed during the tick
 
 Important current behavior:
 - movement runs at fixed tick rate
 - gameplay position is integer arcade-pixel based
-- movement speed is currently 1 pixel per tick
-- buffered direction changes are supported
-- perpendicular blocked direction requests stop the actor
+- normal straight movement is 1 pixel per tick
+- assisted turns may contain an orthogonal correction pixel plus a requested-direction pixel in one tick
+- short taps preserve the previous movement context
+- blocked fixed-wall corrections are rejected so the player does not slide sideways into walls
+- pushable gate blocks are allowed to proceed so the committed step can push the gate
 - sprite facing and sprite render offset are intentionally separated
+
+### 8.5 PlayerTurnWindowResolver
+
+**File:**
+- scripts/actors/PlayerTurnWindowResolver.cs
+
+**Purpose:**
+- isolate the reverse-engineered turn-window data and selection policy from PlayerMovementMotor
+
+**Current responsibilities:**
+- map the current position and requested direction to a high-level PlayerTurnPath
+- choose a target lane for assisted turns
+- expose whether a close-range orthogonal correction is needed
+- keep original mirrored Y coordinate handling local to the resolver
+- keep the lane masks derived from reverse engineering out of the movement motor
+
+### 8.6 PlayerMovementStepResult and PlayerMovementSegment
+
+**Files:**
+- scripts/actors/PlayerMovementStepResult.cs
+- scripts/actors/PlayerMovementSegment.cs
+
+**Purpose:**
+- represent the outcome of one movement-motor tick
+- expose the real one-pixel movement segments completed during that tick
+
+**Current use:**
+- PlayerController reads MovementSegments to detect collectible anchor crossings
+- this is required because assisted turns can move along two axes during one simulation tick
+
+### 8.7 PlayerMovementDebugTrace
+
+**File:**
+- scripts/actors/PlayerMovementDebugTrace.cs
+
+**Purpose:**
+- optional console trace for difficult movement edge cases
+
+**Current behavior:**
+- disabled by default through a private const bool
+- prints movement path, requested direction, current direction, target lane, assist flags, block reason, and debug coordinates when enabled
 
 ## 9. Playfield Step Evaluation
 
-Dynamic movement legality is now evaluated beyond the static maze.
+Dynamic movement legality is evaluated beyond the static maze.
 
 Current flow:
-- PlayerMovementMotor requests one attempted step
+- PlayerMovementMotor requests one attempted pixel step
 - Level asks MazeGrid for the static result
-- Level then overlays dynamic rotating-gate checks
+- Level overlays dynamic rotating-gate checks
 - the final result is wrapped in PlayfieldStepResult
+- if a gate blocks the step and can be pushed, PlayerMovementMotor asks Level to push the gate and then re-evaluates the same step
 
 **Current possible outcomes:**
 - Allowed
@@ -711,21 +761,27 @@ Current flow:
 
 - fixed tick update
 - integer arcade-pixel gameplay position
-- 1 pixel movement per tick
+- 1 pixel straight movement per normal tick
+- assisted-turn ticks that can include two one-pixel segments
 - buffered input using "last pressed wins"
+- request latching for some direction changes
+- preserved movement context during short taps
 - explicit current / wanted / facing / offset directions
 - lane alignment inside 16x16 logical cells
-- rail snap and conservative recentering
-- static maze validation for each attempted pixel step
+- turn-window selection through PlayerTurnWindowResolver
+- close-range alignment assists
+- full assisted turns with orthogonal correction
+- static maze validation for every committed pixel segment
 - dynamic rotating-gate validation layered on top of the static maze
 - same-tick gate push resolution and re-evaluation
 - short gate turning visuals
-- prototype removal of collectibles based on current movement timing
+- collectible pickup checks across all movement segments in a tick
 
 **Important:**
 - the player no longer moves cell to cell
 - the player no longer interpolates toward a target scene position
-- movement is now driven by discrete gameplay ticks
+- movement is driven by discrete gameplay ticks
+- the current movement behavior has been manually tested across normal turns, short taps, blocked walls, pushable gates, and assisted-turn collectible pickup cases
 
 ## 11. What Is Currently Working
 
@@ -750,12 +806,17 @@ Current flow:
 - player movement runs with a fixed tick model
 - player movement runs pixel by pixel in gameplay coordinates
 - buffered multi-key input works
-- lane snap and conservative recentering work
+- short-tap turn behavior preserves movement context
+- assisted turns work at intersections
+- blocked wall corrections no longer cause unintended sideways sliding
+- pushable gates can be handled from assisted-turn contexts
+- movement segments are reported to the controller
+- collectibles can be consumed reliably during assisted turns
 - movement architecture is refactored into dedicated helper classes
 - the base flower layout is loaded from JSON and spawned at runtime
 - flowers are displayed at the correct logical cells of the maze
 - start-of-level letters, hearts, and skulls are generated and displayed
-- special collectible placement now uses corrected Godot logical-cell anchors
+- special collectible placement uses corrected Godot logical-cell anchors
 - hearts currently use an overlay-based visual setup
 - the prototype player movement can remove collectibles from the field
 
@@ -776,32 +837,32 @@ Current flow:
 - title screen flow
 - gameplay / game over / high score screen flow
 - session state management
+- automated movement regression tests
 
 ## 13. Current Limitations
 
-The movement and gate systems are much more faithful than before,
-but they are not yet the final verified arcade reproduction.
+The movement and gate systems are now stable and much closer to the arcade behavior than the early prototype.
+However, they are still a practical remake implementation rather than a literal ROM-level reproduction.
 
-The collectible system is now visually present at level start,
-but still remains a prototype from a gameplay point of view.
+The collectible system is visually present at level start and supports prototype removal, but it does not yet implement final gameplay rules.
 
 **Open points include:**
-- exact original turn-window details
-- exact original collision details from the ROM
-- exact interpretation of all lane-alignment checks
-- exact gate/turn interaction windows in edge cases
+- automated non-regression coverage for the validated player movement cases
+- exact original collision details from the ROM if a stricter low-level reproduction is desired
+- exact gate/turn interaction windows in rare edge cases, if future testing reveals differences
 - enemy movement system
 - exact gameplay semantics for hearts, letters, and skulls
 - collectible color cycling timing
 - score and word-progression behavior
-- whether collectible removal timing should remain exactly as in the current prototype
+- whether collectible removal timing should remain exactly as in the current prototype once scoring and letter rules exist
 
 ## 14. Current Development Priority
 
 **A reasonable current priority is now:**
 
 1) keep the current movement and gate systems stable
-2) keep the collectible placement and display stable
-3) refine turn-window / alignment fidelity through reverse engineering
-4) implement enemies and remaining gameplay systems
-5) continue refining arcade fidelity where reverse engineering justifies it
+2) document and protect validated movement behavior with regression scenarios
+3) keep the collectible placement and display stable
+4) implement collectible gameplay rules, scoring, and HUD foundations
+5) implement enemies and remaining gameplay systems
+6) continue refining arcade fidelity only where reverse engineering or testing justifies it
