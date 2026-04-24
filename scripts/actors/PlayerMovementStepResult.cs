@@ -5,58 +5,13 @@ using Godot;
 namespace LadyBug.Actors;
 
 /// <summary>
-/// Represents one real one-pixel gameplay movement completed during a motor tick.
-/// </summary>
-/// <remarks>
-/// A normal tick usually contains one segment. An assisted turn may contain two:
-/// first an orthogonal alignment correction, then one pixel in the requested
-/// direction. Reporting the full path lets gameplay systems consume collectibles
-/// crossed during special turns instead of seeing only the final position.
-/// </remarks>
-public readonly struct PlayerMovementSegment
-{
-    /// <summary>
-    /// Gets the gameplay position before this one-pixel segment.
-    /// </summary>
-    public Vector2I StartArcadePixelPos { get; }
-
-    /// <summary>
-    /// Gets the gameplay position after this one-pixel segment.
-    /// </summary>
-    public Vector2I EndArcadePixelPos { get; }
-
-    /// <summary>
-    /// Gets the direction used by this segment.
-    /// </summary>
-    public Vector2I Direction { get; }
-
-    /// <summary>
-    /// Initializes a new movement segment.
-    /// </summary>
-    public PlayerMovementSegment(
-        Vector2I startArcadePixelPos,
-        Vector2I endArcadePixelPos,
-        Vector2I direction)
-    {
-        StartArcadePixelPos = startArcadePixelPos;
-        EndArcadePixelPos = endArcadePixelPos;
-        Direction = direction;
-    }
-}
-
-/// <summary>
 /// Represents the outcome of one movement-motor simulation tick.
 /// </summary>
 /// <remarks>
-/// This result is intentionally small but expressive enough for callers that
-/// want to react to movement state changes without re-deriving them manually.
-///
-/// It answers questions such as:
-/// - did the actor move?
-/// - did the effective movement direction change?
-/// - did the actor stop during this tick?
-/// - did the motor snap to a different rail before the final step?
-/// - which one-pixel movement segments were actually completed?
+/// Besides the final position and direction, this result exposes the real pixel
+/// segments completed during the tick. That is important for assisted turns,
+/// because one tick can contain both an alignment correction and a requested
+/// movement step.
 /// </remarks>
 public readonly struct PlayerMovementStepResult
 {
@@ -86,23 +41,14 @@ public readonly struct PlayerMovementStepResult
     public Vector2I CurrentArcadePixelPos { get; }
 
     /// <summary>
-    /// Gets the intermediate snapped gameplay position when one rail snap
-    /// occurred during the tick.
+    /// Gets the intermediate snapped gameplay position when one rail snap occurred
+    /// before any movement segment.
     /// </summary>
-    /// <remarks>
-    /// This is <see langword="null"/> when the tick did not perform any
-    /// intermediate snap before the final movement step.
-    /// </remarks>
     public Vector2I? SnappedArcadePixelPos { get; }
 
     /// <summary>
-    /// Gets the real one-pixel movement segments completed during this tick.
+    /// Gets the committed one-pixel movement segments completed during the tick.
     /// </summary>
-    /// <remarks>
-    /// Normal movement has one segment. Assisted turns may have two segments in
-    /// one tick. The list is empty when no committed pixel step occurred, even if
-    /// the motor only snapped to a rail.
-    /// </remarks>
     public IReadOnlyList<PlayerMovementSegment> MovementSegments { get; }
 
     /// <summary>
@@ -120,9 +66,6 @@ public readonly struct PlayerMovementStepResult
     /// </summary>
     public Vector2I OffsetDirection { get; }
 
-    /// <summary>
-    /// Initializes a new movement step result.
-    /// </summary>
     public PlayerMovementStepResult(
         bool moved,
         bool directionChanged,
