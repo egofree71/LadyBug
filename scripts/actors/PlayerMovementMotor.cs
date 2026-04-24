@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Gates;
@@ -132,6 +133,12 @@ public sealed class PlayerMovementMotor
     private string _debugNotes = string.Empty;
     private string _debugBlocked = string.Empty;
 
+    // Ordered list of real one-pixel movement segments completed during the
+    // current tick. Assisted turns can produce two segments: one alignment
+    // correction and one step in the requested direction. PlayerController uses
+    // this path to consume collectibles crossed during special turns.
+    private readonly List<PlayerMovementSegment> _movementSegmentsThisTick = new(2);
+
     /// <summary>
     /// Gets the current gameplay position in arcade pixels.
     /// </summary>
@@ -176,6 +183,7 @@ public sealed class PlayerMovementMotor
         Vector2I? snappedArcadePixelPos = null;
 
         BeginDebugTick();
+        _movementSegmentsThisTick.Clear();
 
         if (wantedDir == Vector2I.Zero)
         {
@@ -731,7 +739,12 @@ public sealed class PlayerMovementMotor
             return false;
         }
 
+        Vector2I segmentStart = _arcadePixelPos;
         _arcadePixelPos += direction;
+        _movementSegmentsThisTick.Add(new PlayerMovementSegment(
+            segmentStart,
+            _arcadePixelPos,
+            direction));
 
         if (updateCurrentDirection)
             _currentDir = direction;
@@ -894,6 +907,11 @@ public sealed class PlayerMovementMotor
         bool directionChanged = _currentDir != previousDirection;
         bool stopped = previousDirection != Vector2I.Zero && _currentDir == Vector2I.Zero;
 
+        PlayerMovementSegment[] movementSegments =
+            _movementSegmentsThisTick.Count == 0
+                ? Array.Empty<PlayerMovementSegment>()
+                : _movementSegmentsThisTick.ToArray();
+
         return new PlayerMovementStepResult(
             moved,
             directionChanged,
@@ -901,6 +919,7 @@ public sealed class PlayerMovementMotor
             previousPixelPos,
             _arcadePixelPos,
             snappedArcadePixelPos,
+            movementSegments,
             previousDirection,
             _currentDir,
             _offsetDir);

@@ -1,6 +1,48 @@
+using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace LadyBug.Actors;
+
+/// <summary>
+/// Represents one real one-pixel gameplay movement completed during a motor tick.
+/// </summary>
+/// <remarks>
+/// A normal tick usually contains one segment. An assisted turn may contain two:
+/// first an orthogonal alignment correction, then one pixel in the requested
+/// direction. Reporting the full path lets gameplay systems consume collectibles
+/// crossed during special turns instead of seeing only the final position.
+/// </remarks>
+public readonly struct PlayerMovementSegment
+{
+    /// <summary>
+    /// Gets the gameplay position before this one-pixel segment.
+    /// </summary>
+    public Vector2I StartArcadePixelPos { get; }
+
+    /// <summary>
+    /// Gets the gameplay position after this one-pixel segment.
+    /// </summary>
+    public Vector2I EndArcadePixelPos { get; }
+
+    /// <summary>
+    /// Gets the direction used by this segment.
+    /// </summary>
+    public Vector2I Direction { get; }
+
+    /// <summary>
+    /// Initializes a new movement segment.
+    /// </summary>
+    public PlayerMovementSegment(
+        Vector2I startArcadePixelPos,
+        Vector2I endArcadePixelPos,
+        Vector2I direction)
+    {
+        StartArcadePixelPos = startArcadePixelPos;
+        EndArcadePixelPos = endArcadePixelPos;
+        Direction = direction;
+    }
+}
 
 /// <summary>
 /// Represents the outcome of one movement-motor simulation tick.
@@ -14,6 +56,7 @@ namespace LadyBug.Actors;
 /// - did the effective movement direction change?
 /// - did the actor stop during this tick?
 /// - did the motor snap to a different rail before the final step?
+/// - which one-pixel movement segments were actually completed?
 /// </remarks>
 public readonly struct PlayerMovementStepResult
 {
@@ -53,6 +96,16 @@ public readonly struct PlayerMovementStepResult
     public Vector2I? SnappedArcadePixelPos { get; }
 
     /// <summary>
+    /// Gets the real one-pixel movement segments completed during this tick.
+    /// </summary>
+    /// <remarks>
+    /// Normal movement has one segment. Assisted turns may have two segments in
+    /// one tick. The list is empty when no committed pixel step occurred, even if
+    /// the motor only snapped to a rail.
+    /// </remarks>
+    public IReadOnlyList<PlayerMovementSegment> MovementSegments { get; }
+
+    /// <summary>
     /// Gets the effective movement direction before the tick.
     /// </summary>
     public Vector2I PreviousDirection { get; }
@@ -70,18 +123,6 @@ public readonly struct PlayerMovementStepResult
     /// <summary>
     /// Initializes a new movement step result.
     /// </summary>
-    /// <param name="moved">Whether the gameplay position changed during the tick.</param>
-    /// <param name="directionChanged">Whether the effective movement direction changed during the tick.</param>
-    /// <param name="stopped">Whether the actor stopped during this tick.</param>
-    /// <param name="previousArcadePixelPos">Gameplay position before the tick.</param>
-    /// <param name="currentArcadePixelPos">Gameplay position after the tick.</param>
-    /// <param name="snappedArcadePixelPos">
-    /// Intermediate snapped gameplay position reached during the tick,
-    /// or <see langword="null"/> when no snap occurred.
-    /// </param>
-    /// <param name="previousDirection">Effective movement direction before the tick.</param>
-    /// <param name="currentDirection">Effective movement direction after the tick.</param>
-    /// <param name="offsetDirection">Render-offset direction after the tick.</param>
     public PlayerMovementStepResult(
         bool moved,
         bool directionChanged,
@@ -89,6 +130,7 @@ public readonly struct PlayerMovementStepResult
         Vector2I previousArcadePixelPos,
         Vector2I currentArcadePixelPos,
         Vector2I? snappedArcadePixelPos,
+        IReadOnlyList<PlayerMovementSegment>? movementSegments,
         Vector2I previousDirection,
         Vector2I currentDirection,
         Vector2I offsetDirection)
@@ -99,6 +141,7 @@ public readonly struct PlayerMovementStepResult
         PreviousArcadePixelPos = previousArcadePixelPos;
         CurrentArcadePixelPos = currentArcadePixelPos;
         SnappedArcadePixelPos = snappedArcadePixelPos;
+        MovementSegments = movementSegments ?? Array.Empty<PlayerMovementSegment>();
         PreviousDirection = previousDirection;
         CurrentDirection = currentDirection;
         OffsetDirection = offsetDirection;

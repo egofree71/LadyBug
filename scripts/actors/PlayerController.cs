@@ -113,12 +113,13 @@ public partial class PlayerController : Node2D
     /// Executes exactly one controller tick.
     /// </summary>
     /// <remarks>
-    /// Collectible consumption is evaluated in two stages:
-    /// - first at the exact snapped anchor reached during a perpendicular turn
-    /// - then across the final movement segment of the tick
+    /// Collectible consumption follows the actual pixel path reported by the
+    /// movement motor.
     ///
-    /// This allows flowers to be consumed reliably in turns without making them
-    /// disappear too early when entering the next logical cell.
+    /// This matters for assisted turns: one simulation tick may contain two real
+    /// one-pixel movement segments, first an alignment correction and then one
+    /// pixel in the requested direction. Checking only the final segment can miss
+    /// a flower crossed by the correction segment.
     /// </remarks>
     private void RunOneTick()
     {
@@ -134,22 +135,21 @@ public partial class PlayerController : Node2D
 
         PlayerMovementStepResult stepResult = _movementMotor.Step(wantedDir);
 
-        if (!stepResult.Moved || stepResult.CurrentDirection == Vector2I.Zero)
-        {
+        if (!stepResult.Moved)
             return;
-        }
 
         if (stepResult.SnappedArcadePixelPos is Vector2I snappedPos)
         {
             TryConsumeCollectibleAtExactAnchor(snappedPos);
         }
 
-        Vector2I segmentStart = stepResult.SnappedArcadePixelPos ?? stepResult.PreviousArcadePixelPos;
-
-        TryConsumeCollectibleOnAnchorCrossing(
-            segmentStart,
-            stepResult.CurrentArcadePixelPos,
-            stepResult.CurrentDirection);
+        foreach (PlayerMovementSegment segment in stepResult.MovementSegments)
+        {
+            TryConsumeCollectibleOnAnchorCrossing(
+                segment.StartArcadePixelPos,
+                segment.EndArcadePixelPos,
+                segment.Direction);
+        }
     }
 
     /// <summary>
@@ -172,8 +172,8 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Tries to consume one collectible when the final movement segment of the
-    /// tick crosses the anchor of the destination logical cell.
+    /// Tries to consume one collectible when a one-pixel movement segment crosses
+    /// the anchor of its destination logical cell.
     /// </summary>
     private void TryConsumeCollectibleOnAnchorCrossing(
         Vector2I startArcadePixelPos,
