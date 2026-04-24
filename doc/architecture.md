@@ -56,13 +56,15 @@ The final project architecture is intended to have these major layers:
    - progression between screens and levels
 
 3) Level Runtime
-   - Level
+   - Level coordinator
+   - coordinate system
    - maze background
    - runtime logical maze
+   - playfield collision resolver
+   - gate runtime
+   - collectible field runtime
    - player instance
-   - enemy instances
-   - rotating gate instances
-   - collectibles / bonus items
+   - future enemy instances
    - HUD integration
 
 4) Actor Systems
@@ -86,8 +88,7 @@ The final project architecture is intended to have these major layers:
 
 ## 3. Target Folder Structure
 
-The current repository does not contain all these files yet.
-This section describes the intended long-term structure.
+Some files below already exist, others are future-oriented.
 
 ```text
 assets/
@@ -158,10 +159,14 @@ scripts/
 │  └─ HighScoreScreen.cs
 ├─ level/
 │  ├─ Level.cs
+│  ├─ LevelCoordinateSystem.cs
+│  ├─ LevelGateRuntime.cs
+│  ├─ CollectibleFieldRuntime.cs
 │  ├─ RotatingGateView.cs
 │  └─ Collectible.cs
 ├─ actors/
 │  ├─ PlayerController.cs
+│  ├─ PlayerDebugOverlay.cs
 │  ├─ PlayerInputState.cs
 │  ├─ PlayerMovementDebugTrace.cs
 │  ├─ PlayerMovementMotor.cs
@@ -215,6 +220,7 @@ scripts/
 │  │  ├─ StageDefinition.cs
 │  │  ├─ StageFlowController.cs
 │  │  └─ LifeState.cs
+│  ├─ PlayfieldCollisionResolver.cs
 │  ├─ PlayfieldStepKind.cs
 │  └─ PlayfieldStepResult.cs
 ├─ ui/
@@ -316,25 +322,30 @@ Level should only manage one active playfield runtime.
 
 Level represents one active gameplay board.
 
-Responsibilities:
-- load the logical maze
-- expose coordinate conversion helpers
-- instantiate and connect runtime actors
-- own the active rotating gates of the level
-- own the active collectibles / bonus items of the level
-- expose the current runtime playfield state
+Current role:
+- coordinate the active board runtime
+- create and connect the maze, gate runtime, collectible field and collision resolver
+- expose a small public integration surface for actors
+- initialize the player after board systems exist
+- keep editor previews working
 
-Level should remain the source of truth for:
+Level should remain the public integration point for:
 - logical cell <-> arcade-pixel conversion
 - gate pivot <-> arcade-pixel conversion
 - arcade-pixel <-> scene-space conversion
 - active board objects belonging to the level
+- playfield step evaluation
+- gate push requests
+- collectible pickup requests
+
+But Level should not own all implementation details directly.
+That is now the direction of the current codebase.
 
 ### 6.2 Level node structure target
 
 ```text
 Level (Node2D)
-├─ MazeBackground (Sprite2D)
+├─ MazeBackground or Maze (Sprite2D)
 ├─ Gates (Node2D)
 │  └─ RotatingGate instances
 ├─ Collectibles (Node2D)
@@ -352,20 +363,25 @@ Notes:
 - gate view instances can be pre-placed in Level.tscn and converted into a separate runtime gate system during level initialization
 - the current collectible direction is to spawn a base flower layout first, then replace selected cells with special collectibles
 
-### 6.3 Possible future Level refactor
+### 6.3 Current Level helper classes
 
-Level currently coordinates several systems directly.
-As more gameplay systems are added, the following extra helpers may become useful:
+The current implementation already delegates the major Level sub-responsibilities:
 
 ```text
 LevelCoordinateSystem
+- owns coordinate conversion math
+
 PlayfieldCollisionResolver
-LevelCollectibleRuntime / CollectibleField
+- combines static maze legality with dynamic gate blocking
+
+CollectibleFieldRuntime
+- owns spawned collectible views and the logical-cell lookup
+
 LevelGateRuntime
+- owns placed gate views, GateSystem creation, gate ticking, pushes and view sync
 ```
 
-This should be done gradually.
-Level can remain the public coordinator while delegating specialized logic to smaller classes.
+This makes Level closer to a coordinator and reduces the risk of a monolithic gameplay script.
 
 ## 7. Player Architecture
 
@@ -373,6 +389,7 @@ The player movement subsystem is currently the most advanced subsystem in the co
 
 Implemented pieces:
 - PlayerController
+- PlayerDebugOverlay
 - PlayerInputState
 - PlayerMovementMotor
 - PlayerMovementTuning
@@ -387,7 +404,7 @@ Implemented pieces:
 Current responsibility split:
 
 PlayerController:
-- orchestrates input, fixed ticks, sprite facing, render offset, and collectible pickup checks
+- orchestrates input, fixed ticks, sprite facing, render offset, debug overlay updates and collectible pickup checks
 
 PlayerInputState:
 - resolves intended movement direction using last-pressed-wins input policy
@@ -403,6 +420,9 @@ PlayerMovementStepResult / PlayerMovementSegment:
 
 PlayerMovementTuning:
 - centralizes movement constants
+
+PlayerDebugOverlay:
+- draws optional player debug visuals above the playfield
 
 PlayerMovementDebugTrace:
 - optional debug tracing, disabled by default
@@ -459,17 +479,23 @@ Current architectural direction:
 - RotatingGateView
   - editor-authored view instance inside Level.tscn
   - runtime visual synced from gate state
+- LevelGateRuntime
+  - bridges placed gate views and runtime gate state
+  - builds GateSystem from scene-authored gates
+  - advances gate timers
+  - accepts gate push requests
+  - syncs view visuals from runtime state
 - GateSystem
   - owns all runtime gate states of the active level
 - RotatingGateRuntimeState
   - represents one mutable runtime gate
 - Gate-related enums and tuning types
-  - represent stable orientation, logical blocking axis, turning state, etc.
+  - represent stable orientation, logical blocking axis, turning state, contact half, etc.
 
 Level / Maze integration:
 - gates influence movement legality
 - the static MazeGrid remains the base maze
-- dynamic gate state is applied as an additional movement constraint on top of the static maze
+- PlayfieldCollisionResolver applies dynamic gate state as an additional movement constraint on top of the static maze
 
 Long-term movement legality remains:
 
@@ -490,7 +516,7 @@ The project now has an initial collectible foundation, but not the final collect
 Current direction:
 - base flower layout loaded from data/collectibles_layout.json
 - one collectible or empty cell per logical maze cell
-- level spawns a visible flower field from that base layout
+- CollectibleFieldRuntime spawns a visible flower field from that base layout
 - start-of-level planner selects letters, hearts, and skulls using anchor families and random draws
 - selected special collectibles replace some already spawned flowers
 - player pickup currently removes the collectible view from the runtime lookup
@@ -499,6 +525,7 @@ Current direction:
 This keeps a useful separation between:
 - static base layout data
 - start-of-level special placement logic
+- runtime view lookup / removal
 - future pickup / scoring / color-cycle gameplay logic
 
 Expected long-term item families:
@@ -537,7 +564,23 @@ CollectibleRules
 Important:
 The collectible system should remain driven by logical maze cells, not by free-form scene-space placement.
 
-## 11. HUD / UI Architecture
+## 11. Playfield Collision Architecture
+
+PlayfieldCollisionResolver is the current bridge between the static maze and dynamic gates.
+
+Responsibilities:
+- ask MazeGrid to evaluate the static movement step
+- detect gate blocking at probe level
+- detect gate blocking when crossing logical-cell boundaries
+- return a PlayfieldStepResult indicating:
+  - allowed
+  - blocked by fixed wall
+  - blocked by gate
+
+It should remain independent of player-specific turn logic.
+Players and future enemies can ask the playfield whether a step is legal without duplicating static maze + gate overlay checks.
+
+## 12. HUD / UI Architecture
 
 HudController should eventually represent the gameplay HUD.
 
@@ -550,9 +593,10 @@ Expected HUD responsibilities:
 HUD is not the owner of session data.
 It should observe GameSession and/or GameplayScreen.
 
-A later DebugOverlay or CanvasLayer-based debug display may also be useful, especially for movement coordinates and diagnostics.
+Debug overlays should remain separate from normal HUD.
+PlayerDebugOverlay is currently a small actor-specific debug helper, not a final HUD system.
 
-## 12. Logical Maze Architecture
+## 13. Logical Maze Architecture
 
 The logical maze system already has a good foundation and should remain central.
 
@@ -583,7 +627,7 @@ Important:
 - collectible layout data should remain separate from static wall data
 - rotating gates can be authored in the level scene while still being converted into a separate runtime system at initialization
 
-## 13. Coordinate System Design
+## 14. Coordinate System Design
 
 A central architectural principle is the separation between:
 
@@ -604,10 +648,13 @@ Why this matters:
 - reverse-engineering findings are naturally expressed in arcade-pixel terms
 - visual offsets should not corrupt gameplay coordinates
 
-Possible future improvement:
-- extract coordinate conversion helpers into a LevelCoordinateSystem class when Level.cs becomes too large
+Current implementation:
+- LevelCoordinateSystem owns the conversion math
+- Level exposes wrapper methods so gameplay systems do not need to know the concrete helper
+- PlayerTurnWindowResolver separately handles original mirrored screen-Y conversion for turn-window data
+- PlayerDebugOverlay formats player debug coordinates separately from normal gameplay conversion
 
-## 14. Current Implemented Foundation
+## 15. Current Implemented Foundation
 
 The following part of the target architecture is already implemented now:
 
@@ -619,9 +666,14 @@ The following part of the target architecture is already implemented now:
 - logical maze loading from JSON
 - base collectible layout loading from JSON
 - MazeGrid / MazeCell / WallFlags / MazeLoader
+- LevelCoordinateSystem
+- PlayfieldCollisionResolver
+- CollectibleFieldRuntime
+- LevelGateRuntime
 - collectible layout loading and flower field spawning
 - start-of-level special collectible placement planning
 - PlayerController
+- PlayerDebugOverlay
 - PlayerInputState
 - PlayerMovementMotor
 - PlayerMovementTuning
@@ -649,7 +701,7 @@ The following part of the target architecture is already implemented now:
 For the detailed current state, see:
 - current_implementation.md
 
-## 15. Main Systems Still To Implement
+## 16. Main Systems Still To Implement
 
 The largest remaining systems are:
 
@@ -669,7 +721,7 @@ The largest remaining systems are:
 - stage progression / stage flow controller
 - automated regression scenarios for movement-sensitive behavior
 
-## 16. Architectural Guiding Principles
+## 17. Architectural Guiding Principles
 
 The architecture should continue to follow these rules:
 
@@ -682,10 +734,11 @@ The architecture should continue to follow these rules:
 7) Stay close to reverse-engineered arcade behavior where it matters
 8) Isolate low-level reverse-engineering details behind readable gameplay names
 9) Protect stable movement behavior before further movement refactoring
+10) Avoid prematurely generalizing player movement into a shared actor motor before enemy behavior is understood
 
-## 17. Current Architectural Direction
+## 18. Current Architectural Direction
 
-The player movement foundation is now stable enough to stop treating turn-window refinement as the immediate architectural bottleneck.
+The player movement and level runtime foundation are now stable enough to stop reshaping them without a specific reason.
 
 The next major architectural expansions should happen around:
 - documenting and protecting movement behavior with regression scenarios
@@ -694,13 +747,14 @@ The next major architectural expansions should happen around:
 - enemy movement and AI
 - screen flow
 
-Future refactoring candidates:
-- extract PlayfieldCollisionResolver from Level.cs
-- extract LevelCoordinateSystem when coordinate conversion grows further
-- move debug coordinate rendering into a CanvasLayer-based debug overlay
-- introduce richer collectible runtime state and pickup result types
+Future refactoring candidates should be driven by new gameplay systems rather than by abstract cleanup alone.
+The major current Level extractions have already been done:
+- coordinate system
+- playfield collision resolver
+- collectible field runtime
+- gate runtime
 
-## 18. Summary
+## 19. Summary
 
 The final architecture is intended to support the whole game, not only the player movement subsystem.
 
@@ -715,13 +769,13 @@ It should ultimately contain:
 - scoring and high scores
 - HUD and other UI
 
-The project already has a solid movement, maze, rotating-gate, and early collectible foundation.
+The project already has a solid movement, maze, rotating-gate, coordinate, collision, and early collectible foundation.
 
-The most important shift since the previous version of this document is that player movement is now much more mature:
-- fixed tick movement is implemented
-- assisted turns are implemented
-- rotating-gate interaction is integrated
-- collectible pickup during assisted turns is handled through movement segments
-- low-level turn-window data is isolated from the movement motor
+The most important architectural shift since the previous version of this document is that Level is now much more of a coordinator:
+- coordinate conversion is isolated
+- playfield collision is isolated
+- gate runtime is isolated
+- collectible runtime is isolated
+- player movement is modular and stable
 
-The next work should build on this foundation rather than keep reshaping it without a specific reason.
+The next work should build gameplay systems on top of this foundation rather than keep reshaping it without a concrete need.

@@ -55,6 +55,7 @@ scripts/
 ├─ Main.cs
 ├─ actors/
 │  ├─ PlayerController.cs
+│  ├─ PlayerDebugOverlay.cs
 │  ├─ PlayerInputState.cs
 │  ├─ PlayerMovementDebugTrace.cs
 │  ├─ PlayerMovementMotor.cs
@@ -93,11 +94,15 @@ scripts/
 │  │  ├─ MazeGrid.cs
 │  │  ├─ MazeLoader.cs
 │  │  └─ MazeStepResult.cs
+│  ├─ PlayfieldCollisionResolver.cs
 │  ├─ PlayfieldStepKind.cs
 │  └─ PlayfieldStepResult.cs
 └─ level/
    ├─ Collectible.cs
+   ├─ CollectibleFieldRuntime.cs
    ├─ Level.cs
+   ├─ LevelCoordinateSystem.cs
+   ├─ LevelGateRuntime.cs
    └─ RotatingGateView.cs
 ```
 
@@ -161,7 +166,7 @@ Level (Node2D)
 └─ Player (instance of scenes/player/Player.tscn)
 ```
 
-**Current script:**
+**Current main script:**
 - scripts/level/Level.cs
 
 **Important current properties:**
@@ -175,7 +180,7 @@ Level (Node2D)
 
 **Collectibles node:**
 - runtime parent for spawned collectible instances
-- currently receives the base flower layout and start-of-level special collectibles
+- owned at runtime by CollectibleFieldRuntime
 
 **Gates node:**
 - contains the pre-placed rotating gate instances
@@ -183,6 +188,7 @@ Level (Node2D)
   - GateId
   - GatePivot
   - InitialOrientation
+- owned at runtime by LevelGateRuntime
 
 **Player node:**
 - instance of scenes/player/Player.tscn
@@ -243,7 +249,7 @@ RotatingGate (Node2D)
 **Current role:**
 - visual gate scene used both for:
   - editor authoring inside Level.tscn
-  - runtime rendering synced from GateSystem
+  - runtime rendering synced from LevelGateRuntime / GateSystem
 
 **Current editor-authored properties:**
 - GateId
@@ -271,7 +277,8 @@ Player (Node2D)
 **Current main script:**
 - scripts/actors/PlayerController.cs
 
-**Current movement helper scripts:**
+**Current movement and debug helper scripts:**
+- scripts/actors/PlayerDebugOverlay.cs
 - scripts/actors/PlayerInputState.cs
 - scripts/actors/PlayerMovementDebugTrace.cs
 - scripts/actors/PlayerMovementMotor.cs
@@ -292,8 +299,8 @@ Player (Node2D)
 - down is handled by FlipV
 
 **Current debug support:**
-- PlayerController can draw the cyan gameplay anchor
-- PlayerController can display debug arcade coordinates near the player
+- PlayerDebugOverlay can draw the cyan gameplay anchor
+- PlayerDebugOverlay can display debug arcade coordinates above gates and maze objects
 - PlayerMovementDebugTrace can print detailed movement traces, but logging is disabled by default
 
 ## 4. Logical Maze System
@@ -314,9 +321,10 @@ The project already includes a logical maze system separated from the visual maz
 - cells = flat array of wall bitmasks
 
 **Important:**
-- maze.json now describes only the static maze
+- maze.json describes only the static maze
 - rotating gates are no longer serialized in maze.json
 - rotating gates are authored directly in Level.tscn
+- collectibles use a separate data file
 
 ### 4.1 WallFlags
 
@@ -356,9 +364,6 @@ The project already includes a logical maze system separated from the visual maz
 **Current use:**
 - intermediate deserialization model between maze.json and MazeGrid
 
-**Important:**
-- this file no longer contains gate definitions
-
 ### 4.4 MazeStepResult
 
 **File:**
@@ -369,7 +374,7 @@ The project already includes a logical maze system separated from the visual maz
 
 **Current use:**
 - returned by MazeGrid.EvaluateArcadePixelStep(...)
-- wrapped later into PlayfieldStepResult once dynamic gates are considered
+- wrapped into PlayfieldStepResult once dynamic gates are considered
 
 ### 4.5 MazeGrid
 
@@ -403,7 +408,36 @@ The project already includes a logical maze system separated from the visual maz
 - deserializes MazeDataFile
 - builds MazeGrid
 
-## 5. Collectible System
+## 5. Coordinate System
+
+Coordinate conversion has been extracted from Level into LevelCoordinateSystem.
+
+**File:**
+- scripts/level/LevelCoordinateSystem.cs
+
+**Current coordinate spaces:**
+- logical cell coordinates
+- gameplay arcade-pixel coordinates
+- gate pivot coordinates
+- Godot scene-space coordinates
+
+**Current constants:**
+- logical cell size = 16 arcade pixels
+- render scale = 4
+- gameplay anchor inside a logical cell = Vector2I(8, 7)
+
+**Current Level wrapper methods:**
+- LogicalCellToArcadePixel(...)
+- ArcadePixelToLogicalCell(...)
+- ArcadePixelToScenePosition(...)
+- ArcadeDeltaToSceneDelta(...)
+- LogicalCellToScenePosition(...)
+- GatePivotToScenePosition(...)
+
+**Important:**
+Level remains the public owner of coordinate conversion for other gameplay systems, but the conversion math lives in LevelCoordinateSystem.
+
+## 6. Collectible System
 
 Collectibles are implemented as a separate runtime and visual system.
 
@@ -411,6 +445,7 @@ Collectibles are implemented as a separate runtime and visual system.
 - the base flower layout is loaded from JSON
 - collectible views are spawned at runtime under Level/Collectibles
 - start-of-level special collectibles are generated from anchor families and replace some of the base flowers visually
+- CollectibleFieldRuntime owns the runtime lookup and spawned views
 - collectible visuals are kept separate from the static maze and gates
 
 Current collectible-related files:
@@ -425,8 +460,9 @@ Current collectible-related files:
 - scripts/gameplay/collectibles/CollectibleSpawnPlanner.cs
 - scripts/gameplay/collectibles/LetterKind.cs
 - scripts/level/Collectible.cs
+- scripts/level/CollectibleFieldRuntime.cs
 
-### 5.1 Base flower layout
+### 6.1 Base flower layout
 
 **Current model:**
 - data/collectibles_layout.json stores the base flower mask
@@ -439,20 +475,22 @@ Current collectible-related files:
 - keep flower placement easy to read and edit
 - provide the visual/runtime base on top of which special collectibles are placed
 
-### 5.2 Runtime collectible field
+### 6.2 CollectibleFieldRuntime
 
-**Runtime source of truth:**
-- Level keeps a runtime lookup of collectible instances by logical cell
+**File:**
+- scripts/level/CollectibleFieldRuntime.cs
 
 **Current responsibilities:**
 - spawn the base flower layout at level initialization
 - keep one collectible view per occupied logical cell
+- apply the start-of-level special collectible plan
 - support removal of one collectible by logical cell through the current player pickup hook
+- clear tracked collectible views if needed
 
-Important current limitation:
+**Important current limitation:**
 - the runtime collectible field does not yet store type-specific gameplay state beyond what is currently needed for visual setup and prototype removal
 
-### 5.3 Start-of-level special collectible placement
+### 6.3 Start-of-level special collectible placement
 
 **Current model:**
 - the level start planner generates:
@@ -473,11 +511,11 @@ Current temporary visual behavior:
 - skulls are currently displayed in white
 - color cycling is not implemented yet
 
-### 5.4 Collectible rendering and pickup timing
+### 6.4 Collectible rendering and pickup timing
 
 **Current rendering behavior:**
-- Level spawns one Collectible scene per occupied logical cell
-- scene placement uses the existing logical-cell-to-scene conversion helpers
+- CollectibleFieldRuntime spawns one Collectible scene per occupied logical cell
+- scene placement uses Level.LogicalCellToScenePosition(...)
 - flowers are displayed from the base layout
 - start-of-level letters, hearts, and skulls are displayed by changing the visual state of selected collectible instances
 - the heart uses an overlay sprite so the inner heart can remain fixed while the outer ring uses the intended temporary color
@@ -487,15 +525,18 @@ Current temporary visual behavior:
 - PlayerMovementStepResult exposes the real movement segments completed during the tick
 - assisted turns can produce more than one movement segment in one tick
 - checking all movement segments avoids missing collectibles during assisted turns
+- Level.TryConsumeCollectible(...) delegates to CollectibleFieldRuntime.TryConsume(...)
 
-## 6. Rotating Gate System
+## 7. Rotating Gate System
 
 Rotating gates are implemented as a dynamic gameplay system.
 
 **Current structure:**
 - gate views are authored in Level.tscn
-- runtime gate state is built from those placed views
+- LevelGateRuntime scans those placed views
+- LevelGateRuntime builds the runtime GateSystem
 - gate logic is kept separate from the static maze
+- gate collision is evaluated by PlayfieldCollisionResolver
 
 **Current gate-related files:**
 - scripts/gameplay/gates/GateContactHalf.cs
@@ -506,9 +547,10 @@ Rotating gates are implemented as a dynamic gameplay system.
 - scripts/gameplay/gates/GateTurningVisual.cs
 - scripts/gameplay/gates/GateVisualState.cs
 - scripts/gameplay/gates/RotatingGateRuntimeState.cs
+- scripts/level/LevelGateRuntime.cs
 - scripts/level/RotatingGateView.cs
 
-### 6.1 Gate authoring model
+### 7.1 Gate authoring model
 
 **Current model:**
 - 20 gate instances are already present under Level/Gates
@@ -522,7 +564,21 @@ Rotating gates are implemented as a dynamic gameplay system.
 - avoid storing immutable gate placement in maze.json
 - keep runtime logic separate from editor authoring
 
-### 6.2 Gate runtime model
+### 7.2 LevelGateRuntime
+
+**File:**
+- scripts/level/LevelGateRuntime.cs
+
+**Current responsibilities:**
+- cache placed RotatingGateView instances by id
+- refresh editor-authored gate definitions
+- build the runtime GateSystem from placed views
+- expose the GateSystem used by other gameplay systems
+- advance gate timers once per simulation tick
+- accept push attempts from Level / player movement
+- synchronize the visual gate views from runtime state
+
+### 7.3 GateSystem and RotatingGateRuntimeState
 
 **Runtime source of truth:**
 - GateSystem
@@ -542,60 +598,79 @@ Rotating gates are implemented as a dynamic gameplay system.
 - rotation lock
 - remaining turning ticks
 
-### 6.3 Gate rendering
+### 7.4 Gate rendering
 
 **Current rendering behavior:**
-- Level keeps references to the placed RotatingGateView instances
+- LevelGateRuntime keeps references to the placed RotatingGateView instances
 - runtime gate state is synchronized back to those views
 - stable state shows horizontal or vertical
 - short turning state shows slash or backslash
 
-## 7. Level Runtime Logic
+## 8. Playfield Step Evaluation
+
+Dynamic movement legality is evaluated beyond the static maze.
+
+**File:**
+- scripts/gameplay/PlayfieldCollisionResolver.cs
+
+Current flow:
+- PlayerMovementMotor requests one attempted pixel step
+- Level forwards the request to PlayfieldCollisionResolver
+- PlayfieldCollisionResolver asks MazeGrid for the static result
+- PlayfieldCollisionResolver overlays dynamic rotating-gate checks
+- the final result is returned as PlayfieldStepResult
+- if a gate blocks the step and can be pushed, PlayerMovementMotor asks Level to push the gate and then re-evaluates the same step
+
+**Current possible outcomes:**
+- Allowed
+- BlockedByFixedWall
+- BlockedByGate
+
+**Current gate-specific behavior:**
+- a gate can block from direct probe contact even without immediate logical-cell change
+- a gate can also block when crossing a boundary into another logical cell
+- if a blocked gate can be pushed from the contacted half:
+  - the logical gate state toggles immediately
+  - the attempted step is re-evaluated in the same tick
+
+## 9. Level Runtime Logic
 
 **File:**
 - scripts/level/Level.cs
 
-Level.cs is currently the runtime coordinator for the prototype level.
+Level.cs is currently the runtime coordinator for one active board.
 
-**Current responsibilities:**
+**Current direct responsibilities:**
 - load the static logical maze from res://data/maze.json
 - load the base flower layout from res://data/collectibles_layout.json
-- spawn the base flower field under the Collectibles node
+- create LevelGateRuntime from Level/Gates
+- create CollectibleFieldRuntime from Level/Collectibles
+- create PlayfieldCollisionResolver from MazeGrid and GateSystem
 - generate the start-of-level special collectible plan
-- apply special collectible visuals on top of the spawned base collectible field
-- scan the Gates node and build the runtime GateSystem from placed views
-- expose the runtime MazeGrid through a property
-- expose the runtime GateSystem through a property
-- convert logical cells into gameplay arcade-pixel anchors
-- convert gate pivots into arcade-pixel and scene-space positions
-- convert arcade-pixel positions into logical cells
-- convert arcade-pixel positions and deltas into scene-space positions
-- combine static maze legality and dynamic gate legality into PlayfieldStepResult
-- accept rotating-gate push requests from the movement motor
-- initialize the player after the maze, collectibles, and gate system have been prepared
+- expose runtime MazeGrid and GateSystem
+- expose coordinate conversion wrapper methods
+- expose TryConsumeCollectible(...) for the player pickup path
+- expose TryPushGate(...) and AdvanceGateSimulationOneTick(...) for the movement path
+- initialize the player after maze, gates, collectibles, and collision resolver have been prepared
 - update player and gate previews in the editor
 
-**Important implementation details:**
-- Level uses [Tool]
-- logical cell size is currently 16 arcade pixels
-- render scale is currently 4
-- gameplay anchor inside a logical cell is currently Vector2I(8, 7)
-- the logical cell coordinate system currently starts at the top-left with (0, 0)
+**Delegated responsibilities:**
+- coordinate conversion math: LevelCoordinateSystem
+- gate view/runtime management: LevelGateRuntime
+- collectible field management: CollectibleFieldRuntime
+- maze + gate collision evaluation: PlayfieldCollisionResolver
 
 **Important design point:**
-- Level remains the source of truth for coordinate conversion between:
-  - logical cells
-  - arcade-pixel gameplay coordinates
-  - gate pivots
-  - scene-space coordinates
+Level is now mostly a coordinator. It remains the public integration surface for actors, but most specialized runtime logic is delegated to smaller classes.
 
-## 8. Player Movement System
+## 10. Player Movement System
 
 The current player movement system is an arcade-oriented fixed-tick model.
 It includes reverse-engineered assisted-turn behavior and is split into dedicated helper classes.
 
 **Current player-related files:**
 - PlayerController.cs
+- PlayerDebugOverlay.cs
 - PlayerInputState.cs
 - PlayerMovementDebugTrace.cs
 - PlayerMovementMotor.cs
@@ -608,13 +683,14 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 - PlayerTurnWindowResolver.cs
 
 **Additional movement-related integration:**
+- PlayfieldCollisionResolver.cs
 - PlayfieldStepKind.cs
 - PlayfieldStepResult.cs
 - MazeGrid / MazeStepResult
-- GateSystem / RotatingGateRuntimeState
+- LevelGateRuntime / GateSystem / RotatingGateRuntimeState
 - Level.EvaluateArcadePixelStepWithGates(...)
 
-### 8.1 PlayerController
+### 10.1 PlayerController
 
 **File:**
 - scripts/actors/PlayerController.cs
@@ -627,6 +703,7 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 - advance gate timers once per simulation tick
 - update facing animation immediately from input
 - apply gameplay position and render offset to the scene node
+- update PlayerDebugOverlay when debug drawing is enabled
 - consume collectibles along every movement segment reported by the motor
 
 **Important:**
@@ -634,7 +711,7 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 - gameplay movement rules are not implemented directly in this class
 - collectible pickup handling is still prototype-level, but now follows the real per-tick movement path
 
-### 8.2 PlayerInputState
+### 10.2 PlayerInputState
 
 **File:**
 - scripts/actors/PlayerInputState.cs
@@ -647,7 +724,7 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 **Current rule:**
 - if several movement keys are held, the last pressed one wins
 
-### 8.3 PlayerMovementTuning
+### 10.3 PlayerMovementTuning
 
 **File:**
 - scripts/actors/PlayerMovementTuning.cs
@@ -661,7 +738,7 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 - sprite render offsets
 - directional collision probe distances
 
-### 8.4 PlayerMovementMotor
+### 10.4 PlayerMovementMotor
 
 **File:**
 - scripts/actors/PlayerMovementMotor.cs
@@ -691,7 +768,7 @@ Important current behavior:
 - pushable gate blocks are allowed to proceed so the committed step can push the gate
 - sprite facing and sprite render offset are intentionally separated
 
-### 8.5 PlayerTurnWindowResolver
+### 10.5 PlayerTurnWindowResolver
 
 **File:**
 - scripts/actors/PlayerTurnWindowResolver.cs
@@ -706,7 +783,7 @@ Important current behavior:
 - keep original mirrored Y coordinate handling local to the resolver
 - keep the lane masks derived from reverse engineering out of the movement motor
 
-### 8.6 PlayerMovementStepResult and PlayerMovementSegment
+### 10.6 PlayerMovementStepResult and PlayerMovementSegment
 
 **Files:**
 - scripts/actors/PlayerMovementStepResult.cs
@@ -720,42 +797,21 @@ Important current behavior:
 - PlayerController reads MovementSegments to detect collectible anchor crossings
 - this is required because assisted turns can move along two axes during one simulation tick
 
-### 8.7 PlayerMovementDebugTrace
+### 10.7 PlayerDebugOverlay and PlayerMovementDebugTrace
 
-**File:**
+**Files:**
+- scripts/actors/PlayerDebugOverlay.cs
 - scripts/actors/PlayerMovementDebugTrace.cs
 
 **Purpose:**
-- optional console trace for difficult movement edge cases
+- PlayerDebugOverlay draws optional player debug visuals above the playfield
+- PlayerMovementDebugTrace provides optional console tracing for difficult movement edge cases
 
 **Current behavior:**
-- disabled by default through a private const bool
-- prints movement path, requested direction, current direction, target lane, assist flags, block reason, and debug coordinates when enabled
+- PlayerDebugOverlay is drawn as a top-level high-Z overlay so coordinates are visible above gates
+- PlayerMovementDebugTrace is disabled by default through a private const bool
 
-## 9. Playfield Step Evaluation
-
-Dynamic movement legality is evaluated beyond the static maze.
-
-Current flow:
-- PlayerMovementMotor requests one attempted pixel step
-- Level asks MazeGrid for the static result
-- Level overlays dynamic rotating-gate checks
-- the final result is wrapped in PlayfieldStepResult
-- if a gate blocks the step and can be pushed, PlayerMovementMotor asks Level to push the gate and then re-evaluates the same step
-
-**Current possible outcomes:**
-- Allowed
-- BlockedByFixedWall
-- BlockedByGate
-
-**Current gate-specific behavior:**
-- a gate can block from direct probe contact even without immediate logical-cell change
-- a gate can also block when crossing a boundary into another logical cell
-- if a blocked gate can be pushed from the contacted half:
-  - the logical gate state toggles immediately
-  - the attempted step is re-evaluated in the same tick
-
-## 10. Current Player Movement Behavior
+## 11. Current Player Movement Behavior
 
 **The current player movement model includes:**
 
@@ -783,7 +839,7 @@ Current flow:
 - movement is driven by discrete gameplay ticks
 - the current movement behavior has been manually tested across normal turns, short taps, blocked walls, pushable gates, and assisted-turn collectible pickup cases
 
-## 11. What Is Currently Working
+## 12. What Is Currently Working
 
 **The following is already implemented and functional:**
 
@@ -797,10 +853,13 @@ Current flow:
 - rotating gate preview updates in the editor
 - logical static maze is loaded from JSON
 - logical cell walls are interpreted correctly
+- coordinate conversion is centralized through LevelCoordinateSystem
+- playfield collision evaluation is centralized through PlayfieldCollisionResolver
 - movement is validated against the static maze
 - movement outside the maze bounds is blocked
 - rotating gates influence movement legality
 - rotating gates can be pushed
+- gate runtime state is managed through LevelGateRuntime
 - gate logical state toggles immediately on successful push
 - gate turning visuals are shown briefly
 - player movement runs with a fixed tick model
@@ -814,13 +873,15 @@ Current flow:
 - collectibles can be consumed reliably during assisted turns
 - movement architecture is refactored into dedicated helper classes
 - the base flower layout is loaded from JSON and spawned at runtime
+- collectible runtime state is managed through CollectibleFieldRuntime
 - flowers are displayed at the correct logical cells of the maze
 - start-of-level letters, hearts, and skulls are generated and displayed
 - special collectible placement uses corrected Godot logical-cell anchors
 - hearts currently use an overlay-based visual setup
 - the prototype player movement can remove collectibles from the field
+- player debug coordinates can be drawn above rotating gates
 
-## 12. What Is Not Implemented Yet
+## 13. What Is Not Implemented Yet
 
 **The following systems are still not implemented yet:**
 
@@ -839,7 +900,7 @@ Current flow:
 - session state management
 - automated movement regression tests
 
-## 13. Current Limitations
+## 14. Current Limitations
 
 The movement and gate systems are now stable and much closer to the arcade behavior than the early prototype.
 However, they are still a practical remake implementation rather than a literal ROM-level reproduction.
@@ -856,7 +917,7 @@ The collectible system is visually present at level start and supports prototype
 - score and word-progression behavior
 - whether collectible removal timing should remain exactly as in the current prototype once scoring and letter rules exist
 
-## 14. Current Development Priority
+## 15. Current Development Priority
 
 **A reasonable current priority is now:**
 

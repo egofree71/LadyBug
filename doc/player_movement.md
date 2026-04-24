@@ -52,6 +52,7 @@ The current player movement subsystem is split into small helper classes.
 
 ```text
 PlayerController
+PlayerDebugOverlay
 PlayerInputState
 PlayerMovementMotor
 PlayerMovementTuning
@@ -71,14 +72,26 @@ PlayerController is the scene-facing orchestrator.
 It is responsible for:
 - reading the intended direction from PlayerInputState
 - running the movement motor at the fixed tick rate
-- advancing gate visual timers once per simulation tick
+- advancing gate visual timers once per simulation tick through Level
 - updating sprite facing and render offset
 - applying the gameplay position to the Godot Node2D
+- updating PlayerDebugOverlay when player debug drawing is enabled
 - consuming collectibles along all movement segments reported by the movement motor
 
 PlayerController does not own the movement rules.
 
-### 3.2 PlayerInputState
+### 3.2 PlayerDebugOverlay
+
+PlayerDebugOverlay draws optional player debug visuals above the playfield.
+
+It is created and updated by PlayerController.
+It is marked top-level and uses a high absolute Z index so that debug coordinates remain visible above rotating gates.
+
+It can draw:
+- the cyan gameplay anchor
+- hexadecimal player debug coordinates near the player
+
+### 3.3 PlayerInputState
 
 PlayerInputState tracks the directional input actions:
 - move_left
@@ -91,7 +104,7 @@ It stores which directions are currently held and the order in which they were p
 Current rule:
 - if several directions are held, the most recently pressed held direction wins
 
-### 3.3 PlayerMovementMotor
+### 3.4 PlayerMovementMotor
 
 PlayerMovementMotor owns the gameplay movement state.
 
@@ -107,7 +120,7 @@ It stores:
 
 It applies one fixed simulation tick at a time.
 
-### 3.4 PlayerTurnWindowResolver
+### 3.5 PlayerTurnWindowResolver
 
 PlayerTurnWindowResolver isolates the reverse-engineered turn-window data and selection policy.
 
@@ -124,7 +137,7 @@ It returns a PlayerTurnWindowDecision that tells the motor whether to use:
 
 The lane tables and mirrored original-screen Y conversion are intentionally kept inside this resolver so that PlayerMovementMotor can remain higher level.
 
-### 3.5 PlayerMovementStepResult and PlayerMovementSegment
+### 3.6 PlayerMovementStepResult and PlayerMovementSegment
 
 PlayerMovementStepResult describes the outcome of one motor tick.
 
@@ -148,7 +161,7 @@ This is important because a single assisted-turn tick can contain two movement s
 
 Collectible pickup checks use these segments so flowers are not missed during special turns.
 
-### 3.6 PlayerMovementDebugTrace
+### 3.7 PlayerMovementDebugTrace
 
 PlayerMovementDebugTrace is an optional console trace for hard-to-debug movement cases.
 
@@ -180,8 +193,8 @@ PlayerController uses an accumulator:
 _accumulator += delta;
 while (_accumulator >= TickDuration)
 {
-	_accumulator -= TickDuration;
-	RunOneTick();
+    _accumulator -= TickDuration;
+    RunOneTick();
 }
 ```
 
@@ -216,7 +229,8 @@ original mirrored screen-Y coordinates used by turn-window tables
 MAME-style debug coordinates
 ```
 
-The Level node remains the source of truth for most conversions:
+Level exposes the coordinate conversion API used by actors and level systems.
+The conversion math is centralized in LevelCoordinateSystem:
 - logical cell to arcade-pixel anchor
 - arcade-pixel position to logical cell
 - arcade-pixel position to scene-space position
@@ -224,6 +238,7 @@ The Level node remains the source of truth for most conversions:
 - gate pivot to arcade-pixel and scene-space position
 
 PlayerTurnWindowResolver locally handles the original mirrored screen-Y conversion used by the extracted turn-window data.
+PlayerDebugOverlay formats the player debug coordinates separately for display.
 
 ## 7. Direction Model
 
@@ -337,29 +352,32 @@ This distinction is important:
 - fixed wall block: do not correct sideways
 - pushable gate block: allow correction, then push gate on the committed step
 
-## 11. Static Maze Validation
+## 11. Static Maze and Playfield Validation
 
-Movement legality starts with the static maze.
+Movement legality starts with the static maze and is then extended by dynamic gates.
 
-Flow:
+Current flow:
 - PlayerMovementMotor evaluates an attempted one-pixel step
-- Level forwards the static portion to MazeGrid.EvaluateArcadePixelStep(...)
-- MazeGrid converts probe coordinates into logical cells
-- if the probe remains in the same cell, the step is statically allowed
-- if the probe crosses into another cell, MazeGrid uses CanMove(...) on the current cell
+- Level forwards the request to PlayfieldCollisionResolver
+- PlayfieldCollisionResolver asks MazeGrid.EvaluateArcadePixelStep(...) for the static result
+- if the static maze blocks the step, the final result is BlockedByFixedWall
+- if the static step is allowed, PlayfieldCollisionResolver checks the runtime GateSystem overlay
+- the final result is returned as PlayfieldStepResult
 
 MazeGrid only knows about the static maze.
-Dynamic gates are handled after this by Level.
+PlayfieldCollisionResolver owns the static maze + dynamic gate combination.
 
 ## 12. Rotating Gate Integration
 
-Level overlays rotating-gate legality on top of static maze legality.
+LevelGateRuntime owns the runtime gate system and visual synchronization.
+PlayfieldCollisionResolver reads GateSystem to evaluate gate blocking.
 
 Current behavior:
 - gates can block direct probe contact
 - gates can also block cell-boundary crossing
 - if a gate blocks a step and can be pushed from the contacted half:
   - PlayerMovementMotor asks Level to push it
+  - Level delegates the push to LevelGateRuntime
   - the gate toggles its logical blocking state immediately
   - the same pixel step is evaluated again
 
@@ -377,7 +395,7 @@ If PlayerController only checked the final segment, it could miss a collectible 
 Current pickup behavior:
 - if the motor reports a snapped anchor, PlayerController checks that exact anchor
 - for each committed movement segment, PlayerController checks whether the segment crossed the destination cell anchor
-- Level removes the collectible view from its runtime lookup when consumed
+- Level delegates removal to CollectibleFieldRuntime
 
 Future scoring, letter, heart, and skull rules will need to replace the simple prototype removal behavior with richer pickup results.
 
@@ -410,10 +428,11 @@ The current implementation includes:
 - assisted turns with orthogonal correction
 - close-range correction path
 - static maze validation for each committed segment
-- dynamic rotating-gate validation layered on top of the static maze
-- immediate gate push resolution and same-tick step re-evaluation
-- movement segment reporting for collectible pickup
+- dynamic rotating-gate validation through PlayfieldCollisionResolver
+- immediate gate push resolution through LevelGateRuntime and same-tick step re-evaluation
+- movement segment reporting for collectible pickup through CollectibleFieldRuntime
 - optional movement debug tracing disabled by default
+- optional player debug overlay drawn above gates
 
 The player movement subsystem is no longer a monolithic PlayerController.
 It is split into dedicated helpers and is currently one of the most advanced subsystems in the project.
@@ -430,6 +449,7 @@ The current movement behavior has been manually tested and is believed to handle
 - assisted-turn interactions with pushable gates
 - collectible pickup during assisted turns
 - same-tick gate push and movement re-evaluation
+- debug coordinate drawing above rotating gates
 
 These cases should become explicit regression scenarios before deeper movement refactoring.
 
@@ -455,7 +475,8 @@ Current compromise:
 - reverse-engineered data remains explicit where needed
 - low-level turn-window details are isolated in PlayerTurnWindowResolver
 - PlayerMovementMotor works with higher-level concepts such as request latch, assisted turn, target lane, and movement segments
-- PlayerController stays focused on orchestration, rendering, and pickup checks
+- PlayerController stays focused on orchestration, rendering, debug overlay updates, and pickup checks
+- Level delegates gate, coordinate, collectible, and collision details to smaller helpers
 
 The goal is not to hide the reverse-engineering origin of the behavior.
 The goal is to keep it contained and explainable.
@@ -476,6 +497,7 @@ assisted turn into a pushable vertical gate
 assisted turn into a pushable horizontal gate
 assisted turn crossing a collectible anchor during the correction segment
 assisted turn crossing a collectible anchor during the requested-direction segment
+debug coordinate overlay above gates
 ```
 
 A simple tick-replay harness would be enough at first.
