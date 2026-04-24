@@ -396,6 +396,7 @@ Implemented pieces:
 - PlayerMovementStepResult
 - PlayerMovementSegment
 - PlayerTurnWindowResolver
+- PlayerTurnWindowMaps
 - PlayerTurnWindowDecision
 - PlayerTurnPath
 - PlayerTurnAssistFlags
@@ -412,8 +413,11 @@ PlayerInputState:
 PlayerMovementMotor:
 - owns gameplay movement state and applies one arcade-style movement tick
 
+PlayerTurnWindowMaps:
+- generates available player turn lanes from the logical maze
+
 PlayerTurnWindowResolver:
-- isolates reverse-engineered turn-window data and chooses high-level turn paths
+- applies arcade-style pixel-window policy around generated lanes and chooses high-level turn paths
 
 PlayerMovementStepResult / PlayerMovementSegment:
 - expose the actual movement path completed during a tick
@@ -651,7 +655,8 @@ Why this matters:
 Current implementation:
 - LevelCoordinateSystem owns the conversion math
 - Level exposes wrapper methods so gameplay systems do not need to know the concrete helper
-- PlayerTurnWindowResolver separately handles original mirrored screen-Y conversion for turn-window data
+- PlayerTurnWindowMaps generates turn-lane candidates from MazeGrid
+- PlayerTurnWindowResolver handles original-style mirrored Y conversion and pixel-window policy locally
 - PlayerDebugOverlay formats player debug coordinates separately from normal gameplay conversion
 
 ## 15. Current Implemented Foundation
@@ -680,6 +685,7 @@ The following part of the target architecture is already implemented now:
 - PlayerMovementStepResult
 - PlayerMovementSegment
 - PlayerTurnWindowResolver
+- PlayerTurnWindowMaps
 - PlayerTurnWindowDecision
 - PlayerTurnPath
 - PlayerTurnAssistFlags
@@ -692,6 +698,7 @@ The following part of the target architecture is already implemented now:
 - placed gate authoring in Level.tscn
 - pixel-step playfield validation
 - fixed tick player movement
+- generated player turn-lane maps from the logical maze
 - assisted player turn movement
 - dynamic rotating gate legality
 - gate push resolution and turning visuals

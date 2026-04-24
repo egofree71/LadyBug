@@ -65,6 +65,7 @@ scripts/
 │  ├─ PlayerTurnAssistFlags.cs
 │  ├─ PlayerTurnPath.cs
 │  ├─ PlayerTurnWindowDecision.cs
+│  ├─ PlayerTurnWindowMaps.cs
 │  └─ PlayerTurnWindowResolver.cs
 ├─ gameplay/
 │  ├─ collectibles/
@@ -288,6 +289,7 @@ Player (Node2D)
 - scripts/actors/PlayerTurnAssistFlags.cs
 - scripts/actors/PlayerTurnPath.cs
 - scripts/actors/PlayerTurnWindowDecision.cs
+- scripts/actors/PlayerTurnWindowMaps.cs
 - scripts/actors/PlayerTurnWindowResolver.cs
 
 **Current visual setup:**
@@ -752,7 +754,8 @@ It includes reverse-engineered assisted-turn behavior and is split into dedicate
 - store the effective movement direction
 - preserve movement context across short taps
 - latch requested directions before some direction changes become effective
-- use PlayerTurnWindowResolver to classify turn windows
+- generate PlayerTurnWindowMaps from the active MazeGrid at initialization
+- use PlayerTurnWindowResolver to classify turn windows from those generated maps
 - resolve normal movement, close-range alignment assists, and full assisted turns
 - validate every committed pixel segment against the active playfield
 - resolve pushable rotating gates and re-evaluate the same step
@@ -768,22 +771,42 @@ Important current behavior:
 - pushable gate blocks are allowed to proceed so the committed step can push the gate
 - sprite facing and sprite render offset are intentionally separated
 
-### 10.5 PlayerTurnWindowResolver
+### 10.5 PlayerTurnWindowMaps
+
+**File:**
+- scripts/actors/PlayerTurnWindowMaps.cs
+
+**Purpose:**
+- generate the available player turn lanes from the runtime logical maze
+
+**Current responsibilities:**
+- build row-selected vertical-turn masks from MazeGrid
+- build column-selected horizontal-turn masks from MazeGrid
+- treat a logical cell as a turn candidate when it has at least one horizontal opening and one vertical opening
+- keep the compact bit-mask representation used by the resolver, without hardcoding maze-specific masks in code
+- keep generated Y lanes in the mirrored original-screen order expected by the turn-window policy
+
+**Important:**
+- PlayerTurnWindowMaps determines where turn lanes exist from maze.json / MazeGrid
+- it does not decide whether a specific requested step is finally legal
+- every committed movement segment is still validated later by PlayfieldCollisionResolver against static walls and dynamic gates
+
+### 10.6 PlayerTurnWindowResolver
 
 **File:**
 - scripts/actors/PlayerTurnWindowResolver.cs
 
 **Purpose:**
-- isolate the reverse-engineered turn-window data and selection policy from PlayerMovementMotor
+- apply the arcade-style pixel window policy around the generated turn lanes
 
 **Current responsibilities:**
 - map the current position and requested direction to a high-level PlayerTurnPath
 - choose a target lane for assisted turns
 - expose whether a close-range orthogonal correction is needed
-- keep original mirrored Y coordinate handling local to the resolver
-- keep the lane masks derived from reverse engineering out of the movement motor
+- keep original mirrored Y coordinate conversion local to the resolver
+- interpret the generated lane masks without depending on hardcoded maze-layout masks
 
-### 10.6 PlayerMovementStepResult and PlayerMovementSegment
+### 10.7 PlayerMovementStepResult and PlayerMovementSegment
 
 **Files:**
 - scripts/actors/PlayerMovementStepResult.cs
@@ -797,7 +820,7 @@ Important current behavior:
 - PlayerController reads MovementSegments to detect collectible anchor crossings
 - this is required because assisted turns can move along two axes during one simulation tick
 
-### 10.7 PlayerDebugOverlay and PlayerMovementDebugTrace
+### 10.8 PlayerDebugOverlay and PlayerMovementDebugTrace
 
 **Files:**
 - scripts/actors/PlayerDebugOverlay.cs
@@ -824,6 +847,7 @@ Important current behavior:
 - preserved movement context during short taps
 - explicit current / wanted / facing / offset directions
 - lane alignment inside 16x16 logical cells
+- turn lanes generated from MazeGrid through PlayerTurnWindowMaps
 - turn-window selection through PlayerTurnWindowResolver
 - close-range alignment assists
 - full assisted turns with orthogonal correction
@@ -872,6 +896,7 @@ Important current behavior:
 - movement segments are reported to the controller
 - collectibles can be consumed reliably during assisted turns
 - movement architecture is refactored into dedicated helper classes
+- player turn-lane candidates are generated from the logical maze instead of hardcoded ROM-style masks
 - the base flower layout is loaded from JSON and spawned at runtime
 - collectible runtime state is managed through CollectibleFieldRuntime
 - flowers are displayed at the correct logical cells of the maze
@@ -903,12 +928,14 @@ Important current behavior:
 ## 14. Current Limitations
 
 The movement and gate systems are now stable and much closer to the arcade behavior than the early prototype.
-However, they are still a practical remake implementation rather than a literal ROM-level reproduction.
+Player turn-lane candidates are generated from the logical maze, while the arcade-style pixel window policy remains implemented in the movement resolver.
+However, this is still a practical remake implementation rather than a literal ROM-level reproduction.
 
 The collectible system is visually present at level start and supports prototype removal, but it does not yet implement final gameplay rules.
 
 **Open points include:**
 - automated non-regression coverage for the validated player movement cases
+- exact pixel-perfect equivalence between generated turn-lane maps and the original ROM tables, if a stricter low-level reproduction is desired
 - exact original collision details from the ROM if a stricter low-level reproduction is desired
 - exact gate/turn interaction windows in rare edge cases, if future testing reveals differences
 - enemy movement system

@@ -24,7 +24,8 @@ The movement system is built around:
 - one-pixel committed movement segments
 - buffered input and direction latching
 - internal lane alignment inside 16x16 cells
-- reverse-engineered turn windows
+- turn lanes generated from the logical maze
+- reverse-engineered pixel-window policy around those lanes
 - assisted turns with short orthogonal correction steps
 - static maze validation for each committed pixel segment
 - dynamic rotating-gate validation layered on top of the static maze
@@ -60,6 +61,7 @@ PlayerMovementStepResult
 PlayerMovementSegment
 PlayerTurnWindowResolver
 PlayerTurnWindowDecision
+PlayerTurnWindowMaps
 PlayerTurnPath
 PlayerTurnAssistFlags
 PlayerMovementDebugTrace
@@ -120,11 +122,26 @@ It stores:
 
 It applies one fixed simulation tick at a time.
 
-### 3.5 PlayerTurnWindowResolver
+### 3.5 PlayerTurnWindowMaps
 
-PlayerTurnWindowResolver isolates the reverse-engineered turn-window data and selection policy.
+PlayerTurnWindowMaps generates the available turn lanes from the runtime MazeGrid loaded from data/maze.json.
+
+It builds:
+- row-selected masks for vertical turns, used when moving left/right and requesting up/down
+- column-selected masks for horizontal turns, used when moving up/down and requesting left/right
+
+A logical cell is considered a turn candidate when it has at least one horizontal opening and at least one vertical opening.
+This keeps the location of intersections driven by the logical maze instead of by hardcoded ROM-style masks.
+
+PlayerTurnWindowMaps does not decide final movement legality.
+Every committed pixel segment is still checked later through the normal playfield collision path.
+
+### 3.6 PlayerTurnWindowResolver
+
+PlayerTurnWindowResolver applies the arcade-style pixel-window policy around the generated lanes.
 
 It receives:
+- the generated PlayerTurnWindowMaps
 - current arcade-pixel position
 - requested direction
 - current effective direction
@@ -135,9 +152,9 @@ It returns a PlayerTurnWindowDecision that tells the motor whether to use:
 - a full assisted turn
 - a close-range assist followed by normal movement
 
-The lane tables and mirrored original-screen Y conversion are intentionally kept inside this resolver so that PlayerMovementMotor can remain higher level.
+The mirrored original-screen Y conversion remains local to this area of the code so that PlayerMovementMotor can remain higher level.
 
-### 3.6 PlayerMovementStepResult and PlayerMovementSegment
+### 3.7 PlayerMovementStepResult and PlayerMovementSegment
 
 PlayerMovementStepResult describes the outcome of one motor tick.
 
@@ -161,7 +178,7 @@ This is important because a single assisted-turn tick can contain two movement s
 
 Collectible pickup checks use these segments so flowers are not missed during special turns.
 
-### 3.7 PlayerMovementDebugTrace
+### 3.8 PlayerMovementDebugTrace
 
 PlayerMovementDebugTrace is an optional console trace for hard-to-debug movement cases.
 
@@ -193,8 +210,8 @@ PlayerController uses an accumulator:
 _accumulator += delta;
 while (_accumulator >= TickDuration)
 {
-	_accumulator -= TickDuration;
-	RunOneTick();
+    _accumulator -= TickDuration;
+    RunOneTick();
 }
 ```
 
@@ -237,7 +254,7 @@ The conversion math is centralized in LevelCoordinateSystem:
 - arcade-pixel delta to scene-space delta
 - gate pivot to arcade-pixel and scene-space position
 
-PlayerTurnWindowResolver locally handles the original mirrored screen-Y conversion used by the extracted turn-window data.
+PlayerTurnWindowMaps stores generated Y lanes in the mirrored order used by the turn-window policy, and PlayerTurnWindowResolver handles the local conversion between Godot arcade Y and that original-style coordinate.
 PlayerDebugOverlay formats the player debug coordinates separately for display.
 
 ## 7. Direction Model
@@ -312,27 +329,52 @@ The current implementation uses a higher-level interpretation of the reverse-eng
 
 1) the player requests a direction
 2) the movement motor keeps the previous movement context across short taps
-3) PlayerTurnWindowResolver checks whether the requested perpendicular turn is inside a valid turn window
-4) the resolver chooses a high-level turn path:
+3) PlayerTurnWindowMaps provides the valid turn lanes generated from the logical maze
+4) PlayerTurnWindowResolver checks whether the requested perpendicular turn is inside a valid pixel window around one of those lanes
+5) the resolver chooses a high-level turn path:
    - Normal
    - Assisted
    - CloseRangeAssistThenNormal
 5) the movement motor applies the selected path while still validating every committed segment against the active playfield
 
-### 9.1 Normal path
+### 9.1 Turn-lane generation from MazeGrid
+
+The current implementation no longer hardcodes maze-specific lane masks in PlayerTurnWindowResolver.
+
+Instead:
+
+```text
+maze.json
+-> MazeLoader / MazeGrid
+-> PlayerTurnWindowMaps
+-> PlayerTurnWindowResolver
+```
+
+PlayerTurnWindowMaps scans the logical maze and marks cells that behave like intersections.
+A cell is a candidate when it has at least one horizontal opening and at least one vertical opening.
+
+This means:
+- MazeGrid determines where turn lanes exist
+- PlayerTurnWindowResolver determines the accepted pixel window around those lanes
+- PlayfieldCollisionResolver still validates the final committed movement against walls and gates
+
+This is not claimed to be a byte-for-byte reproduction of the original ROM tables.
+It has been manually tested as equivalent in feel for the current maze and player movement behavior.
+
+### 9.2 Normal path
 
 The normal path uses request latching and straight movement.
 A newly requested direction may first be latched without movement.
 On a later tick, the motor either moves straight or applies a stored one-axis alignment correction.
 
-### 9.2 Assisted path
+### 9.3 Assisted path
 
 The assisted path is used when the requested turn is close enough to a valid turn lane.
 The motor can first move one pixel toward the target lane and then move one pixel in the requested direction.
 
 This can create the “special turn” effect visible in the arcade game.
 
-### 9.3 Close-range assist then normal
+### 9.4 Close-range assist then normal
 
 This path is used when the actor is very close to a lane but the behavior should not enter a full assisted turn.
 The motor may apply one alignment correction and then return to the ordinary path.
@@ -423,7 +465,8 @@ The current implementation includes:
 - request latching
 - current direction / wanted direction separation
 - visual facing / render offset separation
-- reverse-engineered turn-window data isolated in PlayerTurnWindowResolver
+- turn-lane candidates generated from MazeGrid through PlayerTurnWindowMaps
+- arcade-style pixel-window policy isolated in PlayerTurnWindowResolver
 - high-level turn path selection
 - assisted turns with orthogonal correction
 - close-range correction path
@@ -458,6 +501,7 @@ These cases should become explicit regression scenarios before deeper movement r
 The current implementation is stable, but it is not a literal ROM-level reproduction.
 
 Open movement-related questions include:
+- exact pixel-perfect equivalence between generated turn-lane maps and the original ROM masks
 - exact original collision details from the ROM
 - whether the current collision leads match the original checks exactly
 - whether the current gate probe/boundary combination matches the original code path exactly
@@ -467,13 +511,16 @@ Open movement-related questions include:
 
 The current behavior is good enough to move forward with broader gameplay systems unless future testing reveals a specific mismatch.
 
+The generated turn-lane approach is intentionally judged by gameplay feel for now: it appears equivalent in the tested cases, even if exact pixel-for-pixel identity with the original ROM tables has not been formally proven.
+
 ## 18. Design Philosophy
 
 The movement code should stay close to the arcade behavior without becoming unreadable low-level assembly translation.
 
 Current compromise:
 - reverse-engineered data remains explicit where needed
-- low-level turn-window details are isolated in PlayerTurnWindowResolver
+- turn-lane locations are generated from MazeGrid rather than hardcoded as maze-specific masks
+- low-level pixel-window details are isolated in PlayerTurnWindowResolver
 - PlayerMovementMotor works with higher-level concepts such as request latch, assisted turn, target lane, and movement segments
 - PlayerController stays focused on orchestration, rendering, debug overlay updates, and pickup checks
 - Level delegates gate, coordinate, collectible, and collision details to smaller helpers
@@ -542,6 +589,9 @@ D=02 -> 6026 becomes 22
 ```
 
 ## 21. Lane Alignment Findings
+
+Earlier versions of the implementation used hardcoded lane masks derived from reverse engineering.
+The current implementation instead generates the available turn-lane masks from MazeGrid, then applies the same practical pixel-window policy around those generated lanes.
 
 Important alignment checks observed in the original movement logic include:
 
