@@ -1,5 +1,4 @@
 using Godot;
-using System.Collections.Generic;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
@@ -12,12 +11,13 @@ using LadyBug.Gameplay.Maze;
 /// <remarks>
 /// This class is responsible for:
 /// loading the logical maze,
-/// owning the runtime rotating-gate system,
+/// owning the runtime gate and collectible fields,
 /// exposing playfield step evaluation,
-/// owning the runtime collectible field,
 /// and coordinating board objects that belong to one active level.
 ///
 /// Coordinate conversions are delegated to <see cref="LevelCoordinateSystem"/>,
+/// gate runtime state is delegated to <see cref="LevelGateRuntime"/>,
+/// collectible runtime state is delegated to <see cref="CollectibleFieldRuntime"/>,
 /// while collision / blocking evaluation is delegated to
 /// <see cref="PlayfieldCollisionResolver"/>.
 ///
@@ -50,10 +50,7 @@ public partial class Level : Node2D
 
     // --- Scene References ---------------------------------------------------
 
-    private Node2D _gatesNode = null!;
     private Node2D _collectiblesRoot = null!;
-
-    private readonly Dictionary<int, RotatingGateView> _gateViewsById = new();
 
     // --- Exported Properties ------------------------------------------------
 
@@ -83,7 +80,7 @@ public partial class Level : Node2D
     // --- Runtime State ------------------------------------------------------
 
     private MazeGrid _mazeGrid = null!;
-    private GateSystem _gateSystem = null!;
+    private LevelGateRuntime _gateRuntime = null!;
     private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
     private CollectibleFieldRuntime _collectibleField = null!;
 
@@ -95,7 +92,7 @@ public partial class Level : Node2D
     /// <summary>
     /// Gets the runtime rotating-gate system used by the active level.
     /// </summary>
-    public GateSystem GateSystem => _gateSystem;
+    public GateSystem GateSystem => _gateRuntime.GateSystem;
 
     // --- Lifecycle ----------------------------------------------------------
 
@@ -112,15 +109,14 @@ public partial class Level : Node2D
     /// </remarks>
     public override void _Ready()
     {
-        _gatesNode = GetNode<Node2D>("Gates");
+        Node2D gatesRoot = GetNode<Node2D>("Gates");
         _collectiblesRoot = GetNode<Node2D>("Collectibles");
-
-        CachePlacedGateViews();
+        _gateRuntime = new LevelGateRuntime(gatesRoot);
 
         if (Engine.IsEditorHint())
         {
             UpdatePlayerPositionFromLogicalCell();
-            RefreshPlacedGateViewsFromDefinitions();
+            _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
             return;
         }
 
@@ -129,14 +125,14 @@ public partial class Level : Node2D
         CollectibleLayoutFile collectibleLayout =
             CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
 
-        RefreshPlacedGateViewsFromDefinitions();
-        _gateSystem = BuildGateSystemFromPlacedViews();
+        _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
+        _gateRuntime.BuildRuntimeGateSystem();
         _playfieldCollisionResolver = new PlayfieldCollisionResolver(
             _mazeGrid,
-            _gateSystem,
+            _gateRuntime.GateSystem,
             ArcadePixelToLogicalCell,
             GatePivotToArcadePixel);
-        SyncGateViewsFromRuntimeState();
+        _gateRuntime.SyncGateViewsFromRuntimeState();
 
         _collectibleField = new CollectibleFieldRuntime(
             _collectiblesRoot,
@@ -170,60 +166,6 @@ public partial class Level : Node2D
         return _collectibleField.TryConsume(cell);
     }
 
-    // --- Placed Gate Authoring ---------------------------------------------
-
-    /// <summary>
-    /// Rebuilds the internal lookup of gate views already placed under the Gates node.
-    /// </summary>
-    /// <remarks>
-    /// The gate views are authored directly in the scene tree.
-    /// Their editor definition is later converted into a separate runtime gate system.
-    /// </remarks>
-    private void CachePlacedGateViews()
-    {
-        _gateViewsById.Clear();
-
-        foreach (Node child in _gatesNode.GetChildren())
-        {
-            if (child is not RotatingGateView gateView)
-                continue;
-
-            if (_gateViewsById.ContainsKey(gateView.GateId))
-            {
-                GD.PushError($"Duplicate rotating gate id '{gateView.GateId}' in Gates node.");
-                continue;
-            }
-
-            _gateViewsById.Add(gateView.GateId, gateView);
-        }
-    }
-
-    /// <summary>
-    /// Reapplies the authored gate definitions to the placed gate views.
-    /// </summary>
-    private void RefreshPlacedGateViewsFromDefinitions()
-    {
-        foreach (RotatingGateView gateView in _gateViewsById.Values)
-        {
-            gateView.RefreshFromDefinition();
-        }
-    }
-
-    /// <summary>
-    /// Builds the runtime gate system from the placed gate views.
-    /// </summary>
-    private GateSystem BuildGateSystemFromPlacedViews()
-    {
-        List<RotatingGateRuntimeState> gateStates = new();
-
-        foreach (RotatingGateView gateView in _gateViewsById.Values)
-        {
-            gateStates.Add(gateView.CreateInitialRuntimeState());
-        }
-
-        return GateSystem.FromRuntimeStates(gateStates);
-    }
-
     // --- Rotating Gates -----------------------------------------------------
 
     /// <summary>
@@ -232,8 +174,7 @@ public partial class Level : Node2D
     /// </summary>
     public void AdvanceGateSimulationOneTick()
     {
-        _gateSystem.AdvanceOneTick();
-        SyncGateViewsFromRuntimeState();
+        _gateRuntime.AdvanceOneTick();
     }
 
     /// <summary>
@@ -246,31 +187,7 @@ public partial class Level : Node2D
     /// <returns>True if the push is accepted; otherwise false.</returns>
     public bool TryPushGate(int gateId, Vector2I moveDir, GateContactHalf contactHalf)
     {
-        bool pushed = _gateSystem.TryPush(gateId, moveDir, contactHalf);
-        if (pushed)
-            SyncGateViewsFromRuntimeState();
-        return pushed;
-    }
-
-    /// <summary>
-    /// Refreshes the gate views so they match the current runtime state.
-    /// </summary>
-    private void SyncGateViewsFromRuntimeState()
-    {
-        foreach (RotatingGateRuntimeState gateState in _gateSystem.Gates)
-        {
-            if (_gateViewsById.TryGetValue(gateState.Id, out RotatingGateView? gateView))
-            {
-                if (gateState.VisualState == GateVisualState.Turning)
-                {
-                    gateView.SetTurningVisual(gateState.TurningVisual);
-                }
-                else
-                {
-                    gateView.SetOrientation(gateState.GetStableOrientation());
-                }
-            }
-        }
+        return _gateRuntime.TryPushGate(gateId, moveDir, contactHalf);
     }
 
     // --- Playfield Step Evaluation -----------------------------------------
