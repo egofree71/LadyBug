@@ -15,15 +15,18 @@ using LadyBug.Gameplay.Maze;
 /// owning the runtime rotating-gate system,
 /// exposing playfield step evaluation,
 /// spawning the base flower layout,
-/// and converting between logical cells, arcade-pixel gameplay coordinates,
-/// gate pivots, and Godot scene coordinates.
-/// 
+/// and coordinating board objects that belong to one active level.
+///
+/// Coordinate conversions are delegated to <see cref="LevelCoordinateSystem"/>,
+/// while collision / blocking evaluation is delegated to
+/// <see cref="PlayfieldCollisionResolver"/>.
+///
 /// The level intentionally separates:
 /// - logical maze data used for gameplay
 /// - dynamic rotating-gate state used as a movement overlay
 /// - base collectible layout used to spawn flowers
 /// - visual rendering provided by the maze background and placed gate views
-/// 
+///
 /// The player controller uses gameplay anchors in arcade pixels,
 /// while sprite-specific visual offsets are handled separately by the actor.
 /// </remarks>
@@ -34,15 +37,16 @@ public partial class Level : Node2D
     private int _levelNumber = 1;
 
     private readonly RandomNumberGenerator _rng = new();
-    
+
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
 
-    // --- Constants ----------------------------------------------------------
+    // --- Coordinate System --------------------------------------------------
 
-    private const int CellSizeArcade = 16;
-    private const int RenderScale = 4;
-    private static readonly Vector2I GameplayAnchorArcade = new(8, 7);
+    private static readonly LevelCoordinateSystem CoordinateSystem = new(
+        cellSizeArcade: 16,
+        renderScale: 4,
+        gameplayAnchorArcade: new Vector2I(8, 7));
 
     private static readonly PackedScene CollectibleScene =
         GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
@@ -147,7 +151,7 @@ public partial class Level : Node2D
             CollectibleSpawnPlanner.Generate(_levelNumber, _rng);
 
         ApplySpecialCollectibleSpawnPlan(spawnPlan);
-        
+
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
         if (player != null)
             player.Initialize(this);
@@ -283,7 +287,7 @@ public partial class Level : Node2D
                 break;
         }
     }
-    
+
     // --- Placed Gate Authoring ---------------------------------------------
 
     /// <summary>
@@ -411,14 +415,14 @@ public partial class Level : Node2D
             collisionLead);
     }
 
-    // --- Gate Coordinate Helpers -------------------------------------------
+    // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>
     /// Converts one logical gate pivot into an arcade-pixel pivot position.
     /// </summary>
     private static Vector2I GatePivotToArcadePixel(Vector2I pivot)
     {
-        return new Vector2I(pivot.X * CellSizeArcade, pivot.Y * CellSizeArcade);
+        return CoordinateSystem.GatePivotToArcadePixel(pivot);
     }
 
     /// <summary>
@@ -428,17 +432,15 @@ public partial class Level : Node2D
     /// <returns>Scene position of the gate pivot.</returns>
     public Vector2 GatePivotToScenePosition(Vector2I pivot)
     {
-        return ArcadePixelToScenePosition(GatePivotToArcadePixel(pivot));
+        return CoordinateSystem.GatePivotToScenePosition(pivot, GetMazeSceneOrigin());
     }
-
-    // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>
     /// Converts a logical maze cell into a gameplay arcade-pixel anchor.
     /// </summary>
     public Vector2I LogicalCellToArcadePixel(Vector2I cell)
     {
-        return cell * CellSizeArcade + GameplayAnchorArcade;
+        return CoordinateSystem.LogicalCellToArcadePixel(cell);
     }
 
     /// <summary>
@@ -446,12 +448,7 @@ public partial class Level : Node2D
     /// </summary>
     public Vector2I ArcadePixelToLogicalCell(Vector2I arcadePixel)
     {
-        int halfCell = CellSizeArcade / 2;
-
-        int x = FloorDiv(arcadePixel.X - GameplayAnchorArcade.X + halfCell, CellSizeArcade);
-        int y = FloorDiv(arcadePixel.Y - GameplayAnchorArcade.Y + halfCell, CellSizeArcade);
-
-        return new Vector2I(x, y);
+        return CoordinateSystem.ArcadePixelToLogicalCell(arcadePixel);
     }
 
     /// <summary>
@@ -459,13 +456,9 @@ public partial class Level : Node2D
     /// </summary>
     public Vector2 ArcadePixelToScenePosition(Vector2I arcadePixel)
     {
-        Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
-        if (maze == null)
-            return Vector2.Zero;
-
-        float x = maze.Position.X + arcadePixel.X * RenderScale;
-        float y = maze.Position.Y + arcadePixel.Y * RenderScale;
-        return new Vector2(x, y);
+        return CoordinateSystem.ArcadePixelToScenePosition(
+            arcadePixel,
+            GetMazeSceneOrigin());
     }
 
     /// <summary>
@@ -473,7 +466,7 @@ public partial class Level : Node2D
     /// </summary>
     public Vector2 ArcadeDeltaToSceneDelta(Vector2I arcadeDelta)
     {
-        return new Vector2(arcadeDelta.X * RenderScale, arcadeDelta.Y * RenderScale);
+        return CoordinateSystem.ArcadeDeltaToSceneDelta(arcadeDelta);
     }
 
     /// <summary>
@@ -481,23 +474,18 @@ public partial class Level : Node2D
     /// </summary>
     public Vector2 LogicalCellToScenePosition(Vector2I cell)
     {
-        return ArcadePixelToScenePosition(LogicalCellToArcadePixel(cell));
+        return CoordinateSystem.LogicalCellToScenePosition(
+            cell,
+            GetMazeSceneOrigin());
     }
 
-    // --- Helpers ------------------------------------------------------------
-
     /// <summary>
-    /// Computes floor division for integers, including negative values.
+    /// Returns the scene-space origin of the visual maze node.
     /// </summary>
-    private static int FloorDiv(int value, int divisor)
+    private Vector2 GetMazeSceneOrigin()
     {
-        int quotient = value / divisor;
-        int remainder = value % divisor;
-
-        if (remainder != 0 && ((value < 0) != (divisor < 0)))
-            quotient--;
-
-        return quotient;
+        Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
+        return maze?.Position ?? Vector2.Zero;
     }
 
     // --- Editor Preview -----------------------------------------------------
@@ -507,9 +495,8 @@ public partial class Level : Node2D
     /// </summary>
     private void UpdatePlayerPositionFromLogicalCell()
     {
-        Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
         Node2D? player = GetNodeOrNull<Node2D>("Player");
-        if (maze == null || player == null)
+        if (player == null)
             return;
 
         player.Position = LogicalCellToScenePosition(_playerStartCell);
