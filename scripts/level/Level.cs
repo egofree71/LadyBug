@@ -86,6 +86,7 @@ public partial class Level : Node2D
 
     private MazeGrid _mazeGrid = null!;
     private GateSystem _gateSystem = null!;
+    private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
 
     /// <summary>
     /// Gets the runtime logical maze used by gameplay actors.
@@ -131,6 +132,11 @@ public partial class Level : Node2D
 
         RefreshPlacedGateViewsFromDefinitions();
         _gateSystem = BuildGateSystemFromPlacedViews();
+        _playfieldCollisionResolver = new PlayfieldCollisionResolver(
+            _mazeGrid,
+            _gateSystem,
+            ArcadePixelToLogicalCell,
+            GatePivotToArcadePixel);
         SyncGateViewsFromRuntimeState();
 
         SpawnInitialFlowers(collectibleLayout);
@@ -391,7 +397,7 @@ public partial class Level : Node2D
     /// <param name="direction">Attempted one-pixel movement direction.</param>
     /// <param name="collisionLead">Directional collision probe offset.</param>
     /// <returns>
-    /// A combined playfield result describing whether the step is allowed,
+    /// A combined playfield result describing whether movement is allowed,
     /// blocked by a fixed wall, or blocked by a rotating gate.
     /// </returns>
     public PlayfieldStepResult EvaluateArcadePixelStepWithGates(
@@ -399,280 +405,10 @@ public partial class Level : Node2D
         Vector2I direction,
         Vector2I collisionLead)
     {
-        MazeStepResult mazeStep = _mazeGrid.EvaluateArcadePixelStep(
+        return _playfieldCollisionResolver.EvaluateArcadePixelStep(
             arcadePixelPos,
             direction,
-            collisionLead,
-            ArcadePixelToLogicalCell);
-
-        if (!mazeStep.Allowed)
-            return PlayfieldStepResult.BlockedByFixedWall(mazeStep);
-
-        if (TryGetBlockingGateIdAtProbe(
-                arcadePixelPos,
-                direction,
-                collisionLead,
-                out int gateId,
-                out GateContactHalf? contactHalf))
-        {
-            return PlayfieldStepResult.BlockedByGate(mazeStep, gateId, contactHalf);
-        }
-
-        if (mazeStep.NextCell == mazeStep.CurrentCell)
-            return PlayfieldStepResult.AllowedStep(mazeStep);
-
-        if (TryGetBlockingGateIdForStep(
-                mazeStep,
-                direction,
-                out gateId,
-                out GateContactHalf boundaryContactHalf))
-        {
-            return PlayfieldStepResult.BlockedByGate(mazeStep, gateId, boundaryContactHalf);
-        }
-
-        return PlayfieldStepResult.AllowedStep(mazeStep);
-    }
-
-    /// <summary>
-    /// Tries to detect a blocking gate directly from the pixel probe motion,
-    /// even when the probe does not cross into a different logical cell yet.
-    /// </summary>
-    private bool TryGetBlockingGateIdAtProbe(
-        Vector2I arcadePixelPos,
-        Vector2I direction,
-        Vector2I collisionLead,
-        out int gateId,
-        out GateContactHalf? contactHalf)
-    {
-        gateId = -1;
-        contactHalf = null;
-
-        if (direction == Vector2I.Zero)
-            return false;
-
-        Vector2I currentCell = ArcadePixelToLogicalCell(arcadePixelPos);
-        Vector2I probeStart = arcadePixelPos + collisionLead;
-        Vector2I probeEnd = arcadePixelPos + direction + collisionLead;
-
-        Vector2I[] candidatePivots =
-        {
-            currentCell,
-            new Vector2I(currentCell.X + 1, currentCell.Y),
-            new Vector2I(currentCell.X, currentCell.Y + 1),
-            new Vector2I(currentCell.X + 1, currentCell.Y + 1)
-        };
-
-        foreach (Vector2I pivot in candidatePivots)
-        {
-            if (!_gateSystem.TryGetGateByPivot(pivot, out RotatingGateRuntimeState gate))
-                continue;
-
-            if (!gate.BlocksMovement(direction))
-                continue;
-
-            if (TryGetGateBlockAtProbe(
-                    gate,
-                    probeStart,
-                    probeEnd,
-                    direction,
-                    out GateContactHalf? candidateHalf))
-            {
-                gateId = gate.Id;
-                contactHalf = candidateHalf;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Tests whether the current probe motion intersects the blocking geometry
-    /// of one specific gate.
-    /// </summary>
-    private bool TryGetGateBlockAtProbe(
-        RotatingGateRuntimeState gate,
-        Vector2I probeStart,
-        Vector2I probeEnd,
-        Vector2I direction,
-        out GateContactHalf? contactHalf)
-    {
-        contactHalf = null;
-
-        Vector2I pivotArcade = GatePivotToArcadePixel(gate.Pivot);
-
-        if (gate.LogicalState == GateLogicalState.BlocksVertical)
-        {
-            if (direction.Y == 0)
-                return false;
-
-            if (!CrossesCoordinate(probeStart.Y, probeEnd.Y, pivotArcade.Y))
-                return false;
-
-            int localX = probeEnd.X - pivotArcade.X;
-            if (Mathf.Abs(localX) > 8)
-                return false;
-
-            if (localX < 0)
-                contactHalf = GateContactHalf.Left;
-            else if (localX > 0)
-                contactHalf = GateContactHalf.Right;
-            else
-                contactHalf = null;
-
-            return true;
-        }
-
-        if (gate.LogicalState == GateLogicalState.BlocksHorizontal)
-        {
-            if (direction.X == 0)
-                return false;
-
-            if (!CrossesCoordinate(probeStart.X, probeEnd.X, pivotArcade.X))
-                return false;
-
-            int localY = probeEnd.Y - pivotArcade.Y;
-            if (Mathf.Abs(localY) > 8)
-                return false;
-
-            if (localY < 0)
-                contactHalf = GateContactHalf.Top;
-            else if (localY > 0)
-                contactHalf = GateContactHalf.Bottom;
-            else
-                contactHalf = null;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Returns whether a 1D segment crosses or touches a target coordinate.
-    /// </summary>
-    private static bool CrossesCoordinate(int start, int end, int target)
-    {
-        return (start <= target && end >= target) || (start >= target && end <= target);
-    }
-
-    /// <summary>
-    /// Tries to find whether the evaluated step is blocked by one rotating gate
-    /// when the probe crosses into another logical cell.
-    /// </summary>
-    private bool TryGetBlockingGateIdForStep(
-        MazeStepResult mazeStep,
-        Vector2I direction,
-        out int gateId,
-        out GateContactHalf contactHalf)
-    {
-        gateId = -1;
-        contactHalf = GateContactHalf.Left;
-
-        if (direction == Vector2I.Zero)
-            return false;
-
-        if (mazeStep.NextCell == mazeStep.CurrentCell)
-            return false;
-
-        if (direction.X != 0)
-        {
-            return TryGetBlockingGateIdAcrossVerticalBoundary(
-                mazeStep.CurrentCell,
-                mazeStep.NextCell,
-                direction,
-                out gateId,
-                out contactHalf);
-        }
-
-        if (direction.Y != 0)
-        {
-            return TryGetBlockingGateIdAcrossHorizontalBoundary(
-                mazeStep.CurrentCell,
-                mazeStep.NextCell,
-                direction,
-                out gateId,
-                out contactHalf);
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Tries to find a blocking gate when movement crosses a vertical cell boundary,
-    /// that is, during a left/right movement step.
-    /// </summary>
-    private bool TryGetBlockingGateIdAcrossVerticalBoundary(
-        Vector2I currentCell,
-        Vector2I nextCell,
-        Vector2I direction,
-        out int gateId,
-        out GateContactHalf contactHalf)
-    {
-        gateId = -1;
-        contactHalf = GateContactHalf.Left;
-
-        int boundaryX = System.Math.Max(currentCell.X, nextCell.X);
-
-        Vector2I pivotTop = new(boundaryX, currentCell.Y);
-        if (TryGetBlockingGateAtPivot(direction, pivotTop, GateContactHalf.Bottom, out gateId, out contactHalf))
-            return true;
-
-        Vector2I pivotBottom = new(boundaryX, currentCell.Y + 1);
-        if (TryGetBlockingGateAtPivot(direction, pivotBottom, GateContactHalf.Top, out gateId, out contactHalf))
-            return true;
-
-        return false;
-    }
-
-    /// <summary>
-    /// Tries to find a blocking gate when movement crosses a horizontal cell boundary,
-    /// that is, during an up/down movement step.
-    /// </summary>
-    private bool TryGetBlockingGateIdAcrossHorizontalBoundary(
-        Vector2I currentCell,
-        Vector2I nextCell,
-        Vector2I direction,
-        out int gateId,
-        out GateContactHalf contactHalf)
-    {
-        gateId = -1;
-        contactHalf = GateContactHalf.Left;
-
-        int boundaryY = System.Math.Max(currentCell.Y, nextCell.Y);
-
-        Vector2I pivotLeft = new(currentCell.X, boundaryY);
-        if (TryGetBlockingGateAtPivot(direction, pivotLeft, GateContactHalf.Right, out gateId, out contactHalf))
-            return true;
-
-        Vector2I pivotRight = new(currentCell.X + 1, boundaryY);
-        if (TryGetBlockingGateAtPivot(direction, pivotRight, GateContactHalf.Left, out gateId, out contactHalf))
-            return true;
-
-        return false;
-    }
-
-    /// <summary>
-    /// Tests whether one gate at a candidate pivot blocks the attempted movement.
-    /// </summary>
-    private bool TryGetBlockingGateAtPivot(
-        Vector2I direction,
-        Vector2I pivot,
-        GateContactHalf candidateHalf,
-        out int gateId,
-        out GateContactHalf contactHalf)
-    {
-        gateId = -1;
-        contactHalf = GateContactHalf.Left;
-
-        if (_gateSystem.TryGetGateByPivot(pivot, out RotatingGateRuntimeState gate) && gate.BlocksMovement(direction))
-        {
-            gateId = gate.Id;
-            contactHalf = candidateHalf;
-            return true;
-        }
-
-        return false;
+            collisionLead);
     }
 
     // --- Gate Coordinate Helpers -------------------------------------------
