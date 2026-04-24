@@ -180,8 +180,8 @@ PlayerController uses an accumulator:
 _accumulator += delta;
 while (_accumulator >= TickDuration)
 {
-    _accumulator -= TickDuration;
-    RunOneTick();
+	_accumulator -= TickDuration;
+	RunOneTick();
 }
 ```
 
