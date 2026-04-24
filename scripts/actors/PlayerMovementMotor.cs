@@ -66,6 +66,9 @@ public sealed class PlayerMovementMotor
 
     private readonly PlayerMovementDebugTrace _debugTrace = new();
 
+    // Turn-window maps generated from the logical maze loaded from data/maze.json.
+    private PlayerTurnWindowMaps _turnWindowMaps = null!;
+
     /// <summary>
     /// Gets the current gameplay position in arcade pixels.
     /// </summary>
@@ -87,6 +90,7 @@ public sealed class PlayerMovementMotor
     public void Initialize(Level level)
     {
         _level = level;
+        _turnWindowMaps = PlayerTurnWindowMaps.FromMazeGrid(level.MazeGrid);
         _arcadePixelPos = level.LogicalCellToArcadePixel(level.PlayerStartCell);
         _currentDir = Vector2I.Zero;
         _offsetDir = Vector2I.Up;
@@ -176,6 +180,7 @@ public sealed class PlayerMovementMotor
         _turnAssistFlags = PlayerTurnAssistFlags.None;
 
         PlayerTurnWindowDecision decision = PlayerTurnWindowResolver.Choose(
+            _turnWindowMaps,
             _arcadePixelPos,
             requested,
             _currentDir,
