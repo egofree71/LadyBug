@@ -14,6 +14,8 @@ namespace LadyBug.Actors;
 /// - apply sprite facing and rendering based on the resulting gameplay state
 ///
 /// The gameplay movement rules themselves live in <c>PlayerMovementMotor</c>.
+/// Optional debug rendering is delegated to <see cref="PlayerDebugOverlay"/>
+/// so debug text can be drawn above gates without changing normal player visuals.
 /// </remarks>
 public partial class PlayerController : Node2D
 {
@@ -26,9 +28,12 @@ public partial class PlayerController : Node2D
 
     [Export]
     private Vector2 _debugCoordinatesOffset = new Vector2(18, -22);
-    
+
     // Animated sprite that visually represents the player.
     private AnimatedSprite2D _animatedSprite = null!;
+
+    // Top-level debug overlay drawn above the playfield when debug flags are enabled.
+    private PlayerDebugOverlay _debugOverlay = null!;
 
     // Owning level. Provides coordinate conversion helpers.
     private Level _level = null!;
@@ -53,8 +58,9 @@ public partial class PlayerController : Node2D
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
         _animatedSprite.Position = Vector2.Zero;
 
+        EnsureDebugOverlay();
         ApplyVisualFacing(_facingDir);
-        QueueRedraw();
+        UpdateDebugOverlay();
     }
 
     /// <summary>
@@ -76,9 +82,7 @@ public partial class PlayerController : Node2D
 
         Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
-        
-        if (_debugDrawAnchor || _debugDrawCoordinates)
-            QueueRedraw();
+        UpdateDebugOverlay();
     }
 
     /// <summary>
@@ -105,8 +109,7 @@ public partial class PlayerController : Node2D
         Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
         ApplyVisualFacing(_facingDir);
-
-        QueueRedraw();
+        UpdateDebugOverlay();
     }
 
     /// <summary>
@@ -274,43 +277,36 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Draws the gameplay anchor when debug drawing is enabled.
+    /// Ensures the debug overlay exists. It is created at runtime so the player
+    /// scene remains unchanged and normal gameplay rendering is unaffected.
     /// </summary>
-    public override void _Draw()
+    private void EnsureDebugOverlay()
     {
-        if (_debugDrawAnchor)
+        if (_debugOverlay != null)
+            return;
+
+        _debugOverlay = new PlayerDebugOverlay
         {
-            DrawLine(new Vector2(-6, 0), new Vector2(6, 0), Colors.Cyan, 1.5f);
-            DrawLine(new Vector2(0, -6), new Vector2(0, 6), Colors.Cyan, 1.5f);
-            DrawCircle(Vector2.Zero, 2.0f, Colors.Cyan);
-        }
+            Name = "DebugOverlay"
+        };
 
-        if (_debugDrawCoordinates)
-        {
-            Font font = ThemeDB.FallbackFont;
-            if (font != null)
-            {
-                Vector2I pos = _movementMotor.ArcadePixelPos;
+        AddChild(_debugOverlay);
+    }
 
-                int mameX = pos.X;
-                int mameY = 0xDD - pos.Y;
+    /// <summary>
+    /// Updates the optional debug overlay after gameplay and scene transforms have
+    /// been synchronized.
+    /// </summary>
+    private void UpdateDebugOverlay()
+    {
+        if (_debugOverlay == null || _level == null)
+            return;
 
-                string text = $"X={mameX:X2} Y={mameY:X2}";
-                Vector2 p = _debugCoordinatesOffset;
-
-                // contour noir
-                DrawString(font, p + new Vector2(-1, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2( 0, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2( 1, -1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2(-1,  0), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2( 1,  0), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2(-1,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2( 0,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-                DrawString(font, p + new Vector2( 1,  1), text, HorizontalAlignment.Left, -1.0f, 16, Colors.Black);
-
-                // texte principal
-                DrawString(font, p, text, HorizontalAlignment.Left, -1.0f, 16, Colors.White);
-            }
-        }
+        _debugOverlay.UpdateState(
+            GlobalPosition,
+            _movementMotor.ArcadePixelPos,
+            _debugDrawAnchor,
+            _debugDrawCoordinates,
+            _debugCoordinatesOffset);
     }
 }
