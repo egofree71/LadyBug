@@ -22,11 +22,11 @@ namespace LadyBug.Actors;
 /// - movement advances by integer arcade pixels;
 /// - short key taps preserve the last effective direction, like the arcade game;
 /// - turns are resolved through reverse-engineered turn windows, isolated in
-///   <see cref="PlayerTurnWindowResolver"/>;
+/// <see cref="PlayerTurnWindowResolver"/>;
 /// - assisted turns can combine one orthogonal correction pixel with one pixel
-///   in the requested direction;
+/// in the requested direction;
 /// - all committed movement components still pass through the current
-///   Level/Maze/Gate collision layer.
+/// Level/Maze/Gate collision layer.
 /// </remarks>
 public sealed class PlayerMovementMotor
 {
@@ -260,6 +260,7 @@ public sealed class PlayerMovementMotor
         if ((_turnAssistFlags & PlayerTurnAssistFlags.CorrectY) != 0)
         {
             Vector2I correction = StepTowardY(_turnLaneTarget.Y);
+
             if (correction != Vector2I.Zero)
             {
                 TryAdvanceOnePixel(correction, updateCurrentDirection: false);
@@ -272,6 +273,7 @@ public sealed class PlayerMovementMotor
         if ((_turnAssistFlags & PlayerTurnAssistFlags.CorrectX) != 0)
         {
             Vector2I correction = StepTowardX(_turnLaneTarget.X);
+
             if (correction != Vector2I.Zero)
             {
                 TryAdvanceOnePixel(correction, updateCurrentDirection: false);
@@ -291,6 +293,7 @@ public sealed class PlayerMovementMotor
         if (IsVertical(requested))
         {
             int distanceToLane = Math.Abs(_turnLaneTarget.X - _arcadePixelPos.X);
+
             if (distanceToLane > 4)
             {
                 AdvanceViaRequestLatch(requested);
@@ -311,6 +314,7 @@ public sealed class PlayerMovementMotor
         if (IsHorizontal(requested))
         {
             int distanceToLane = Math.Abs(_turnLaneTarget.Y - _arcadePixelPos.Y);
+
             if (distanceToLane > 4)
             {
                 AdvanceViaRequestLatch(requested);
@@ -386,6 +390,7 @@ public sealed class PlayerMovementMotor
         if (_arcadePixelPos.X != _turnLaneTarget.X)
         {
             Vector2I correction = StepTowardX(_turnLaneTarget.X);
+
             if (correction != Vector2I.Zero)
                 TryAdvanceOnePixel(correction, updateCurrentDirection: false);
 
@@ -395,15 +400,21 @@ public sealed class PlayerMovementMotor
         if (_arcadePixelPos.Y != _turnLaneTarget.Y)
         {
             Vector2I correction = StepTowardY(_turnLaneTarget.Y);
+
             if (correction != Vector2I.Zero)
                 TryAdvanceOnePixel(correction, updateCurrentDirection: false);
         }
     }
 
     /// <summary>
-    /// Performs one assisted turn tick: first one correction pixel toward the
-    /// target lane, then one pixel in the requested direction.
+    /// Performs one assisted-turn simulation tick.
     /// </summary>
+    /// <remarks>
+    /// The arcade-style assisted turn can move on two axes during the same fixed
+    /// tick: first one orthogonal correction pixel toward the selected lane, then
+    /// one pixel in the requested direction. The correction segment does not update
+    /// the effective movement direction; only the requested-direction segment does.
+    /// </remarks>
     private void AdvanceAssistedTurnStep(Vector2I requested, bool clearAssistFlags)
     {
         _debugTrace.AppendPath("AssistedStep");
@@ -415,6 +426,7 @@ public sealed class PlayerMovementMotor
         }
 
         Vector2I correction = GetCorrectionTowardTurnLane(requested);
+
         if (correction != Vector2I.Zero)
             TryAdvanceOnePixel(correction, updateCurrentDirection: false);
 
@@ -448,6 +460,15 @@ public sealed class PlayerMovementMotor
         }
     }
 
+    /// <summary>
+    /// Returns the orthogonal one-pixel correction needed to move the player
+    /// toward the currently selected assisted-turn lane.
+    /// </summary>
+    /// <remarks>
+    /// Vertical movement requests correct X first. Horizontal movement requests
+    /// correct Y first. The returned vector is only the correction component,
+    /// not the requested movement component itself.
+    /// </remarks>
     private Vector2I GetCorrectionTowardTurnLane(Vector2I requested)
     {
         if (IsVertical(requested))
@@ -459,6 +480,15 @@ public sealed class PlayerMovementMotor
         return Vector2I.Zero;
     }
 
+    /// <summary>
+    /// If the evaluated step is blocked by a pushable rotating gate, pushes the
+    /// gate and evaluates the same movement step again.
+    /// </summary>
+    /// <remarks>
+    /// This mirrors the current same-tick gate behavior: the gate logical state is
+    /// toggled immediately, then the movement probe is retried against the updated
+    /// playfield state.
+    /// </remarks>
     private PlayfieldStepResult ResolveGatePushIfNeeded(
         PlayfieldStepResult step,
         Vector2I direction)
@@ -474,6 +504,19 @@ public sealed class PlayerMovementMotor
         return step;
     }
 
+    /// <summary>
+    /// Attempts to commit exactly one arcade-pixel movement segment.
+    /// </summary>
+    /// <remarks>
+    /// The step is validated against the current playfield, including static maze
+    /// walls and dynamic rotating gates. If the step succeeds, the completed segment
+    /// is stored so the controller can later process things crossed during this tick,
+    /// such as collectibles during assisted turns.
+    ///
+    /// When <paramref name="updateCurrentDirection"/> is false, the movement is
+    /// treated as an alignment correction and does not become the player's effective
+    /// movement direction.
+    /// </remarks>
     private bool TryAdvanceOnePixel(Vector2I direction, bool updateCurrentDirection)
     {
         if (direction == Vector2I.Zero)
@@ -490,6 +533,7 @@ public sealed class PlayerMovementMotor
 
         Vector2I segmentStart = _arcadePixelPos;
         _arcadePixelPos += direction;
+
         _movementSegmentsThisTick.Add(new PlayerMovementSegment(
             segmentStart,
             _arcadePixelPos,
@@ -524,6 +568,10 @@ public sealed class PlayerMovementMotor
         return IsPushableGateBlock(step, requested);
     }
 
+    /// <summary>
+    /// Returns true when the blocked step is caused by a rotating gate that can be
+    /// pushed from the current contact side.
+    /// </summary>
     private bool IsPushableGateBlock(PlayfieldStepResult step, Vector2I requested)
     {
         if (step.Kind != PlayfieldStepKind.BlockedByGate ||
@@ -539,6 +587,14 @@ public sealed class PlayerMovementMotor
         return gate.CanBePushedBy(requested);
     }
 
+    /// <summary>
+    /// Builds the probe position used to test whether the requested direction would
+    /// be legal from the selected turn lane.
+    /// </summary>
+    /// <remarks>
+    /// For vertical requests, the probe uses the target lane X and current Y.
+    /// For horizontal requests, it uses current X and the target lane Y.
+    /// </remarks>
     private Vector2I GetTurnLaneProbePosition(Vector2I requested)
     {
         if (IsVertical(requested))
@@ -550,6 +606,15 @@ public sealed class PlayerMovementMotor
         return _arcadePixelPos;
     }
 
+    /// <summary>
+    /// Returns true when a stopped or resumed player is close enough to the movement
+    /// rail required by the requested direction.
+    /// </summary>
+    /// <remarks>
+    /// Horizontal movement requires the player's Y coordinate to be close to the
+    /// cell anchor Y. Vertical movement requires the X coordinate to be close to
+    /// the cell anchor X.
+    /// </remarks>
     private bool CanSnapToRailForDirection(Vector2I direction)
     {
         if (direction == Vector2I.Zero)
@@ -573,6 +638,10 @@ public sealed class PlayerMovementMotor
         return false;
     }
 
+    /// <summary>
+    /// Snaps the player back onto the movement rail for the requested direction
+    /// when the current offset is within the allowed tolerance.
+    /// </summary>
     private bool TrySnapToRailForDirection(Vector2I direction)
     {
         if (!CanSnapToRailForDirection(direction))
@@ -596,6 +665,14 @@ public sealed class PlayerMovementMotor
         return false;
     }
 
+    /// <summary>
+    /// Returns the directional probe offset used when evaluating collision for one
+    /// pixel of movement.
+    /// </summary>
+    /// <remarks>
+    /// The lead distance is direction-specific, matching the calibrated collision
+    /// probe values in <see cref="PlayerMovementTuning"/>.
+    /// </remarks>
     private Vector2I GetCollisionLead(Vector2I direction)
     {
         if (direction == Vector2I.Left)
@@ -613,11 +690,21 @@ public sealed class PlayerMovementMotor
         return Vector2I.Zero;
     }
 
+    /// <summary>
+    /// Evaluates one pixel of movement from the current arcade-pixel position.
+    /// </summary>
     private PlayfieldStepResult EvaluateOnePixelStep(Vector2I direction)
     {
         return EvaluateOnePixelStepAt(_arcadePixelPos, direction);
     }
 
+    /// <summary>
+    /// Evaluates one pixel of movement from an arbitrary arcade-pixel position.
+    /// </summary>
+    /// <remarks>
+    /// This is used both for real movement and for speculative probes, such as
+    /// checking whether an assisted turn would be legal from the selected lane.
+    /// </remarks>
     private PlayfieldStepResult EvaluateOnePixelStepAt(Vector2I arcadePixelPos, Vector2I direction)
     {
         if (direction == Vector2I.Zero)
@@ -632,6 +719,10 @@ public sealed class PlayerMovementMotor
             GetCollisionLead(direction));
     }
 
+    /// <summary>
+    /// Finalizes the current movement tick by building the public step result and
+    /// writing the debug trace.
+    /// </summary>
     private PlayerMovementStepResult FinishStep(
         Vector2I previousPixelPos,
         Vector2I previousDirection,
@@ -657,6 +748,15 @@ public sealed class PlayerMovementMotor
         return result;
     }
 
+    /// <summary>
+    /// Builds the immutable movement result returned to <see cref="PlayerController"/>
+    /// for this fixed tick.
+    /// </summary>
+    /// <remarks>
+    /// The result includes the previous/current positions, direction changes,
+    /// optional rail snap position, render-offset direction, and every committed
+    /// one-pixel segment.
+    /// </remarks>
     private PlayerMovementStepResult BuildStepResult(
         Vector2I previousPixelPos,
         Vector2I previousDirection,
@@ -684,6 +784,10 @@ public sealed class PlayerMovementMotor
             _offsetDir);
     }
 
+    /// <summary>
+    /// Returns true when an assisted turn is still offset from its target lane on
+    /// the axis perpendicular to the requested movement direction.
+    /// </summary>
     private bool OrthogonalAxisNotAligned(Vector2I requested)
     {
         if (IsVertical(requested))
@@ -695,6 +799,9 @@ public sealed class PlayerMovementMotor
         return false;
     }
 
+    /// <summary>
+    /// Returns a one-pixel horizontal step toward the target X coordinate.
+    /// </summary>
     private Vector2I StepTowardX(int targetX)
     {
         if (_arcadePixelPos.X < targetX)
@@ -706,6 +813,9 @@ public sealed class PlayerMovementMotor
         return Vector2I.Zero;
     }
 
+    /// <summary>
+    /// Returns a one-pixel vertical step toward the target Y coordinate.
+    /// </summary>
     private Vector2I StepTowardY(int targetY)
     {
         if (_arcadePixelPos.Y < targetY)
@@ -717,16 +827,25 @@ public sealed class PlayerMovementMotor
         return Vector2I.Zero;
     }
 
+    /// <summary>
+    /// Returns true when the direction is a pure left/right vector.
+    /// </summary>
     private static bool IsHorizontal(Vector2I direction)
     {
         return direction.X != 0 && direction.Y == 0;
     }
 
+    /// <summary>
+    /// Returns true when the direction is a pure up/down vector.
+    /// </summary>
     private static bool IsVertical(Vector2I direction)
     {
         return direction.Y != 0 && direction.X == 0;
     }
 
+    /// <summary>
+    /// Returns true when both directions are horizontal or both are vertical.
+    /// </summary>
     private static bool IsSameAxis(Vector2I a, Vector2I b)
     {
         return (IsHorizontal(a) && IsHorizontal(b)) ||
