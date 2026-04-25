@@ -4,6 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://w328wws5ct2k" path="res://assets/images/maze_background.png" id="2_cne4c"]
 [ext_resource type="PackedScene" uid="uid://bb0ow503k3dgv" path="res://scenes/player/Player.tscn" id="2_l1x8v"]
 [ext_resource type="PackedScene" uid="uid://4p3nyknxs4ag" path="res://scenes/level/RotatingGate.tscn" id="4_5l2jw"]
+[ext_resource type="Script" uid="uid://dydfiym54jom0" path="res://scripts/ui/Hud.cs" id="5_ti4pp"]
 
 [node name="Level" type="Node2D" unique_id=499888811]
 script = ExtResource("1_l1x8v")
@@ -130,3 +131,32 @@ GatePivot = Vector2i(2, 10)
 position = Vector2(576, 640)
 GateId = 19
 GatePivot = Vector2i(9, 10)
+
+[node name="Hud" type="CanvasLayer" parent="." unique_id=170479958]
+script = ExtResource("5_ti4pp")
+
+[node name="Root" type="Control" parent="Hud" unique_id=2003974388]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ScoreLabel" type="Label" parent="Hud/Root" unique_id=922229364]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -176.0
+offset_top = -84.0
+offset_right = -16.0
+offset_bottom = -29.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_font_sizes/font_size = 36
+text = "0"
+horizontal_alignment = 2
+vertical_alignment = 1

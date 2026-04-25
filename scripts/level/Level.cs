@@ -4,31 +4,28 @@ using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay.Scoring;
 
 /// <summary>
 /// Represents one playable level of the game.
 /// </summary>
 /// <remarks>
-/// This class is responsible for:
-/// loading the logical maze,
-/// owning the runtime gate and collectible fields,
-/// exposing playfield step evaluation,
-/// and coordinating board objects that belong to one active level.
-///
-/// Coordinate conversions are delegated to <see cref="LevelCoordinateSystem"/>,
-/// gate runtime state is delegated to <see cref="LevelGateRuntime"/>,
-/// collectible runtime state is delegated to <see cref="CollectibleFieldRuntime"/>,
-/// while collision / blocking evaluation is delegated to
-/// <see cref="PlayfieldCollisionResolver"/>.
-///
-/// The level intentionally separates:
-/// - logical maze data used for gameplay
-/// - dynamic rotating-gate state used as a movement overlay
-/// - collectible field runtime used for spawned pickups
-/// - visual rendering provided by the maze background and placed gate views
-///
-/// The player controller uses gameplay anchors in arcade pixels,
-/// while sprite-specific visual offsets are handled separately by the actor.
+/// <para>
+/// The level coordinates the board-specific runtime systems: logical maze loading,
+/// rotating-gate state, collectible state, playfield collision evaluation, player
+/// initialization, and the minimal gameplay HUD.
+/// </para>
+/// <para>
+/// Specialized work is delegated to smaller runtime classes. Coordinate conversion is
+/// handled by <see cref="LevelCoordinateSystem"/>, rotating gates by
+/// <see cref="LevelGateRuntime"/>, collectibles by <see cref="CollectibleFieldRuntime"/>,
+/// and movement blocking by <see cref="PlayfieldCollisionResolver"/>.
+/// </para>
+/// <para>
+/// Gameplay actors use arcade-pixel positions and logical cells. Visual placement is
+/// converted at the level boundary so gameplay rules stay independent from scene-space
+/// rendering details.
+/// </para>
 /// </remarks>
 [Tool]
 public partial class Level : Node2D
@@ -36,32 +33,66 @@ public partial class Level : Node2D
     [Export(PropertyHint.Range, "1,999,1")]
     private int _levelNumber = 1;
 
+    // Godot RNG used by the start-of-level collectible spawn planner.
     private readonly RandomNumberGenerator _rng = new();
 
+    // Score state currently owned by the level prototype.
+    // Later this can move to a broader game/session state if score must persist across scenes.
+    private readonly ScoreState _scoreState = new();
+
+    // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
 
     // --- Coordinate System --------------------------------------------------
 
-    private static readonly LevelCoordinateSystem CoordinateSystem = new(
-        cellSizeArcade: 16,
-        renderScale: 4,
-        gameplayAnchorArcade: new Vector2I(8, 7));
+    private const int CellSizeArcade = 16;
+    private const int RenderScale = 4;
+    private static readonly Vector2I GameplayAnchorArcade = new(8, 7);
+
+    // Central conversion helper between logical cells, arcade pixels, and Godot scene space.
+    private readonly LevelCoordinateSystem _coordinateSystem =
+        new(CellSizeArcade, RenderScale, GameplayAnchorArcade);
 
     // --- Scene References ---------------------------------------------------
 
-    private Node2D _collectiblesRoot = null!;
+    // Maze background sprite; its scene position is used as the playfield origin.
+    private Sprite2D? _mazeSprite;
+
+    // Parent node containing the editor-authored rotating gate views.
+    private Node2D? _gatesRoot;
+
+    // Parent node used by CollectibleFieldRuntime to spawn collectible views.
+    private Node2D? _collectiblesRoot;
+
+    // Optional HUD node. It currently displays only the score.
+    private Hud? _hud;
+
+    // --- Runtime State ------------------------------------------------------
+
+    // Static logical maze loaded from maze.json.
+    private MazeGrid _mazeGrid = null!;
+
+    // Runtime owner for rotating gate state and gate view synchronization.
+    private LevelGateRuntime _gateRuntime = null!;
+
+    // Runtime lookup and view owner for flowers, hearts, letters, and skulls.
+    private CollectibleFieldRuntime _collectibleField = null!;
+
+    // Movement collision facade combining the static maze and dynamic rotating gates.
+    private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
 
     // --- Exported Properties ------------------------------------------------
 
+    // Backing field for the exported player start cell.
     private Vector2I _playerStartCell = Vector2I.Zero;
 
     /// <summary>
     /// Gets or sets the logical start cell used to place the player.
     /// </summary>
     /// <remarks>
-    /// In the editor, changing this property immediately updates the previewed
-    /// player instance position.
+    /// In the editor, changing this value immediately updates the previewed player
+    /// instance position.
     /// </remarks>
     [Export]
     public Vector2I PlayerStartCell
@@ -77,13 +108,6 @@ public partial class Level : Node2D
         }
     }
 
-    // --- Runtime State ------------------------------------------------------
-
-    private MazeGrid _mazeGrid = null!;
-    private LevelGateRuntime _gateRuntime = null!;
-    private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
-    private CollectibleFieldRuntime _collectibleField = null!;
-
     /// <summary>
     /// Gets the runtime logical maze used by gameplay actors.
     /// </summary>
@@ -97,58 +121,84 @@ public partial class Level : Node2D
     // --- Lifecycle ----------------------------------------------------------
 
     /// <summary>
-    /// Initializes the level.
+    /// Initializes editor previews or builds the full runtime board.
     /// </summary>
-    /// <remarks>
-    /// In the editor, gate views and the player preview are refreshed from their
-    /// authored definitions.
-    ///
-    /// At runtime, the logical maze is loaded, the runtime gate system is built
-    /// from the gate instances already placed under the Gates node, the base
-    /// flower layout is loaded, and then the player controller is initialized.
-    /// </remarks>
     public override void _Ready()
     {
-        Node2D gatesRoot = GetNode<Node2D>("Gates");
-        _collectiblesRoot = GetNode<Node2D>("Collectibles");
-        _gateRuntime = new LevelGateRuntime(gatesRoot);
+        _mazeSprite = GetNodeOrNull<Sprite2D>("Maze");
+        _gatesRoot = GetNodeOrNull<Node2D>("Gates");
+        _collectiblesRoot = GetNodeOrNull<Node2D>("Collectibles");
+
+        if (_gatesRoot == null)
+        {
+            GD.PushError("Level is missing required child node: Gates");
+            return;
+        }
+
+        _gateRuntime = new LevelGateRuntime(_gatesRoot);
+        _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
 
         if (Engine.IsEditorHint())
         {
             UpdatePlayerPositionFromLogicalCell();
-            _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
             return;
         }
 
+        if (_collectiblesRoot == null)
+        {
+            GD.PushError("Level is missing required child node: Collectibles");
+            return;
+        }
+
+        InitializeRuntimeSystems();
+        InitializeHud();
+        InitializePlayer();
+    }
+
+    private void InitializeRuntimeSystems()
+    {
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
 
-        CollectibleLayoutFile collectibleLayout =
-            CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
-
-        _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
         _gateRuntime.BuildRuntimeGateSystem();
+        _gateRuntime.SyncGateViewsFromRuntimeState();
+
         _playfieldCollisionResolver = new PlayfieldCollisionResolver(
             _mazeGrid,
             _gateRuntime.GateSystem,
             ArcadePixelToLogicalCell,
             GatePivotToArcadePixel);
-        _gateRuntime.SyncGateViewsFromRuntimeState();
 
         _collectibleField = new CollectibleFieldRuntime(
-            _collectiblesRoot,
+            _collectiblesRoot!,
             LogicalCellToScenePosition);
+
+        CollectibleLayoutFile collectibleLayout =
+            CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
+
         _collectibleField.SpawnInitialFlowers(collectibleLayout);
 
         _rng.Randomize();
-
         CollectibleSpawnPlan spawnPlan =
             CollectibleSpawnPlanner.Generate(_levelNumber, _rng);
 
         _collectibleField.ApplySpecialCollectibleSpawnPlan(spawnPlan);
+    }
 
+    private void InitializeHud()
+    {
+        _hud = GetNodeOrNull<Hud>("Hud");
+
+        if (_hud == null)
+            GD.PushWarning("Level could not find optional child node: Hud");
+
+        _scoreState.Reset();
+        _hud?.SetScore(_scoreState.Score);
+    }
+
+    private void InitializePlayer()
+    {
         PlayerController? player = GetNodeOrNull<PlayerController>("Player");
-        if (player != null)
-            player.Initialize(this);
+        player?.Initialize(this);
     }
 
     // --- Collectibles -------------------------------------------------------
@@ -156,21 +206,41 @@ public partial class Level : Node2D
     /// <summary>
     /// Tries to consume the collectible currently present at the given logical cell.
     /// </summary>
-    /// <param name="cell">The logical cell to evaluate.</param>
+    /// <param name="cell">Logical cell to evaluate.</param>
     /// <returns>
     /// <see langword="true"/> if one collectible was found and consumed;
     /// otherwise, <see langword="false"/>.
     /// </returns>
     public bool TryConsumeCollectible(Vector2I cell)
     {
-        return _collectibleField.TryConsume(cell);
+        CollectiblePickupResult pickupResult = _collectibleField.TryConsume(cell);
+
+        if (!pickupResult.Consumed)
+            return false;
+
+        ApplyCollectiblePickupResult(pickupResult);
+        return true;
+    }
+
+    private void ApplyCollectiblePickupResult(CollectiblePickupResult pickupResult)
+    {
+        int scoreDelta = pickupResult.Kind switch
+        {
+            CollectibleKind.Flower => 10,
+            _ => 0,
+        };
+
+        if (scoreDelta <= 0)
+            return;
+
+        _scoreState.AddPoints(scoreDelta);
+        _hud?.SetScore(_scoreState.Score);
     }
 
     // --- Rotating Gates -----------------------------------------------------
 
     /// <summary>
-    /// Advances the rotating-gate runtime timers by one simulation tick
-    /// and refreshes their current visual state.
+    /// Advances the rotating-gate runtime timers by one simulation tick.
     /// </summary>
     public void AdvanceGateSimulationOneTick()
     {
@@ -178,13 +248,12 @@ public partial class Level : Node2D
     }
 
     /// <summary>
-    /// Attempts to push one rotating gate using the attempted gameplay direction
-    /// and contacted half.
+    /// Attempts to push one rotating gate.
     /// </summary>
     /// <param name="gateId">Identifier of the gate to push.</param>
     /// <param name="moveDir">Attempted one-pixel gameplay movement direction.</param>
-    /// <param name="contactHalf">Half of the gate that is being pushed.</param>
-    /// <returns>True if the push is accepted; otherwise false.</returns>
+    /// <param name="contactHalf">Half of the gate being pushed.</param>
+    /// <returns><see langword="true"/> if the push is accepted; otherwise, <see langword="false"/>.</returns>
     public bool TryPushGate(int gateId, Vector2I moveDir, GateContactHalf contactHalf)
     {
         return _gateRuntime.TryPushGate(gateId, moveDir, contactHalf);
@@ -196,13 +265,6 @@ public partial class Level : Node2D
     /// Evaluates one attempted arcade-pixel step against the active playfield:
     /// static maze plus dynamic rotating gates.
     /// </summary>
-    /// <param name="arcadePixelPos">Current gameplay position in arcade pixels.</param>
-    /// <param name="direction">Attempted one-pixel movement direction.</param>
-    /// <param name="collisionLead">Directional collision probe offset.</param>
-    /// <returns>
-    /// A combined playfield result describing whether movement is allowed,
-    /// blocked by a fixed wall, or blocked by a rotating gate.
-    /// </returns>
     public PlayfieldStepResult EvaluateArcadePixelStepWithGates(
         Vector2I arcadePixelPos,
         Vector2I direction,
@@ -217,45 +279,35 @@ public partial class Level : Node2D
     // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>
-    /// Converts one logical gate pivot into an arcade-pixel pivot position.
-    /// </summary>
-    private static Vector2I GatePivotToArcadePixel(Vector2I pivot)
-    {
-        return CoordinateSystem.GatePivotToArcadePixel(pivot);
-    }
-
-    /// <summary>
-    /// Converts one logical gate pivot into scene coordinates.
-    /// </summary>
-    /// <param name="pivot">Logical gate pivot.</param>
-    /// <returns>Scene position of the gate pivot.</returns>
-    public Vector2 GatePivotToScenePosition(Vector2I pivot)
-    {
-        return CoordinateSystem.GatePivotToScenePosition(pivot, GetMazeSceneOrigin());
-    }
-
-    /// <summary>
-    /// Converts a logical maze cell into a gameplay arcade-pixel anchor.
+    /// Converts one logical maze cell into the corresponding arcade-pixel anchor.
     /// </summary>
     public Vector2I LogicalCellToArcadePixel(Vector2I cell)
     {
-        return CoordinateSystem.LogicalCellToArcadePixel(cell);
+        return _coordinateSystem.LogicalCellToArcadePixel(cell);
     }
 
     /// <summary>
-    /// Converts a gameplay arcade-pixel position back into a logical maze cell.
+    /// Converts one arcade-pixel position back into a logical maze cell.
     /// </summary>
     public Vector2I ArcadePixelToLogicalCell(Vector2I arcadePixel)
     {
-        return CoordinateSystem.ArcadePixelToLogicalCell(arcadePixel);
+        return _coordinateSystem.ArcadePixelToLogicalCell(arcadePixel);
     }
 
     /// <summary>
-    /// Converts a gameplay arcade-pixel position into scene coordinates.
+    /// Converts one logical gate pivot into an arcade-pixel pivot position.
+    /// </summary>
+    public Vector2I GatePivotToArcadePixel(Vector2I pivot)
+    {
+        return _coordinateSystem.GatePivotToArcadePixel(pivot);
+    }
+
+    /// <summary>
+    /// Converts one arcade-pixel position into scene coordinates.
     /// </summary>
     public Vector2 ArcadePixelToScenePosition(Vector2I arcadePixel)
     {
-        return CoordinateSystem.ArcadePixelToScenePosition(
+        return _coordinateSystem.ArcadePixelToScenePosition(
             arcadePixel,
             GetMazeSceneOrigin());
     }
@@ -265,32 +317,39 @@ public partial class Level : Node2D
     /// </summary>
     public Vector2 ArcadeDeltaToSceneDelta(Vector2I arcadeDelta)
     {
-        return CoordinateSystem.ArcadeDeltaToSceneDelta(arcadeDelta);
+        return _coordinateSystem.ArcadeDeltaToSceneDelta(arcadeDelta);
     }
 
     /// <summary>
-    /// Converts a logical maze cell directly into a scene position.
+    /// Converts one logical maze cell directly into a scene position.
     /// </summary>
     public Vector2 LogicalCellToScenePosition(Vector2I cell)
     {
-        return CoordinateSystem.LogicalCellToScenePosition(
+        return _coordinateSystem.LogicalCellToScenePosition(
             cell,
             GetMazeSceneOrigin());
     }
 
     /// <summary>
-    /// Returns the scene-space origin of the visual maze node.
+    /// Converts one logical gate pivot directly into a scene position.
     /// </summary>
+    public Vector2 GatePivotToScenePosition(Vector2I pivot)
+    {
+        return _coordinateSystem.GatePivotToScenePosition(
+            pivot,
+            GetMazeSceneOrigin());
+    }
+
     private Vector2 GetMazeSceneOrigin()
     {
-        Sprite2D? maze = GetNodeOrNull<Sprite2D>("Maze");
-        return maze?.Position ?? Vector2.Zero;
+        _mazeSprite ??= GetNodeOrNull<Sprite2D>("Maze");
+        return _mazeSprite?.Position ?? Vector2.Zero;
     }
 
     // --- Editor Preview -----------------------------------------------------
 
     /// <summary>
-    /// Updates the player instance preview position from the configured start cell.
+    /// Updates the editor player preview from the configured logical start cell.
     /// </summary>
     private void UpdatePlayerPositionFromLogicalCell()
     {
@@ -300,17 +359,19 @@ public partial class Level : Node2D
 
         player.Position = LogicalCellToScenePosition(_playerStartCell);
 
-        if (Engine.IsEditorHint())
-        {
-            AnimatedSprite2D? animatedSprite = player.GetNodeOrNull<AnimatedSprite2D>("AnimatedSprite2D");
-            if (animatedSprite != null)
-            {
-                Vector2 spriteOffset = ArcadeDeltaToSceneDelta(new Vector2I(5, 8));
-                animatedSprite.Position = spriteOffset;
-            }
+        if (!Engine.IsEditorHint())
+            return;
 
-            player.NotifyPropertyListChanged();
-            QueueRedraw();
+        AnimatedSprite2D? animatedSprite =
+            player.GetNodeOrNull<AnimatedSprite2D>("AnimatedSprite2D");
+
+        if (animatedSprite != null)
+        {
+            Vector2 spriteOffset = ArcadeDeltaToSceneDelta(new Vector2I(5, 8));
+            animatedSprite.Position = spriteOffset;
         }
+
+        player.NotifyPropertyListChanged();
+        QueueRedraw();
     }
 }

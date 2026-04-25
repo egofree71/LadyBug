@@ -5,19 +5,11 @@ using LadyBug.Gameplay.Collectibles;
 
 /// <summary>
 /// Runtime owner of the collectible views placed on one active level board.
-/// </summary>
-/// <remarks>
-/// This class currently manages the implemented visual/runtime collectible field:
-/// - spawn the base flower layout;
-/// - apply the start-of-level special collectible plan on top of that field;
-/// - remove one collectible by logical cell when the player consumes it.
 ///
-/// It intentionally still works with <see cref="Collectible"/> scene instances,
-/// because the current collectible system is mostly visual/prototype runtime state.
-/// Later gameplay rules such as score, colors, words, skull lethality and bonus
-/// items can be layered on top without putting all collectible state back into
-/// <c>Level</c>.
-/// </remarks>
+/// This version stores semantic collectible state next to each visual node.
+/// That lets gameplay systems know whether the player consumed a flower,
+/// heart, letter or skull, without querying sprite frames.
+/// </summary>
 public sealed class CollectibleFieldRuntime
 {
     private static readonly PackedScene CollectibleScene =
@@ -25,15 +17,8 @@ public sealed class CollectibleFieldRuntime
 
     private readonly Node2D _root;
     private readonly Func<Vector2I, Vector2> _logicalCellToScenePosition;
-    private readonly Dictionary<Vector2I, Collectible> _collectiblesByCell = new();
+    private readonly Dictionary<Vector2I, RuntimeCollectible> _collectiblesByCell = new();
 
-    /// <summary>
-    /// Creates the runtime collectible field for one active level.
-    /// </summary>
-    /// <param name="root">Scene node under which collectible views are spawned.</param>
-    /// <param name="logicalCellToScenePosition">
-    /// Conversion helper supplied by the owning level.
-    /// </param>
     public CollectibleFieldRuntime(
         Node2D root,
         Func<Vector2I, Vector2> logicalCellToScenePosition)
@@ -43,12 +28,6 @@ public sealed class CollectibleFieldRuntime
             ?? throw new ArgumentNullException(nameof(logicalCellToScenePosition));
     }
 
-    /// <summary>
-    /// Spawns the base flower layout for the current level.
-    /// </summary>
-    /// <param name="layout">
-    /// Deserialized collectible layout defining which logical cells start with a flower.
-    /// </param>
     public void SpawnInitialFlowers(CollectibleLayoutFile layout)
     {
         if (layout == null)
@@ -68,11 +47,6 @@ public sealed class CollectibleFieldRuntime
         }
     }
 
-    /// <summary>
-    /// Applies the generated start-of-level special collectible plan on top of the
-    /// already spawned base flower field.
-    /// </summary>
-    /// <param name="spawnPlan">Generated placements for letters, hearts, and skulls.</param>
     public void ApplySpecialCollectibleSpawnPlan(CollectibleSpawnPlan spawnPlan)
     {
         if (spawnPlan == null)
@@ -80,7 +54,7 @@ public sealed class CollectibleFieldRuntime
 
         foreach (CollectiblePlacement placement in spawnPlan.Placements)
         {
-            if (!_collectiblesByCell.TryGetValue(placement.Cell, out Collectible? collectible))
+            if (!_collectiblesByCell.TryGetValue(placement.Cell, out RuntimeCollectible? runtimeCollectible))
             {
                 GD.PushWarning(
                     $"No base collectible found at logical cell {placement.Cell} " +
@@ -88,56 +62,55 @@ public sealed class CollectibleFieldRuntime
                 continue;
             }
 
-            ApplyCollectiblePlacement(collectible, placement);
+            runtimeCollectible.Kind = placement.Kind;
+            runtimeCollectible.Color = placement.Color;
+            runtimeCollectible.Letter = placement.Letter;
+
+            ApplyCollectiblePlacement(runtimeCollectible.View, placement);
         }
     }
 
-    /// <summary>
-    /// Tries to consume the collectible currently present at the given logical cell.
-    /// </summary>
-    /// <param name="cell">Logical cell to clear.</param>
-    /// <returns>True if one collectible was found and removed; otherwise false.</returns>
-    public bool TryConsume(Vector2I cell)
+    public CollectiblePickupResult TryConsume(Vector2I cell)
     {
-        if (!_collectiblesByCell.TryGetValue(cell, out Collectible? collectible))
-            return false;
+        if (!_collectiblesByCell.TryGetValue(cell, out RuntimeCollectible? runtimeCollectible))
+            return CollectiblePickupResult.None;
 
         _collectiblesByCell.Remove(cell);
-        collectible.QueueFree();
-        return true;
+
+        if (GodotObject.IsInstanceValid(runtimeCollectible.View))
+            runtimeCollectible.View.QueueFree();
+
+        return CollectiblePickupResult.Collected(
+            runtimeCollectible.Kind,
+            runtimeCollectible.Color,
+            runtimeCollectible.Letter);
     }
 
-    /// <summary>
-    /// Clears all currently tracked collectible views.
-    /// </summary>
     public void Clear()
     {
-        foreach (Collectible collectible in _collectiblesByCell.Values)
+        foreach (RuntimeCollectible runtimeCollectible in _collectiblesByCell.Values)
         {
-            if (GodotObject.IsInstanceValid(collectible))
-                collectible.QueueFree();
+            if (GodotObject.IsInstanceValid(runtimeCollectible.View))
+                runtimeCollectible.View.QueueFree();
         }
 
         _collectiblesByCell.Clear();
     }
 
-    /// <summary>
-    /// Spawns one flower collectible at the given logical maze cell.
-    /// </summary>
     private void SpawnFlower(Vector2I cell)
     {
-        var collectible = CollectibleScene.Instantiate<Collectible>();
+        Collectible collectible = CollectibleScene.Instantiate<Collectible>();
         _root.AddChild(collectible);
-
         collectible.Position = _logicalCellToScenePosition(cell);
         collectible.ShowFlower();
 
-        _collectiblesByCell[cell] = collectible;
+        _collectiblesByCell[cell] = new RuntimeCollectible(
+            collectible,
+            CollectibleKind.Flower,
+            CollectibleColor.None,
+            LetterKind.None);
     }
 
-    /// <summary>
-    /// Applies one generated collectible placement to one existing collectible view.
-    /// </summary>
     private static void ApplyCollectiblePlacement(
         Collectible collectible,
         CollectiblePlacement placement)
@@ -161,5 +134,25 @@ public sealed class CollectibleFieldRuntime
                 collectible.ShowFlower();
                 break;
         }
+    }
+
+    private sealed class RuntimeCollectible
+    {
+        public RuntimeCollectible(
+            Collectible view,
+            CollectibleKind kind,
+            CollectibleColor color,
+            LetterKind letter)
+        {
+            View = view;
+            Kind = kind;
+            Color = color;
+            Letter = letter;
+        }
+
+        public Collectible View { get; }
+        public CollectibleKind Kind { get; set; }
+        public CollectibleColor Color { get; set; }
+        public LetterKind Letter { get; set; }
     }
 }
