@@ -16,6 +16,7 @@ It covers:
 - score values and multiplier behavior
 - EXTRA / SPECIAL letter progression
 - skull collision behavior
+- temporary pickup popup / freeze behavior for hearts and letters
 - recommended Godot implementation rules
 
 It does **not** currently cover:
@@ -186,7 +187,7 @@ place_heart(pickC[1])
 
 skull_positions = [pickA[2], pickB[2], pickC[2], pickA[3], pickB[3], pickC[3]]
 for i in range(skull_count_for_level(level)):
-	place_skull(skull_positions[i])
+    place_skull(skull_positions[i])
 ```
 
 ## Runtime Pickup Timing
@@ -206,8 +207,8 @@ Recommended Godot rule:
 
 ```text
 for each committed movement segment:
-	if the segment crosses the destination logical-cell anchor:
-		consume collectible at that logical cell
+    if the segment crosses the destination logical-cell anchor:
+        consume collectible at that logical cell
 ```
 
 If the movement motor reports an explicit snapped anchor, check that exact anchor too.
@@ -277,6 +278,66 @@ The active heart multiplier applies to these values.
 | 2 | ×3 |
 | 3 | ×5 |
 
+## Temporary Score / Multiplier Popup and Gameplay Freeze
+
+When the player collects a heart or a letter, the arcade briefly pauses the normal
+gameplay action and replaces the collectible position with a temporary visual popup.
+
+Observed behavior:
+
+- the player sprite is hidden during the popup
+- the current collectible is visually replaced for a short time
+- the upper part of the popup shows the score value for the collected object
+- the lower part shows the current multiplier indicator when a multiplier is active
+- the playfield action appears frozen during this short display
+- after the popup, the temporary sprite is removed, the player is restored, and the
+  collectible tile is finally cleared
+
+Reverse-engineering notes:
+
+```text
+3DBD = ApplyCollectibleScoreOrEffect
+3DE5 = clears player sprite/state bits at 6026, hiding the player during the popup
+3DED = prepares a temporary sprite/object at 6049..604D
+3E0C = red score popup tile selector,  E=3 -> 604C = E0
+3E12 = yellow score popup tile selector, E=2 -> 604C = DC
+3E18 = blue score popup tile selector,   E<2 -> 604C = D8
+3E20 = sets 6000 bit 2 while the popup is active
+3E22 = LD B,0x1E, popup wait loop duration
+3E25 = calls timing / video update routines during the wait loop
+3E32 = clears 6049, removing the temporary popup sprite/object
+3E38 = restores player sprite/state visibility via 6026 bit 1
+3E3B = writes FF to the collected tile location
+```
+
+Duration:
+
+```text
+0x1E ticks = 30 ticks
+30 / 60.1145 Hz ≈ 0.50 seconds
+```
+
+Recommended Godot behavior:
+
+```text
+when heart/letter pickup is confirmed:
+    compute pickup result and score using current color mode and multiplier
+    apply SPECIAL / EXTRA progress or blue-heart multiplier update if relevant
+    start a 30-tick pickup popup state
+    hide the player sprite during the popup
+    pause normal player/enemy movement during the popup
+    display score text above the collectible anchor
+    display multiplier text below the collectible anchor when multiplier is active
+    after 30 ticks:
+        remove the popup
+        remove the collectible
+        show the player again
+        resume normal gameplay
+```
+
+For the remake, it is probably cleaner to implement this as a high-level gameplay state
+rather than reproducing the original temporary sprite RAM layout literally.
+
 ## Blue Heart Multiplier
 
 A heart only changes the multiplier when it is collected in **blue** mode.
@@ -305,7 +366,7 @@ Recommended Godot logic:
 score += baseScore(currentMode) * multiplierForCurrentStep()
 
 if collectible is heart and currentMode is Blue:
-	multiplierStep = min(multiplierStep + 1, 3)
+    multiplierStep = min(multiplierStep + 1, 3)
 ```
 
 MAME showed the first three blue hearts produce `+100`, `+200`, then `+300`, while the
@@ -343,12 +404,12 @@ Confirmed MAME tests:
 
 ```text
 P red:
-	D=03, E=03
-	609D FF -> FD
+    D=03, E=03
+    609D FF -> FD
 
 X yellow:
-	D=07, E=02
-	609E FF -> FD
+    D=07, E=02
+    609E FF -> FD
 ```
 
 Recommended Godot interpretation:
@@ -383,8 +444,8 @@ Recommended Godot behavior:
 
 ```text
 if collectible is skull:
-	remove skull
-	kill player
+    remove skull
+    kill player
 ```
 
 The arcade appears to remove or clear the skull before entering the common player-death
@@ -398,8 +459,8 @@ Recommended Godot behavior:
 
 ```text
 if collectible is flower:
-	score += 10 * currentMultiplier
-	remove flower
+    score += 10 * currentMultiplier
+    remove flower
 ```
 
 Completing all required flowers / dots should participate in the normal level-clear logic.
@@ -419,6 +480,8 @@ For the current remake, the practical implementation guideline is:
   - color-based scoring and letter progression
   - blue-heart multiplier
   - skull death behavior
+  - temporary score / multiplier popup for hearts and letters
+  - short gameplay freeze while the popup is visible
 
 Suggested runtime services / concepts:
 
@@ -429,6 +492,7 @@ CollectiblePickupResult
 CollectibleScoreService
 WordProgressState
 HeartMultiplierState
+CollectiblePickupPopupState
 ```
 
 `TryConsume` should eventually return a rich result rather than a simple boolean, for example:
@@ -452,39 +516,39 @@ or use a phase-order wrapper.
 ```csharp
 public enum CollectibleColorMode
 {
-	Red,
-	Yellow,
-	Blue
+    Red,
+    Yellow,
+    Blue
 }
 
 public sealed class CollectibleColorCycle
 {
-	private const int TotalTicks = 0x0258; // 600
-	private const int RedEnd = 0x001F;     // 31 ticks
-	private const int YellowEnd = 0x00B4;  // 180 ticks total from cycle origin
+    private const int TotalTicks = 0x0258; // 600
+    private const int RedEnd = 0x001F;     // 31 ticks
+    private const int YellowEnd = 0x00B4;  // 180 ticks total from cycle origin
 
-	private int _tick;
+    private int _tick;
 
-	public CollectibleColorMode CurrentMode
-	{
-		get
-		{
-			int t = _tick % TotalTicks;
+    public CollectibleColorMode CurrentMode
+    {
+        get
+        {
+            int t = _tick % TotalTicks;
 
-			if (t < RedEnd)
-				return CollectibleColorMode.Red;
+            if (t < RedEnd)
+                return CollectibleColorMode.Red;
 
-			if (t < YellowEnd)
-				return CollectibleColorMode.Yellow;
+            if (t < YellowEnd)
+                return CollectibleColorMode.Yellow;
 
-			return CollectibleColorMode.Blue;
-		}
-	}
+            return CollectibleColorMode.Blue;
+        }
+    }
 
-	public void AdvanceOneTick()
-	{
-		_tick = (_tick + 1) % TotalTicks;
-	}
+    public void AdvanceOneTick()
+    {
+        _tick = (_tick + 1) % TotalTicks;
+    }
 }
 ```
 
@@ -523,6 +587,7 @@ Useful routines / labels:
 | `0AF3` | `HandlePlayerFatalCollision` | common fatal collision path |
 | `2D64` | `Player_PlayDeathAnimation` | starts player death animation |
 | `3D9F` | `ClassifyCollectibleColorOrType` | classifies current collectible color/type |
+| `3DBD` | `ApplyCollectibleScoreOrEffect` | score/multiplier popup, short freeze, player hide/restore |
 | `3E5E` | `DecodeLetterTileToIndex` | maps tile code to letter index |
 | `3E96` | `ApplyLetterWordProgress` | applies SPECIAL / EXTRA progress |
 
@@ -530,6 +595,7 @@ Useful routines / labels:
 
 Still worth verifying later:
 
+- exact visual score-popup tile mapping for all score/multiplier cases
 - exact visual color RAM writes for all letter/heart tiles
 - whether the first visible color at level start should always be blue or depends on game state
 - exact level-clear interaction when `SPECIAL` or `EXTRA` is completed
