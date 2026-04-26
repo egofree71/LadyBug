@@ -28,6 +28,9 @@ public sealed class CollectibleFieldRuntime
             ?? throw new ArgumentNullException(nameof(logicalCellToScenePosition));
     }
 
+    /// <summary>
+    /// Spawns the base flower field from the serialized logical layout.
+    /// </summary>
     public void SpawnInitialFlowers(CollectibleLayoutFile layout)
     {
         if (layout == null)
@@ -47,6 +50,9 @@ public sealed class CollectibleFieldRuntime
         }
     }
 
+    /// <summary>
+    /// Replaces selected base flowers with level-start hearts, letters and skulls.
+    /// </summary>
     public void ApplySpecialCollectibleSpawnPlan(CollectibleSpawnPlan spawnPlan)
     {
         if (spawnPlan == null)
@@ -88,6 +94,14 @@ public sealed class CollectibleFieldRuntime
         }
     }
 
+    /// <summary>
+    /// Removes the collectible at the given logical cell and returns its semantic result.
+    /// </summary>
+    /// <remarks>
+    /// The caller receives the collectible kind, current color-cycle color and letter kind
+    /// before the visual node is freed. This lets scoring and popup logic stay independent
+    /// from sprite frames.
+    /// </remarks>
     public CollectiblePickupResult TryConsume(Vector2I cell)
     {
         if (!_collectiblesByCell.TryGetValue(cell, out RuntimeCollectible? runtimeCollectible))
@@ -104,6 +118,9 @@ public sealed class CollectibleFieldRuntime
             runtimeCollectible.Letter);
     }
 
+    /// <summary>
+    /// Removes all active collectible views and clears the runtime lookup.
+    /// </summary>
     public void Clear()
     {
         foreach (RuntimeCollectible runtimeCollectible in _collectiblesByCell.Values)

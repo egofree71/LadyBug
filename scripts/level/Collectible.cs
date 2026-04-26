@@ -7,12 +7,9 @@ using LadyBug.Gameplay.Collectibles;
 /// Runtime visual view for a single collectible instance.
 /// </summary>
 /// <remarks>
-/// This node renders the collectible states used by the current level setup:
-/// flowers, skulls, hearts and letters.
-///
-/// Hearts use two sprite layers: the main sprite is the color-cycled outer ring,
-/// while the overlay sprite keeps the inner heart color from the spritesheet.
-/// Letters use only the main sprite and are tinted by the same color cycle.
+/// Flowers and skulls use only the main sprite. Hearts use the main sprite for
+/// the color-cycled outer ring and the overlay sprite for the fixed inner heart.
+/// Letters use the main sprite tinted with the current collectible color cycle.
 /// </remarks>
 public partial class Collectible : Node2D
 {
@@ -21,7 +18,7 @@ public partial class Collectible : Node2D
     private const int HeartRingFrame = 2;
     private const int HeartCenterFrame = 3;
 
-    // Current project spritesheet mapping. Do not change unless the spritesheet is changed too.
+    // Current project spritesheet mapping. Do not change unless the source image changes.
     private const int LetterAFrame = 4;
     private const int LetterCFrame = 5;
     private const int LetterEFrame = 6;
@@ -33,12 +30,12 @@ public partial class Collectible : Node2D
     private const int LetterTFrame = 12;
     private const int LetterXFrame = 13;
 
-    // Arcade-like tints measured from the original game screenshot.
-    private static readonly Color ArcadeRed = new(1.0f, 81.0f / 255.0f, 0.0f);      // #FF5100
-    private static readonly Color ArcadeYellow = new(1.0f, 1.0f, 0.0f);             // #FFFF00
-    private static readonly Color ArcadeBlue = new(0.0f, 174.0f / 255.0f, 1.0f);    // #00AEFF
+    // Arcade-like colors measured from the original screenshot.
+    private static readonly Color ArcadeRed = Color.FromHtml("FF5100");
+    private static readonly Color ArcadeYellow = Color.FromHtml("FFFF00");
+    private static readonly Color ArcadeBlue = Color.FromHtml("00AEFF");
 
-    private Sprite2D _mainSprite = null!;
+    private Sprite2D _mainSprite = default!;
     private Sprite2D? _overlaySprite;
 
     /// <summary>
@@ -57,9 +54,7 @@ public partial class Collectible : Node2D
     {
         _mainSprite.Frame = FlowerFrame;
         _mainSprite.Modulate = Colors.White;
-
-        if (_overlaySprite != null)
-            _overlaySprite.Visible = false;
+        HideOverlaySprite();
     }
 
     /// <summary>
@@ -69,41 +64,37 @@ public partial class Collectible : Node2D
     {
         _mainSprite.Frame = SkullFrame;
         _mainSprite.Modulate = Colors.White;
-
-        if (_overlaySprite != null)
-            _overlaySprite.Visible = false;
+        HideOverlaySprite();
     }
 
     /// <summary>
-    /// Displays this collectible as a heart using the current global collectible color.
+    /// Displays this collectible as a heart using the current color-cycle color.
     /// </summary>
     public void ShowHeart(CollectibleColor color)
     {
         _mainSprite.Frame = HeartRingFrame;
         _mainSprite.Modulate = ToGodotColor(color);
 
-        if (_overlaySprite != null)
-        {
-            _overlaySprite.Frame = HeartCenterFrame;
-            _overlaySprite.Modulate = Colors.White;
-            _overlaySprite.Visible = true;
-        }
+        if (_overlaySprite == null)
+            return;
+
+        _overlaySprite.Frame = HeartCenterFrame;
+        _overlaySprite.Modulate = Colors.White;
+        _overlaySprite.Visible = true;
     }
 
     /// <summary>
-    /// Displays this collectible as a letter using the current global collectible color.
+    /// Displays this collectible as a letter using the current color-cycle color.
     /// </summary>
     public void ShowLetter(LetterKind letter, CollectibleColor color)
     {
         _mainSprite.Frame = GetLetterFrame(letter);
         _mainSprite.Modulate = ToGodotColor(color);
-
-        if (_overlaySprite != null)
-            _overlaySprite.Visible = false;
+        HideOverlaySprite();
     }
 
     /// <summary>
-    /// Backward-compatible helper for older call sites.
+    /// Compatibility helper for older code paths that still request a red heart.
     /// </summary>
     public void ShowHeartRed()
     {
@@ -111,27 +102,17 @@ public partial class Collectible : Node2D
     }
 
     /// <summary>
-    /// Backward-compatible helper for older call sites.
+    /// Compatibility helper for older code paths that still request a red letter.
     /// </summary>
     public void ShowLetterRed(LetterKind letter)
     {
         ShowLetter(letter, CollectibleColor.Red);
     }
 
-    /// <summary>
-    /// Converts a gameplay collectible color into the tint used for rendering.
-    /// </summary>
-    private static Color ToGodotColor(CollectibleColor color)
+    private void HideOverlaySprite()
     {
-        return color switch
-        {
-            CollectibleColor.Red => ArcadeRed,
-            CollectibleColor.Yellow => ArcadeYellow,
-            CollectibleColor.Blue => ArcadeBlue,
-            CollectibleColor.White => Colors.White,
-            CollectibleColor.None => Colors.White,
-            _ => Colors.White
-        };
+        if (_overlaySprite != null)
+            _overlaySprite.Visible = false;
     }
 
     /// <summary>
@@ -152,6 +133,22 @@ public partial class Collectible : Node2D
             LetterKind.T => LetterTFrame,
             LetterKind.X => LetterXFrame,
             _ => throw new System.ArgumentOutOfRangeException(nameof(letter), letter, null)
+        };
+    }
+
+    /// <summary>
+    /// Converts the logical collectible color to the tint applied to the sprite.
+    /// </summary>
+    private static Color ToGodotColor(CollectibleColor color)
+    {
+        return color switch
+        {
+            CollectibleColor.Blue => ArcadeBlue,
+            CollectibleColor.Red => ArcadeRed,
+            CollectibleColor.Yellow => ArcadeYellow,
+            CollectibleColor.White => Colors.White,
+            CollectibleColor.None => Colors.White,
+            _ => Colors.White
         };
     }
 }

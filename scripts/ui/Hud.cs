@@ -1,13 +1,5 @@
 using Godot;
 
-/// <summary>
-/// Displays the gameplay HUD for one active board.
-/// </summary>
-/// <remarks>
-/// This script only updates HUD values. Layout, anchors, font size, colors and
-/// alignment are authored in the scene so the UI remains easy to adjust in the
-/// Godot editor.
-/// </remarks>
 public partial class Hud : CanvasLayer
 {
     [Export]
@@ -22,16 +14,15 @@ public partial class Hud : CanvasLayer
 
         if (_scoreLabel == null)
         {
-            GD.PushWarning("Hud could not find a ScoreLabel node.");
+            GD.PushWarning("[Hud] Could not find ScoreLabel. Expected Root/ScoreLabel or ScoreLabel, or set ScoreLabelPath in the Inspector.");
             return;
         }
 
+        // Important: this script intentionally does not set position, size,
+        // anchors, alignment or font size. Those belong in Level.tscn.
         SetScore(_lastScore);
     }
 
-    /// <summary>
-    /// Updates the displayed current score.
-    /// </summary>
     public void SetScore(int score)
     {
         _lastScore = score;
@@ -46,9 +37,9 @@ public partial class Hud : CanvasLayer
     {
         if (!ScoreLabelPath.IsEmpty)
         {
-            Label? configuredLabel = GetNodeOrNull<Label>(ScoreLabelPath);
-            if (configuredLabel != null)
-                return configuredLabel;
+            Label? exportedPathLabel = GetNodeOrNull<Label>(ScoreLabelPath);
+            if (exportedPathLabel != null)
+                return exportedPathLabel;
         }
 
         Label? rootChildLabel = GetNodeOrNull<Label>("Root/ScoreLabel");

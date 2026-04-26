@@ -43,6 +43,12 @@ public partial class Level : Node2D
     // Global color cycle used by hearts and letters.
     private readonly CollectibleColorCycle _collectibleColorCycle = new();
 
+    // Multiplier unlocked by collecting blue hearts.
+    private readonly HeartMultiplierState _heartMultiplierState = new();
+
+    // Short heart / letter pickup popup state. While active, normal gameplay is frozen.
+    private readonly CollectiblePickupPopupState _pickupPopupState = new();
+
     // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
@@ -73,6 +79,9 @@ public partial class Level : Node2D
 
     // Optional HUD node. It currently displays only the score.
     private Hud? _hud;
+
+    // Runtime popup view displayed when collecting hearts and letters.
+    private CollectiblePickupPopupView? _pickupPopupView;
 
     // --- Runtime State ------------------------------------------------------
 
@@ -227,6 +236,7 @@ public partial class Level : Node2D
             GD.PushWarning("Level could not find optional child node: Hud");
 
         _scoreState.Reset();
+        _heartMultiplierState.Reset();
         _hud?.SetScore(_scoreState.Score);
     }
 
@@ -249,6 +259,12 @@ public partial class Level : Node2D
     /// </remarks>
     private void RunOneSimulationTick()
     {
+        if (_pickupPopupState.IsActive)
+        {
+            AdvancePickupPopupOneTick();
+            return;
+        }
+
         AdvanceBoardSimulationOneTick();
         _player?.AdvanceOneSimulationTick();
     }
@@ -276,28 +292,87 @@ public partial class Level : Node2D
     /// </returns>
     public bool TryConsumeCollectible(Vector2I cell)
     {
+        if (_pickupPopupState.IsActive)
+            return false;
+
         CollectiblePickupResult pickupResult = _collectibleField.TryConsume(cell);
 
         if (!pickupResult.Consumed)
             return false;
 
-        ApplyCollectiblePickupResult(pickupResult);
+        ApplyCollectiblePickupResult(cell, pickupResult);
         return true;
     }
 
-    private void ApplyCollectiblePickupResult(CollectiblePickupResult pickupResult)
+    private void ApplyCollectiblePickupResult(
+        Vector2I cell,
+        CollectiblePickupResult pickupResult)
     {
-        int scoreDelta = pickupResult.Kind switch
-        {
-            CollectibleKind.Flower => 10,
-            _ => 0,
-        };
+        CollectibleScoreCalculation scoreCalculation =
+            CollectibleScoreService.Calculate(
+                pickupResult.Kind,
+                pickupResult.Color,
+                _heartMultiplierState.CurrentMultiplier);
 
-        if (scoreDelta <= 0)
+        if (scoreCalculation.HasScore)
+        {
+            _scoreState.AddPoints(scoreCalculation.ScoreDelta);
+            _hud?.SetScore(_scoreState.Score);
+        }
+
+        bool needsPopup =
+            pickupResult.Kind == CollectibleKind.Heart ||
+            pickupResult.Kind == CollectibleKind.Letter;
+
+        if (pickupResult.Kind == CollectibleKind.Heart &&
+            pickupResult.Color == CollectibleColor.Blue)
+        {
+            _heartMultiplierState.AdvanceOneStep();
+        }
+
+        if (needsPopup && scoreCalculation.HasScore)
+        {
+            StartPickupPopup(cell, scoreCalculation);
+        }
+    }
+
+    private void StartPickupPopup(
+        Vector2I cell,
+        CollectibleScoreCalculation scoreCalculation)
+    {
+        ClearPickupPopupView();
+
+        _pickupPopupState.Start(
+            cell,
+            scoreCalculation.BaseScore,
+            scoreCalculation.Multiplier,
+            scoreCalculation.ScoreDelta);
+
+        _pickupPopupView = new CollectiblePickupPopupView();
+        AddChild(_pickupPopupView);
+        _pickupPopupView.Position = LogicalCellToScenePosition(cell);
+        _pickupPopupView.Configure(
+            scoreCalculation.BaseScore,
+            scoreCalculation.Multiplier);
+
+        _player?.SetGameplaySpriteVisible(false);
+    }
+
+    private void AdvancePickupPopupOneTick()
+    {
+        if (!_pickupPopupState.AdvanceOneTick())
             return;
 
-        _scoreState.AddPoints(scoreDelta);
-        _hud?.SetScore(_scoreState.Score);
+        ClearPickupPopupView();
+        _player?.SetGameplaySpriteVisible(true);
+    }
+
+    private void ClearPickupPopupView()
+    {
+        if (_pickupPopupView != null && GodotObject.IsInstanceValid(_pickupPopupView))
+            _pickupPopupView.QueueFree();
+
+        _pickupPopupView = null;
     }
 
     // --- Rotating Gates -----------------------------------------------------

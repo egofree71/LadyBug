@@ -152,6 +152,16 @@ public partial class PlayerController : Node2D
         UpdateDebugOverlay();
     }
 
+
+    /// <summary>
+    /// Shows or hides only the rendered player sprite while preserving gameplay state.
+    /// </summary>
+    public void SetGameplaySpriteVisible(bool visible)
+    {
+        if (_animatedSprite != null)
+            _animatedSprite.Visible = visible;
+    }
+
     /// <summary>
     /// Tries to consume one collectible if the given gameplay position matches
     /// exactly the anchor of one logical cell.
