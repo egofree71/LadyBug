@@ -40,6 +40,9 @@ public partial class Level : Node2D
     // Later this can move to a broader game/session state if score must persist across scenes.
     private readonly ScoreState _scoreState = new();
 
+    // Global color cycle used by hearts and letters.
+    private readonly CollectibleColorCycle _collectibleColorCycle = new();
+
     // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
@@ -65,6 +68,9 @@ public partial class Level : Node2D
     // Parent node used by CollectibleFieldRuntime to spawn collectible views.
     private Node2D? _collectiblesRoot;
 
+    // Runtime player controller owned by this level.
+    private PlayerController? _player;
+
     // Optional HUD node. It currently displays only the score.
     private Hud? _hud;
 
@@ -81,6 +87,9 @@ public partial class Level : Node2D
 
     // Movement collision facade combining the static maze and dynamic rotating gates.
     private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
+
+    // Accumulates frame time for the level-owned fixed simulation tick.
+    private double _simulationAccumulator = 0.0;
 
     // --- Exported Properties ------------------------------------------------
 
@@ -155,6 +164,29 @@ public partial class Level : Node2D
         InitializePlayer();
     }
 
+    /// <summary>
+    /// Owns the fixed gameplay tick for board-level systems and the player.
+    /// </summary>
+    /// <param name="delta">Frame delta time in seconds.</param>
+    public override void _Process(double delta)
+    {
+        if (Engine.IsEditorHint() || _player == null)
+            return;
+
+        _simulationAccumulator += delta;
+
+        bool ranSimulationTick = false;
+        while (_simulationAccumulator >= PlayerMovementTuning.TickDuration)
+        {
+            _simulationAccumulator -= PlayerMovementTuning.TickDuration;
+            RunOneSimulationTick();
+            ranSimulationTick = true;
+        }
+
+        if (ranSimulationTick)
+            _player.SynchronizeSceneFromGameplay();
+    }
+
     private void InitializeRuntimeSystems()
     {
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
@@ -182,6 +214,9 @@ public partial class Level : Node2D
             CollectibleSpawnPlanner.Generate(_levelNumber, _rng);
 
         _collectibleField.ApplySpecialCollectibleSpawnPlan(spawnPlan);
+
+        _collectibleColorCycle.ResetToBlue();
+        _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
     }
 
     private void InitializeHud()
@@ -197,8 +232,36 @@ public partial class Level : Node2D
 
     private void InitializePlayer()
     {
-        PlayerController? player = GetNodeOrNull<PlayerController>("Player");
-        player?.Initialize(this);
+        _player = GetNodeOrNull<PlayerController>("Player");
+        _player?.Initialize(this);
+        _simulationAccumulator = 0.0;
+    }
+
+    // --- Simulation Tick ----------------------------------------------------
+
+    /// <summary>
+    /// Advances one full level simulation tick.
+    /// </summary>
+    /// <remarks>
+    /// Board-level systems are advanced before the player, matching the previous
+    /// order used by PlayerController while keeping global systems out of the
+    /// player-specific class.
+    /// </remarks>
+    private void RunOneSimulationTick()
+    {
+        AdvanceBoardSimulationOneTick();
+        _player?.AdvanceOneSimulationTick();
+    }
+
+    /// <summary>
+    /// Advances board-level systems that are not owned by a specific actor.
+    /// </summary>
+    private void AdvanceBoardSimulationOneTick()
+    {
+        _gateRuntime.AdvanceOneTick();
+
+        if (_collectibleColorCycle.AdvanceOneTick())
+            _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
     }
 
     // --- Collectibles -------------------------------------------------------
@@ -238,14 +301,6 @@ public partial class Level : Node2D
     }
 
     // --- Rotating Gates -----------------------------------------------------
-
-    /// <summary>
-    /// Advances the rotating-gate runtime timers by one simulation tick.
-    /// </summary>
-    public void AdvanceGateSimulationOneTick()
-    {
-        _gateRuntime.AdvanceOneTick();
-    }
 
     /// <summary>
     /// Attempts to push one rotating gate.

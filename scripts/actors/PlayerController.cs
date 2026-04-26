@@ -10,7 +10,7 @@ namespace LadyBug.Actors;
 ///
 /// It mainly does three things:
 /// - read the current intended direction from the input state
-/// - advance the movement motor by fixed ticks
+/// - advance the movement motor when the level simulation asks for one tick
 /// - apply sprite facing and rendering based on the resulting gameplay state
 ///
 /// The gameplay movement rules themselves live in <c>PlayerMovementMotor</c>.
@@ -35,7 +35,7 @@ public partial class PlayerController : Node2D
     // Top-level debug overlay drawn above the playfield when debug flags are enabled.
     private PlayerDebugOverlay _debugOverlay = null!;
 
-    // Owning level. Provides coordinate conversion helpers.
+    // Owning level. Provides coordinate conversion helpers and level runtime services.
     private Level _level = null!;
 
     // Last-pressed directional input state.
@@ -46,9 +46,6 @@ public partial class PlayerController : Node2D
 
     // Direction currently shown by the sprite.
     private Vector2I _facingDir = Vector2I.Up;
-
-    // Accumulates real frame time until one or more simulation ticks can run.
-    private double _accumulator = 0.0;
 
     /// <summary>
     /// Retrieves the sprite node and applies the initial visual facing.
@@ -64,25 +61,12 @@ public partial class PlayerController : Node2D
     }
 
     /// <summary>
-    /// Advances the fixed-tick simulation and updates the rendered transforms.
+    /// Keeps the rendered node synchronized with the latest gameplay position.
     /// </summary>
     /// <param name="delta">Frame delta time in seconds.</param>
     public override void _Process(double delta)
     {
-        if (_level == null)
-            return;
-
-        _accumulator += delta;
-
-        while (_accumulator >= PlayerMovementTuning.TickDuration)
-        {
-            _accumulator -= PlayerMovementTuning.TickDuration;
-            RunOneTick();
-        }
-
-        Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
-        _animatedSprite.Position = GetSpriteRenderOffsetScene();
-        UpdateDebugOverlay();
+        SynchronizeSceneFromGameplay();
     }
 
     /// <summary>
@@ -101,32 +85,32 @@ public partial class PlayerController : Node2D
     public void Initialize(Level level)
     {
         _level = level;
-        _accumulator = 0.0;
 
         _inputState.InitializeFromCurrentInput();
         _movementMotor.Initialize(level);
 
-        Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
-        _animatedSprite.Position = GetSpriteRenderOffsetScene();
         ApplyVisualFacing(_facingDir);
-        UpdateDebugOverlay();
+        SynchronizeSceneFromGameplay();
     }
 
     /// <summary>
-    /// Executes exactly one controller tick.
+    /// Advances only the player-specific gameplay state by one simulation tick.
     /// </summary>
     /// <remarks>
-    /// Collectible consumption follows the actual pixel path reported by the
-    /// movement motor.
+    /// The level owns the global tick and advances board-level systems before
+    /// calling this method. The player controller only handles player input,
+    /// movement, facing, and collectible pickup along the player's actual path.
     ///
-    /// This matters for assisted turns: one simulation tick may contain two real
-    /// one-pixel movement segments, first an alignment correction and then one
-    /// pixel in the requested direction. Checking only the final segment can miss
-    /// a flower crossed by the correction segment.
+    /// Collectible consumption follows the actual pixel path reported by the
+    /// movement motor. This matters for assisted turns: one simulation tick may
+    /// contain two real one-pixel movement segments, first an alignment correction
+    /// and then one pixel in the requested direction. Checking only the final
+    /// segment can miss a flower crossed by the correction segment.
     /// </remarks>
-    private void RunOneTick()
+    public void AdvanceOneSimulationTick()
     {
-        _level.AdvanceGateSimulationOneTick();
+        if (_level == null)
+            return;
 
         Vector2I wantedDir = _inputState.ReadPressedDirection();
 
@@ -153,6 +137,19 @@ public partial class PlayerController : Node2D
                 segment.EndArcadePixelPos,
                 segment.Direction);
         }
+    }
+
+    /// <summary>
+    /// Synchronizes the Godot node transforms and debug overlay from gameplay state.
+    /// </summary>
+    public void SynchronizeSceneFromGameplay()
+    {
+        if (_level == null || _animatedSprite == null)
+            return;
+
+        Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
+        _animatedSprite.Position = GetSpriteRenderOffsetScene();
+        UpdateDebugOverlay();
     }
 
     /// <summary>

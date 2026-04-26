@@ -6,9 +6,9 @@ using LadyBug.Gameplay.Collectibles;
 /// <summary>
 /// Runtime owner of the collectible views placed on one active level board.
 ///
-/// This version stores semantic collectible state next to each visual node.
-/// That lets gameplay systems know whether the player consumed a flower,
-/// heart, letter or skull, without querying sprite frames.
+/// This class stores semantic collectible state next to each visual node so
+/// gameplay systems can know whether the player consumed a flower, heart,
+/// letter or skull without querying sprite frames.
 /// </summary>
 public sealed class CollectibleFieldRuntime
 {
@@ -66,7 +66,25 @@ public sealed class CollectibleFieldRuntime
             runtimeCollectible.Color = placement.Color;
             runtimeCollectible.Letter = placement.Letter;
 
-            ApplyCollectiblePlacement(runtimeCollectible.View, placement);
+            ApplyCollectibleVisual(runtimeCollectible);
+        }
+    }
+
+    /// <summary>
+    /// Applies the current global color cycle to all active hearts and letters.
+    /// </summary>
+    public void ApplyColorCycle(CollectibleColor color)
+    {
+        foreach (RuntimeCollectible runtimeCollectible in _collectiblesByCell.Values)
+        {
+            if (runtimeCollectible.Kind != CollectibleKind.Heart &&
+                runtimeCollectible.Kind != CollectibleKind.Letter)
+            {
+                continue;
+            }
+
+            runtimeCollectible.Color = color;
+            ApplyCollectibleVisual(runtimeCollectible);
         }
     }
 
@@ -111,27 +129,30 @@ public sealed class CollectibleFieldRuntime
             LetterKind.None);
     }
 
-    private static void ApplyCollectiblePlacement(
-        Collectible collectible,
-        CollectiblePlacement placement)
+    private static void ApplyCollectibleVisual(RuntimeCollectible runtimeCollectible)
     {
-        switch (placement.Kind)
+        if (!GodotObject.IsInstanceValid(runtimeCollectible.View))
+            return;
+
+        switch (runtimeCollectible.Kind)
         {
             case CollectibleKind.Heart:
-                collectible.ShowHeartRed();
+                runtimeCollectible.View.ShowHeart(runtimeCollectible.Color);
                 break;
 
             case CollectibleKind.Letter:
-                collectible.ShowLetterRed(placement.Letter);
+                runtimeCollectible.View.ShowLetter(
+                    runtimeCollectible.Letter,
+                    runtimeCollectible.Color);
                 break;
 
             case CollectibleKind.Skull:
-                collectible.ShowSkull();
+                runtimeCollectible.View.ShowSkull();
                 break;
 
             case CollectibleKind.Flower:
             default:
-                collectible.ShowFlower();
+                runtimeCollectible.View.ShowFlower();
                 break;
         }
     }
