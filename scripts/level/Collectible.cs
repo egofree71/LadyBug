@@ -18,17 +18,20 @@ public partial class Collectible : Node2D
     private const int HeartRingFrame = 2;
     private const int HeartCenterFrame = 3;
 
-    // Current project spritesheet mapping. Do not change unless the source image changes.
-    private const int LetterAFrame = 4;
-    private const int LetterCFrame = 5;
-    private const int LetterEFrame = 6;
-    private const int LetterIFrame = 7;
-    private const int LetterLFrame = 8;
-    private const int LetterPFrame = 9;
-    private const int LetterRFrame = 10;
-    private const int LetterSFrame = 11;
-    private const int LetterTFrame = 12;
-    private const int LetterXFrame = 13;
+    // Current project spritesheet mapping, corrected from the captured sheet:
+    // frame 4=E, 5=X, 6=T, 7=R, 8=A, 9=S, 10=P, 11=C, 12=I, 13=L.
+    // Keep the semantic LetterKind -> visual-frame mapping here so the spawned
+    // letter remains gameplay-correct even though the sheet order is arcade-like.
+    private const int LetterEFrame = 4;
+    private const int LetterXFrame = 5;
+    private const int LetterTFrame = 6;
+    private const int LetterRFrame = 7;
+    private const int LetterAFrame = 8;
+    private const int LetterSFrame = 9;
+    private const int LetterPFrame = 10;
+    private const int LetterCFrame = 11;
+    private const int LetterIFrame = 12;
+    private const int LetterLFrame = 13;
 
     // Arcade-like colors measured from the original screenshot.
     private static readonly Color ArcadeRed = Color.FromHtml("FF5100");

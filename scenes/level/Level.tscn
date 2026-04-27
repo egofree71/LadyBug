@@ -11,6 +11,7 @@ script = ExtResource("1_l1x8v")
 PlayerStartCell = Vector2i(5, 8)
 
 [node name="Maze" type="Sprite2D" parent="." unique_id=1774754904]
+position = Vector2(0, 40)
 texture_filter = 1
 texture = ExtResource("2_cne4c")
 centered = false
@@ -20,120 +21,123 @@ offset = Vector2(16, 24)
 
 [node name="Player" parent="." unique_id=428822617 instance=ExtResource("2_l1x8v")]
 texture_filter = 1
-position = Vector2(352, 540)
+position = Vector2(352, 580)
 _debugCoordinatesOffset = Vector2(18, -10)
 
 [node name="Gates" type="Node2D" parent="." unique_id=349879493]
 
 [node name="Gate_0" parent="Gates" unique_id=984928483 instance=ExtResource("4_5l2jw")]
-position = Vector2(128, 64)
+position = Vector2(128, 104)
 GatePivot = Vector2i(2, 1)
 
 [node name="Gate_1" parent="Gates" unique_id=1024257662 instance=ExtResource("4_5l2jw")]
-position = Vector2(576, 64)
+position = Vector2(576, 104)
 GateId = 1
 GatePivot = Vector2i(9, 1)
 
 [node name="Gate_2" parent="Gates" unique_id=40691484 instance=ExtResource("4_5l2jw")]
-position = Vector2(256, 128)
+position = Vector2(256, 168)
 GateId = 2
 GatePivot = Vector2i(4, 2)
 
 [node name="Gate_3" parent="Gates" unique_id=205793129 instance=ExtResource("4_5l2jw")]
-position = Vector2(448, 128)
+position = Vector2(448, 168)
 GateId = 3
 GatePivot = Vector2i(7, 2)
 
 [node name="Gate_4" parent="Gates" unique_id=1358901894 instance=ExtResource("4_5l2jw")]
-position = Vector2(64, 192)
+position = Vector2(64, 232)
 GateId = 4
 GatePivot = Vector2i(1, 3)
 InitialOrientation = 1
 
 [node name="Gate_5" parent="Gates" unique_id=1328247778 instance=ExtResource("4_5l2jw")]
-position = Vector2(192, 192)
+position = Vector2(192, 232)
 GateId = 5
 GatePivot = Vector2i(3, 3)
 
 [node name="Gate_6" parent="Gates" unique_id=580673286 instance=ExtResource("4_5l2jw")]
-position = Vector2(512, 192)
+position = Vector2(512, 232)
 GateId = 6
 GatePivot = Vector2i(8, 3)
 
 [node name="Gate_7" parent="Gates" unique_id=1883313036 instance=ExtResource("4_5l2jw")]
-position = Vector2(640, 192)
+position = Vector2(640, 232)
 GateId = 7
 GatePivot = Vector2i(10, 3)
 InitialOrientation = 1
 
 [node name="Gate_8" parent="Gates" unique_id=1085375904 instance=ExtResource("4_5l2jw")]
-position = Vector2(256, 256)
+position = Vector2(256, 296)
 GateId = 8
 GatePivot = Vector2i(4, 4)
 
 [node name="Gate_9" parent="Gates" unique_id=1645369744 instance=ExtResource("4_5l2jw")]
-position = Vector2(448, 256)
+position = Vector2(448, 296)
 GateId = 9
 GatePivot = Vector2i(7, 4)
 
 [node name="Gate_10" parent="Gates" unique_id=463053998 instance=ExtResource("4_5l2jw")]
-position = Vector2(192, 384)
+position = Vector2(192, 424)
 GateId = 10
 GatePivot = Vector2i(3, 6)
 InitialOrientation = 1
 
 [node name="Gate_11" parent="Gates" unique_id=458069917 instance=ExtResource("4_5l2jw")]
-position = Vector2(512, 384)
+position = Vector2(512, 424)
 GateId = 11
 GatePivot = Vector2i(8, 6)
 InitialOrientation = 1
 
 [node name="Gate_12" parent="Gates" unique_id=1117180204 instance=ExtResource("4_5l2jw")]
-position = Vector2(128, 448)
+position = Vector2(128, 488)
 GateId = 12
 GatePivot = Vector2i(2, 7)
 InitialOrientation = 1
 
 [node name="Gate_13" parent="Gates" unique_id=1567196120 instance=ExtResource("4_5l2jw")]
-position = Vector2(256, 448)
+position = Vector2(256, 488)
 GateId = 13
 GatePivot = Vector2i(4, 7)
 InitialOrientation = 1
 
 [node name="Gate_14" parent="Gates" unique_id=1829041200 instance=ExtResource("4_5l2jw")]
-position = Vector2(448, 448)
+position = Vector2(448, 488)
 GateId = 14
 GatePivot = Vector2i(7, 7)
 InitialOrientation = 1
 
 [node name="Gate_15" parent="Gates" unique_id=1192508752 instance=ExtResource("4_5l2jw")]
-position = Vector2(576, 448)
+position = Vector2(576, 488)
 GateId = 15
 GatePivot = Vector2i(9, 7)
 InitialOrientation = 1
 
 [node name="Gate_16" parent="Gates" unique_id=1831388164 instance=ExtResource("4_5l2jw")]
-position = Vector2(256, 576)
+position = Vector2(256, 616)
 GateId = 16
 GatePivot = Vector2i(4, 9)
 
 [node name="Gate_17" parent="Gates" unique_id=765856853 instance=ExtResource("4_5l2jw")]
-position = Vector2(448, 576)
+position = Vector2(448, 616)
 GateId = 17
 GatePivot = Vector2i(7, 9)
 
 [node name="Gate_18" parent="Gates" unique_id=1013294494 instance=ExtResource("4_5l2jw")]
-position = Vector2(128, 640)
+position = Vector2(128, 680)
 GateId = 18
 GatePivot = Vector2i(2, 10)
 
 [node name="Gate_19" parent="Gates" unique_id=1181495372 instance=ExtResource("4_5l2jw")]
-position = Vector2(576, 640)
+position = Vector2(576, 680)
 GateId = 19
 GatePivot = Vector2i(9, 10)
 
 [node name="Hud" type="CanvasLayer" parent="." unique_id=170479958]
 script = ExtResource("5_ti4pp")
+SpecialWordLabelPath = NodePath("Root/SpecialWordLabel")
+ExtraWordLabelPath = NodePath("Root/ExtraWordLabel")
+MultipliersLabelPath = NodePath("Root/MultipliersLabel")
 
 [node name="Root" type="Control" parent="Hud" unique_id=2003974388]
 layout_mode = 3
@@ -143,6 +147,44 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
+[node name="SpecialWordLabel" type="RichTextLabel" parent="Hud/Root"]
+layout_mode = 1
+anchor_right = 0.333333
+offset_left = 16.0
+offset_top = 4.0
+offset_right = -6.0
+offset_bottom = 68.0
+bbcode_enabled = true
+text = "[font_size=36][color=#C8C8C8]S[/color][color=#C8C8C8]P[/color][color=#C8C8C8]E[/color][color=#C8C8C8]C[/color][color=#C8C8C8]I[/color][color=#C8C8C8]A[/color][color=#C8C8C8]L[/color][/font_size]"
+scroll_active = false
+theme_override_font_sizes/normal_font_size = 36
+
+[node name="ExtraWordLabel" type="RichTextLabel" parent="Hud/Root"]
+layout_mode = 1
+anchor_left = 0.333333
+anchor_right = 0.666667
+offset_top = 4.0
+offset_bottom = 68.0
+bbcode_enabled = true
+text = "[center][font_size=36][color=#C8C8C8]E[/color][color=#C8C8C8]X[/color][color=#C8C8C8]T[/color][color=#C8C8C8]R[/color][color=#C8C8C8]A[/color][/font_size][/center]"
+scroll_active = false
+theme_override_font_sizes/normal_font_size = 36
+horizontal_alignment = 1
+
+[node name="MultipliersLabel" type="RichTextLabel" parent="Hud/Root"]
+layout_mode = 1
+anchor_left = 0.666667
+anchor_right = 1.0
+offset_left = 6.0
+offset_top = 4.0
+offset_right = -16.0
+offset_bottom = 68.0
+bbcode_enabled = true
+text = "[right][font_size=36][color=#C8C8C8]x2[/color] [color=#C8C8C8]x3[/color] [color=#C8C8C8]x5[/color][/font_size][/right]"
+scroll_active = false
+theme_override_font_sizes/normal_font_size = 36
+horizontal_alignment = 2
+
 [node name="ScoreLabel" type="Label" parent="Hud/Root" unique_id=922229364]
 layout_mode = 1
 anchors_preset = 3
@@ -151,9 +193,9 @@ anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = -176.0
-offset_top = -84.0
+offset_top = -68.0
 offset_right = -16.0
-offset_bottom = -29.0
+offset_bottom = -4.0
 grow_horizontal = 0
 grow_vertical = 0
 theme_override_font_sizes/font_size = 36
@@ -167,9 +209,9 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -84.0
+offset_top = -68.0
 offset_right = 260.0
-offset_bottom = -29.0
+offset_bottom = -4.0
 grow_vertical = 0
 theme_override_font_sizes/font_size = 36
 text = "LIVES 3"

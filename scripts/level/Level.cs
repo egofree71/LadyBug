@@ -47,6 +47,9 @@ public partial class Level : Node2D
     // Multiplier unlocked by collecting blue hearts.
     private readonly HeartMultiplierState _heartMultiplierState = new();
 
+    // Progress through the SPECIAL and EXTRA words.
+    private readonly WordProgressState _wordProgressState = new();
+
     // Short heart / letter pickup popup state. While active, normal gameplay is frozen.
     private readonly CollectiblePickupPopupState _pickupPopupState = new();
 
@@ -58,6 +61,9 @@ public partial class Level : Node2D
 
     // Minimal game-over guard until proper screen flow exists.
     private bool _isGameOver;
+
+    // Prototype counter for completed SPECIAL awards. Proper free-game / credit flow is not implemented yet.
+    private int _specialAwardCount;
 
     // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
@@ -87,7 +93,7 @@ public partial class Level : Node2D
     // Runtime player controller owned by this level.
     private PlayerController? _player;
 
-    // Optional HUD node. It currently displays score and lives.
+    // Optional HUD node. It currently displays score, lives, word progress, and multipliers.
     private Hud? _hud;
 
     // Runtime popup view displayed when collecting hearts and letters.
@@ -250,9 +256,10 @@ public partial class Level : Node2D
     /// Initializes prototype session state that is currently displayed through the HUD.
     /// </summary>
     /// <remarks>
-    /// Score, multiplier, lives, death state, and game-over state are still owned by
-    /// <see cref="Level"/>. They can later move to a persistent game-session object
-    /// when title screen, level transitions, and game-over flow are implemented.
+    /// Score, multiplier, word progress, lives, death state, and game-over state are
+    /// still owned by <see cref="Level"/>. They can later move to a persistent
+    /// game-session object when title screen, level transitions, and game-over flow
+    /// are implemented.
     /// </remarks>
     private void InitializeHud()
     {
@@ -263,11 +270,16 @@ public partial class Level : Node2D
 
         _scoreState.Reset();
         _heartMultiplierState.Reset();
+        _wordProgressState.Reset();
         _lifeState.Reset();
+        _specialAwardCount = 0;
         _isPlayerDeathSequenceActive = false;
         _isGameOver = false;
+
         _hud?.SetScore(_scoreState.Score);
         _hud?.SetLives(_lifeState.Lives);
+        _hud?.SetWordProgress(_wordProgressState);
+        _hud?.SetMultiplierStep(_heartMultiplierState.Step);
     }
 
     /// <summary>
@@ -360,8 +372,8 @@ public partial class Level : Node2D
     /// <para>
     /// <see cref="CollectibleFieldRuntime"/> has already removed the collectible
     /// from the board before this method runs. This method is therefore responsible
-    /// only for semantic consequences: score changes, multiplier changes, popup
-    /// startup, or skull death.
+    /// only for semantic consequences: score changes, multiplier changes, word
+    /// progress, popup startup, or skull death.
     /// </para>
     /// <para>
     /// Skull handling is intentionally routed before score calculation because skulls
@@ -396,15 +408,51 @@ public partial class Level : Node2D
             pickupResult.Kind == CollectibleKind.Heart ||
             pickupResult.Kind == CollectibleKind.Letter;
 
+        if (pickupResult.Kind == CollectibleKind.Letter)
+            ApplyLetterWordProgress(pickupResult.Letter, pickupResult.Color);
+
         if (pickupResult.Kind == CollectibleKind.Heart &&
             pickupResult.Color == CollectibleColor.Blue)
         {
             _heartMultiplierState.AdvanceOneStep();
+            _hud?.SetMultiplierStep(_heartMultiplierState.Step);
         }
 
         if (needsPopup && scoreCalculation.HasScore)
         {
             StartPickupPopup(cell, scoreCalculation);
+        }
+    }
+
+    /// <summary>
+    /// Applies SPECIAL / EXTRA progress for one collected letter.
+    /// </summary>
+    /// <remarks>
+    /// Red letters can progress SPECIAL, yellow letters can progress EXTRA, and blue
+    /// letters are points-only. When EXTRA completes, the current player gains one
+    /// life immediately. SPECIAL currently records a placeholder award because free
+    /// credit / free game flow is not implemented yet.
+    /// </remarks>
+    private void ApplyLetterWordProgress(LetterKind letter, CollectibleColor color)
+    {
+        LetterWordProgressResult wordResult =
+            _wordProgressState.TryApplyLetter(letter, color);
+
+        if (!wordResult.Changed)
+            return;
+
+        _hud?.SetWordProgress(_wordProgressState);
+
+        if (wordResult.CompletedWord == WordCompletionKind.Extra)
+        {
+            _lifeState.AddLife();
+            _hud?.SetLives(_lifeState.Lives);
+            GD.Print("EXTRA completed: awarded one extra life. Level transition is not implemented yet.");
+        }
+        else if (wordResult.CompletedWord == WordCompletionKind.Special)
+        {
+            _specialAwardCount++;
+            GD.Print($"SPECIAL completed: free-game placeholder award #{_specialAwardCount}. Free-credit flow is not implemented yet.");
         }
     }
 
