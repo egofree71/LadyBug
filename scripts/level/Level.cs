@@ -53,11 +53,8 @@ public partial class Level : Node2D
     // Current prototype life state. Later this can move to a broader game/session state.
     private readonly PlayerLifeState _lifeState = new();
 
-    // Short freeze state used after the player touches a skull.
-    private readonly PlayerDeathState _deathState = new();
-
-    // Temporary high-level death duration. The exact arcade death animation can replace this later.
-    private const int SkullDeathFreezeTicks = 60;
+    // True while the player death animation is running.
+    private bool _isPlayerDeathSequenceActive;
 
     // Minimal game-over guard until proper screen flow exists.
     private bool _isGameOver;
@@ -267,7 +264,7 @@ public partial class Level : Node2D
         _scoreState.Reset();
         _heartMultiplierState.Reset();
         _lifeState.Reset();
-        _deathState.Reset();
+        _isPlayerDeathSequenceActive = false;
         _isGameOver = false;
         _hud?.SetScore(_scoreState.Score);
         _hud?.SetLives(_lifeState.Lives);
@@ -303,7 +300,7 @@ public partial class Level : Node2D
         if (_isGameOver)
             return;
 
-        if (_deathState.IsActive)
+        if (_isPlayerDeathSequenceActive)
         {
             AdvancePlayerDeathOneTick();
             return;
@@ -343,7 +340,7 @@ public partial class Level : Node2D
     public bool TryConsumeCollectible(Vector2I cell)
     {
         if (_pickupPopupState.IsActive ||
-            _deathState.IsActive ||
+            _isPlayerDeathSequenceActive ||
             _isGameOver)
             return false;
 
@@ -477,14 +474,13 @@ public partial class Level : Node2D
     // --- Player Life / Death ----------------------------------------------
 
     /// <summary>
-    /// Starts the simplified player-death sequence after touching a skull.
+    /// Starts the player death sequence after touching a skull.
     /// </summary>
     /// <remarks>
-    /// The current implementation deliberately keeps the arcade behavior high-level:
-    /// the skull is removed, no score is awarded, one life is lost, gameplay freezes
-    /// briefly, and the player either respawns or reaches the placeholder game-over
-    /// state. The exact shrinking / halo animation can be added later without changing
-    /// the life-state logic.
+    /// The skull has already been removed by <see cref="CollectibleFieldRuntime"/>.
+    /// This method clears any active pickup popup, decrements the life count, starts
+    /// the visual red-shrink / ghost-zigzag animation, and freezes normal gameplay
+    /// until the animation reports completion.
     /// </remarks>
     private void HandlePlayerDeathFromSkull()
     {
@@ -496,21 +492,26 @@ public partial class Level : Node2D
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
 
-        _player?.SetGameplaySpriteVisible(false);
-        _deathState.Start(SkullDeathFreezeTicks);
+        _isPlayerDeathSequenceActive = true;
+        _player?.StartDeathSequence();
     }
 
     /// <summary>
-    /// Advances the temporary death freeze and performs respawn or game-over handling.
+    /// Advances the player death animation and performs respawn or game-over handling.
     /// </summary>
     /// <remarks>
-    /// The simulation accumulator is cleared when the death pause ends so the player
-    /// does not immediately process a backlog of fixed ticks after respawning.
+    /// Normal board simulation remains frozen while this method runs. The simulation
+    /// accumulator is cleared when the sequence ends so the player does not process
+    /// a backlog of movement ticks immediately after respawning.
     /// </remarks>
     private void AdvancePlayerDeathOneTick()
     {
-        if (!_deathState.AdvanceOneTick())
+        bool sequenceCompleted = _player == null || _player.AdvanceDeathSequenceOneTick();
+
+        if (!sequenceCompleted)
             return;
+
+        _isPlayerDeathSequenceActive = false;
 
         // Avoid consuming accumulated ticks immediately after respawn or game over.
         _simulationAccumulator = 0.0;
@@ -518,7 +519,7 @@ public partial class Level : Node2D
         if (_lifeState.IsGameOver)
         {
             _isGameOver = true;
-            _player?.SetGameplaySpriteVisible(false);
+            _player?.HideAfterDeathSequence();
             GD.Print("Game Over placeholder: proper game-over flow is not implemented yet.");
             return;
         }

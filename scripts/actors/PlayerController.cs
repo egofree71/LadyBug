@@ -1,4 +1,5 @@
 using Godot;
+using LadyBug.Gameplay.Player;
 
 namespace LadyBug.Actors;
 
@@ -29,8 +30,20 @@ public partial class PlayerController : Node2D
     [Export]
     private Vector2 _debugCoordinatesOffset = new Vector2(18, -22);
 
-    // Animated sprite that visually represents the player.
+    // Runtime-loaded death spritesheets. The PNGs are seven-frame horizontal strips.
+    private const string DeathRedTexturePath = "res://assets/sprites/player/player_dead_red.png";
+    private const string DeathGhostTexturePath = "res://assets/sprites/player/player_dead_ghost.png";
+
+    // Animated sprite that visually represents the living player.
     private AnimatedSprite2D _animatedSprite = null!;
+
+    // Separate runtime sprite used only for the red shrink / ghost death sequence.
+    private Sprite2D? _deathSprite;
+
+    // Death-sequence textures loaded from the project assets folder.
+    private Texture2D? _deathRedTexture;
+    private Texture2D? _deathGhostTexture;
+    private bool _deathTextureWarningShown;
 
     // Top-level debug overlay drawn above the playfield when debug flags are enabled.
     private PlayerDebugOverlay _debugOverlay = null!;
@@ -44,6 +57,13 @@ public partial class PlayerController : Node2D
     // Gameplay movement motor.
     private readonly PlayerMovementMotor _movementMotor = new();
 
+    // Tick-accurate state for the player death sequence.
+    private readonly PlayerDeathSequenceState _deathSequenceState = new();
+
+    // Player gameplay position and render offset captured at the start of death.
+    private Vector2I _deathBaseArcadePixelPos = Vector2I.Zero;
+    private Vector2 _deathBaseSpriteOffsetScene = Vector2.Zero;
+
     // Direction currently shown by the sprite.
     private Vector2I _facingDir = Vector2I.Up;
 
@@ -55,6 +75,7 @@ public partial class PlayerController : Node2D
         _animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
         _animatedSprite.Position = Vector2.Zero;
 
+        EnsureDeathSprite();
         EnsureDebugOverlay();
         ApplyVisualFacing(_facingDir);
         UpdateDebugOverlay();
@@ -88,6 +109,7 @@ public partial class PlayerController : Node2D
 
         _inputState.InitializeFromCurrentInput();
         _movementMotor.Initialize(level);
+        ResetDeathVisualState();
 
         ApplyVisualFacing(_facingDir);
         SynchronizeSceneFromGameplay();
@@ -109,7 +131,7 @@ public partial class PlayerController : Node2D
     /// </remarks>
     public void AdvanceOneSimulationTick()
     {
-        if (_level == null)
+        if (_level == null || _deathSequenceState.IsActive)
             return;
 
         Vector2I wantedDir = _inputState.ReadPressedDirection();
@@ -147,6 +169,13 @@ public partial class PlayerController : Node2D
         if (_level == null || _animatedSprite == null)
             return;
 
+        if (_deathSequenceState.IsActive)
+        {
+            SynchronizeDeathSpriteFromSequence();
+            UpdateDebugOverlay();
+            return;
+        }
+
         Position = _level.ArcadePixelToScenePosition(_movementMotor.ArcadePixelPos);
         _animatedSprite.Position = GetSpriteRenderOffsetScene();
         UpdateDebugOverlay();
@@ -158,7 +187,66 @@ public partial class PlayerController : Node2D
     public void SetGameplaySpriteVisible(bool visible)
     {
         if (_animatedSprite != null)
-            _animatedSprite.Visible = visible;
+            _animatedSprite.Visible = visible && !_deathSequenceState.IsActive;
+    }
+
+    /// <summary>
+    /// Starts the red-shrink and ghost zigzag player death animation.
+    /// </summary>
+    /// <remarks>
+    /// The gameplay position is captured once at the moment of death. The normal
+    /// movement motor is then left untouched while the death sprite receives only
+    /// visual offsets from <see cref="PlayerDeathSequenceState"/>.
+    /// </remarks>
+    public void StartDeathSequence()
+    {
+        if (_level == null)
+            return;
+
+        EnsureDeathSprite();
+
+        _deathBaseArcadePixelPos = _movementMotor.ArcadePixelPos;
+        _deathBaseSpriteOffsetScene = GetSpriteRenderOffsetScene();
+
+        _deathSequenceState.Start();
+
+        if (_animatedSprite != null)
+            _animatedSprite.Visible = false;
+
+        ApplyDeathFrameVisual();
+        SynchronizeDeathSpriteFromSequence();
+    }
+
+    /// <summary>
+    /// Advances the active death animation by one fixed arcade tick.
+    /// </summary>
+    /// <returns><see langword="true"/> when the sequence has just completed.</returns>
+    public bool AdvanceDeathSequenceOneTick()
+    {
+        if (!_deathSequenceState.IsActive)
+            return true;
+
+        bool completed = _deathSequenceState.AdvanceOneTick();
+
+        ApplyDeathFrameVisual();
+        SynchronizeDeathSpriteFromSequence();
+
+        if (completed)
+            HideDeathSprite();
+
+        return completed;
+    }
+
+    /// <summary>
+    /// Hides all player visuals after the death sequence, used by the game-over placeholder.
+    /// </summary>
+    public void HideAfterDeathSequence()
+    {
+        _deathSequenceState.Reset();
+        HideDeathSprite();
+
+        if (_animatedSprite != null)
+            _animatedSprite.Visible = false;
     }
 
     /// <summary>
@@ -169,6 +257,8 @@ public partial class PlayerController : Node2D
         if (_level == null)
             return;
 
+        ResetDeathVisualState();
+
         _movementMotor.ResetToStartCell();
         _inputState.InitializeFromCurrentInput();
         _facingDir = Vector2I.Up;
@@ -176,6 +266,101 @@ public partial class PlayerController : Node2D
         ApplyVisualFacing(_facingDir);
         SetGameplaySpriteVisible(true);
         SynchronizeSceneFromGameplay();
+    }
+
+    /// <summary>
+    /// Clears death animation state and restores the normal gameplay sprite.
+    /// </summary>
+    private void ResetDeathVisualState()
+    {
+        _deathSequenceState.Reset();
+        HideDeathSprite();
+
+        if (_animatedSprite != null)
+            _animatedSprite.Visible = true;
+    }
+
+    /// <summary>
+    /// Creates the runtime death sprite and loads both death spritesheets.
+    /// </summary>
+    private void EnsureDeathSprite()
+    {
+        _deathRedTexture ??= ResourceLoader.Load<Texture2D>(DeathRedTexturePath);
+        _deathGhostTexture ??= ResourceLoader.Load<Texture2D>(DeathGhostTexturePath);
+
+        if (_deathSprite != null)
+            return;
+
+        _deathSprite = new Sprite2D
+        {
+            Name = "DeathSprite",
+            Visible = false,
+            Centered = true,
+            Hframes = PlayerDeathSequenceState.SheetFrameCount,
+            Vframes = 1,
+            Frame = 0
+        };
+
+        AddChild(_deathSprite);
+    }
+
+    /// <summary>
+    /// Applies the current death frame to the runtime death sprite.
+    /// </summary>
+    private void ApplyDeathFrameVisual()
+    {
+        if (_deathSprite == null)
+            return;
+
+        Texture2D? texture = _deathSequenceState.CurrentSheet switch
+        {
+            PlayerDeathVisualSheet.Red => _deathRedTexture,
+            PlayerDeathVisualSheet.Ghost => _deathGhostTexture,
+            _ => null
+        };
+
+        if (texture == null)
+        {
+            if (!_deathTextureWarningShown)
+            {
+                _deathTextureWarningShown = true;
+                GD.PushWarning("[PlayerController] Death spritesheets are missing. Expected player_dead_red.png and player_dead_ghost.png in assets/sprites/player.");
+            }
+
+            _deathSprite.Visible = false;
+            return;
+        }
+
+        _deathSprite.Texture = texture;
+        _deathSprite.Hframes = PlayerDeathSequenceState.SheetFrameCount;
+        _deathSprite.Vframes = 1;
+        _deathSprite.Frame = _deathSequenceState.CurrentFrame;
+        _deathSprite.Visible = true;
+    }
+
+    /// <summary>
+    /// Synchronizes the death sprite from the captured death origin and current visual offset.
+    /// </summary>
+    private void SynchronizeDeathSpriteFromSequence()
+    {
+        if (_level == null || _deathSprite == null)
+            return;
+
+        Position = _level.ArcadePixelToScenePosition(_deathBaseArcadePixelPos);
+        _deathSprite.Position =
+            _deathBaseSpriteOffsetScene +
+            _level.ArcadeDeltaToSceneDelta(_deathSequenceState.CurrentVisualOffsetArcade);
+    }
+
+    /// <summary>
+    /// Hides the runtime death sprite without changing normal movement state.
+    /// </summary>
+    private void HideDeathSprite()
+    {
+        if (_deathSprite == null)
+            return;
+
+        _deathSprite.Visible = false;
     }
 
     /// <summary>
