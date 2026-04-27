@@ -19,7 +19,8 @@ It does not describe systems that are only planned.
 **In project.godot:**
 - main scene = Main.tscn
 - viewport width = 746
-- viewport height has been increased from the original 768 to leave room for the HUD below the maze
+- viewport height = 880
+- the viewport height has been increased to leave room for the upper HUD strip above the maze and the score / lives HUD below the maze
 
 **Declared movement input actions:**
 - move_left
@@ -37,7 +38,7 @@ It does not describe systems that are only planned.
 - scenes/
 - scripts/
 
-**Important currently used files:**
+**Important currently used scene files:**
 
 ```text
 scenes/
@@ -49,6 +50,8 @@ scenes/
 └─ player/
    └─ Player.tscn
 ```
+
+**Important currently used scripts:**
 
 ```text
 scripts/
@@ -81,7 +84,8 @@ scripts/
 │  │  ├─ CollectiblePlacement.cs
 │  │  ├─ CollectibleSpawnPlan.cs
 │  │  ├─ CollectibleSpawnPlanner.cs
-│  │  └─ LetterKind.cs
+│  │  ├─ LetterKind.cs
+│  │  └─ WordProgressState.cs
 │  ├─ gates/
 │  │  ├─ GateContactHalf.cs
 │  │  ├─ GateLogicalState.cs
@@ -98,6 +102,11 @@ scripts/
 │  │  ├─ MazeGrid.cs
 │  │  ├─ MazeLoader.cs
 │  │  └─ MazeStepResult.cs
+│  ├─ player/
+│  │  ├─ PlayerDeathSequenceState.cs
+│  │  ├─ PlayerDeathState.cs
+│  │  ├─ PlayerDeathVisualSheet.cs
+│  │  └─ PlayerLifeState.cs
 │  ├─ scoring/
 │  │  ├─ CollectibleScoreCalculation.cs
 │  │  ├─ CollectibleScoreService.cs
@@ -118,11 +127,15 @@ scripts/
    └─ Hud.cs
 ```
 
+**Important current data files:**
+
 ```text
 data/
 ├─ collectibles_layout.json
 └─ maze.json
 ```
+
+**Important current documentation files:**
 
 ```text
 doc/
@@ -137,6 +150,8 @@ doc/
 **Important currently used visual assets:**
 - assets/images/maze_background.png
 - assets/sprites/player/lady_bug_spritesheet.png
+- assets/sprites/player/player_dead_red.png
+- assets/sprites/player/player_dead_ghost.png
 - assets/sprites/props/collectibles.png
 - assets/sprites/props/rotating_gate.png
 
@@ -179,7 +194,11 @@ Level (Node2D)
 ├─ Player (instance of scenes/player/Player.tscn)
 └─ Hud (CanvasLayer)
    └─ Root (Control)
-	  └─ ScoreLabel (Label)
+      ├─ SpecialWordLabel (RichTextLabel)
+      ├─ ExtraWordLabel (RichTextLabel)
+      ├─ MultipliersLabel (RichTextLabel)
+      ├─ ScoreLabel (Label)
+      └─ LivesLabel (Label)
 ```
 
 **Current main script:**
@@ -193,6 +212,8 @@ Level (Node2D)
 - texture = assets/images/maze_background.png
 - centered = false
 - offset = Vector2(16, 24)
+- scene position = Vector2(0, 40)
+- the maze is shifted down to make room for the upper HUD strip
 
 **Collectibles node:**
 - runtime parent for spawned collectible instances
@@ -205,6 +226,7 @@ Level (Node2D)
   - GatePivot
   - InitialOrientation
 - owned at runtime by LevelGateRuntime
+- gate scene positions are shifted down consistently with the maze background
 
 **Player node:**
 - instance of scenes/player/Player.tscn
@@ -212,8 +234,13 @@ Level (Node2D)
 **Hud node:**
 - type = CanvasLayer
 - script = scripts/ui/Hud.cs
-- currently displays the score through ScoreLabel
-- ScoreLabel layout, font size, position, anchors and color are controlled in the Godot editor, not hardcoded in Hud.cs
+- displays SPECIAL progress, EXTRA progress, blue-heart multipliers, lives, and score
+- the upper HUD uses three RichTextLabel nodes:
+  - SPECIAL aligned to the left third of the screen
+  - EXTRA centered in the middle third
+  - x2 x3 x5 aligned to the right third
+- the bottom HUD displays lives on the left and score on the right
+- visual layout, font sizes, anchors, and positions are controlled in Level.tscn rather than hardcoded in Hud.cs
 
 ### 3.3 Collectible scene
 
@@ -255,20 +282,24 @@ Yellow = #FFFF00
 Blue   = #00AEFF
 ```
 
-**Current letter frame mapping:**
+**Current letter frame mapping in assets/sprites/props/collectibles.png:**
 
 ```text
-A = 4
-C = 5
-E = 6
-I = 7
-L = 8
-P = 9
-R = 10
-S = 11
-T = 12
-X = 13
+E = 4
+X = 5
+T = 6
+R = 7
+A = 8
+S = 9
+P = 10
+C = 11
+I = 12
+L = 13
 ```
+
+Important:
+- this mapping affects only which spritesheet frame is displayed for a logical LetterKind
+- it does not affect which logical letters are selected by CollectibleSpawnPlanner
 
 ### 3.4 RotatingGate scene
 
@@ -316,14 +347,22 @@ Player (Node2D)
 **Current main script:**
 - scripts/actors/PlayerController.cs
 
-**Current visual setup:**
-- AnimatedSprite2D uses the player spritesheet
+**Current living-player visual setup:**
+- AnimatedSprite2D uses assets/sprites/player/lady_bug_spritesheet.png
 - two animations are currently defined:
   - move_right
   - move_up
 - left is handled by FlipH
 - down is handled by FlipV
 - the player sprite can be temporarily hidden while a heart / letter pickup popup is active
+
+**Current death visual setup:**
+- PlayerController creates a runtime Sprite2D named DeathSprite
+- the death sprite uses:
+  - assets/sprites/player/player_dead_red.png
+  - assets/sprites/player/player_dead_ghost.png
+- the death sequence is tick-driven by PlayerDeathSequenceState
+- the normal AnimatedSprite2D is hidden while the death sprite is active
 
 ## 4. Logical Maze System
 
@@ -394,7 +433,11 @@ Level.cs is currently the runtime coordinator for one active board.
 - initialize collectible color cycling for hearts and letters
 - own the current prototype score state
 - own the current prototype heart multiplier state
+- own the current prototype SPECIAL / EXTRA word progress state
+- own the current prototype life state
 - own the short heart / letter pickup popup state
+- own the player death sequence state at board-coordinator level
+- own the minimal game-over guard
 - own the fixed gameplay tick for board-level systems and the player
 - expose runtime MazeGrid and GateSystem
 - expose coordinate conversion wrapper methods
@@ -409,13 +452,18 @@ Level.cs is currently the runtime coordinator for one active board.
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
 - collectible scoring calculation: CollectibleScoreService
+- SPECIAL / EXTRA word progress: WordProgressState
+- lives: PlayerLifeState
+- player death animation timing: PlayerDeathSequenceState
 - HUD rendering: Hud
 - pickup popup rendering: CollectiblePickupPopupView
 
 **Fixed tick ownership:**
-- Level now owns the fixed gameplay simulation tick
+- Level owns the fixed gameplay simulation tick
 - board-level systems are advanced before the player
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
+- while the player death sequence is active, normal gameplay is frozen and only the death animation advances
+- when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
 
 ## 7. Collectible System
 
@@ -484,7 +532,7 @@ Current implementation detail:
   - yellow: 149 ticks
   - blue: 420 ticks
 - the remake starts the visible cycle in blue
-- the same current color is used for both rendering and scoring
+- the same current color is used for rendering, scoring, word progress, and blue-heart multiplier effects
 
 ### 7.5 Pickup timing
 
@@ -509,6 +557,7 @@ Current implementation detail:
 - red = base 800 points
 - active heart multiplier is applied to the score
 - if the heart is blue, the heart multiplier advances after the score for that heart is calculated
+- the HUD multiplier display updates when the multiplier step advances
 - triggers the temporary pickup popup
 
 **Letter:**
@@ -517,16 +566,26 @@ Current implementation detail:
 - yellow = base 300 points
 - red = base 800 points
 - active heart multiplier is applied to the score
+- blue letters are score-only
+- red letters can progress SPECIAL when the letter belongs to SPECIAL
+- yellow letters can progress EXTRA when the letter belongs to EXTRA
+- A and E can progress either SPECIAL or EXTRA depending on color
 - triggers the temporary pickup popup
-- SPECIAL / EXTRA progression is not implemented yet
+- when EXTRA completes, the player gains one extra life immediately
+- when SPECIAL completes, a placeholder free-game award counter is incremented and a debug message is printed
+- level transition on completed SPECIAL / EXTRA is not implemented yet
 
 **Skull:**
-- can currently be consumed as a semantic collectible
-- skull lethality is not implemented yet
+- consumed with no score
+- starts the player death sequence
+- decrements lives immediately
+- freezes normal gameplay while the death sequence runs
+- respawns the player at PlayerStartCell if lives remain
+- enters a minimal game-over placeholder if no lives remain
 
-## 8. Scoring and Heart Multiplier
+## 8. Scoring, Heart Multiplier, Lives, and Word Progress
 
-Current scoring-related files:
+Current scoring and session-like files:
 
 ```text
 scripts/gameplay/scoring/
@@ -534,6 +593,12 @@ scripts/gameplay/scoring/
 ├─ HeartMultiplierState.cs
 ├─ CollectibleScoreCalculation.cs
 └─ CollectibleScoreService.cs
+
+scripts/gameplay/collectibles/
+└─ WordProgressState.cs
+
+scripts/gameplay/player/
+└─ PlayerLifeState.cs
 ```
 
 ### 8.1 ScoreState
@@ -565,6 +630,7 @@ step 3 = x5
 - the score for a blue heart is calculated using the multiplier active before the heart is collected
 - after the blue-heart score is applied, the multiplier step advances
 - multiplier step is capped at step 3, which corresponds to x5
+- the HUD highlights x2, x3, and x5 as they are unlocked
 
 ### 8.3 CollectibleScoreService
 
@@ -584,6 +650,45 @@ Skull = 0
 
 **Current rule:**
 - final score delta = base score × active heart multiplier
+
+### 8.4 WordProgressState
+
+**Purpose:**
+- tracks collected SPECIAL letters
+- tracks collected EXTRA letters
+- applies color-based word progress rules
+- reports whether a pickup changed a word or completed a word
+
+**Current SPECIAL word:**
+
+```text
+S P E C I A L
+```
+
+**Current EXTRA word:**
+
+```text
+E X T R A
+```
+
+**Current rules:**
+- red letters can progress SPECIAL
+- yellow letters can progress EXTRA
+- blue letters are score-only
+- letters already active in the relevant word do not progress again
+- letters not present in the relevant word do not progress
+
+### 8.5 PlayerLifeState
+
+**Purpose:**
+- tracks current player lives
+- supports resetting lives, losing one life, and adding lives
+
+**Current rules:**
+- default initial lives = 3
+- skull death removes one life
+- EXTRA completion adds one life
+- game over is true when lives <= 0
 
 ## 9. Temporary Pickup Popup
 
@@ -613,7 +718,42 @@ scripts/level/CollectiblePickupPopupView.cs
 - multiplier label position = Vector2(-8, 26)
 - label line size = Vector2(48, 26)
 
-## 10. HUD
+## 10. Player Lives and Death Sequence
+
+Current player-life and death-related files:
+
+```text
+scripts/gameplay/player/
+├─ PlayerDeathSequenceState.cs
+├─ PlayerDeathState.cs
+├─ PlayerDeathVisualSheet.cs
+└─ PlayerLifeState.cs
+```
+
+**Current skull-death behavior:**
+- the skull is consumed and removed from the collectible field
+- no score is awarded
+- one life is removed immediately
+- the HUD lives display updates immediately
+- normal gameplay freezes
+- the player plays the arcade-style death sequence
+- when the death sequence completes:
+  - if lives remain, the player respawns at PlayerStartCell
+  - if no lives remain, the player remains hidden and a game-over placeholder is entered
+
+**Current death visual behavior:**
+- phase 1: red player shrink sequence
+- phase 2: ghost apparition sequence
+- phase 3: ghost zigzag upward sequence
+- total duration = 240 simulation ticks, about 4 seconds at arcade timing
+- the movement motor is not advanced during death
+- the normal player sprite is hidden while the runtime death sprite is visible
+
+**Current limitations:**
+- proper game-over screen flow is not implemented yet
+- enemy interactions during death are not relevant yet because enemies are not implemented
+
+## 11. HUD
 
 **Current HUD script:**
 - scripts/ui/Hud.cs
@@ -624,20 +764,32 @@ scripts/level/CollectiblePickupPopupView.cs
 Level
 └─ Hud (CanvasLayer)
    └─ Root (Control)
-	  └─ ScoreLabel (Label)
+      ├─ SpecialWordLabel (RichTextLabel)
+      ├─ ExtraWordLabel (RichTextLabel)
+      ├─ MultipliersLabel (RichTextLabel)
+      ├─ ScoreLabel (Label)
+      └─ LivesLabel (Label)
 ```
 
 **Current responsibilities:**
-- find the ScoreLabel node
+- find the score label
+- find the lives label
+- find the SPECIAL word RichTextLabel
+- find the EXTRA word RichTextLabel
+- find the multiplier RichTextLabel
 - display the current score
+- display the current number of lives
+- display SPECIAL with inactive letters in grey and active letters in red
+- display EXTRA with inactive letters in grey and active letters in yellow
+- display x2 / x3 / x5 with inactive entries in grey and active entries in blue
 
 **Important:**
-- Hud.cs does not hardcode ScoreLabel position, size, anchors, font size, or visual style
-- these visual properties are controlled from the Godot editor
-- only the score display is implemented
-- lives, SPECIAL / EXTRA, credits, top score, and other arcade HUD elements are not implemented yet
+- Hud.cs does not hardcode label positions, anchors, sizes, or editor layout
+- Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
+- visual placement is controlled by Level.tscn
+- credits, top score, title screen HUD, and full arcade screen flow are not implemented yet
 
-## 11. Rotating Gate System
+## 12. Rotating Gate System
 
 Rotating gates are implemented as a dynamic gameplay system.
 
@@ -661,7 +813,7 @@ Current gate-related files:
 - scripts/level/LevelGateRuntime.cs
 - scripts/level/RotatingGateView.cs
 
-## 12. Playfield Step Evaluation
+## 13. Playfield Step Evaluation
 
 Dynamic movement legality is evaluated beyond the static maze.
 
@@ -681,7 +833,7 @@ Current flow:
 - BlockedByFixedWall
 - BlockedByGate
 
-## 13. Player Movement System
+## 14. Player Movement System
 
 The current player movement system is an arcade-oriented fixed-tick model.
 It includes reverse-engineered assisted-turn behavior and is split into dedicated helper classes.
@@ -701,7 +853,7 @@ Current player-related files:
 - PlayerTurnWindowMaps.cs
 - PlayerTurnWindowResolver.cs
 
-### 13.1 PlayerController
+### 14.1 PlayerController
 
 **File:**
 - scripts/actors/PlayerController.cs
@@ -716,14 +868,16 @@ Current player-related files:
 - update PlayerDebugOverlay when debug drawing is enabled
 - consume collectibles along every movement segment reported by the motor
 - hide or show the gameplay sprite when Level starts / finishes a pickup popup
+- run the visual player death sequence through a separate runtime death sprite
+- respawn the player at the level start cell after death when lives remain
 
 **Important:**
 - PlayerController no longer owns the global fixed tick accumulator
 - Level owns the fixed gameplay tick and calls PlayerController.AdvanceOneSimulationTick()
-- PlayerController is intentionally light
-- gameplay movement rules are not implemented directly in this class
+- PlayerController is intentionally light for movement rules; gameplay movement rules are implemented in PlayerMovementMotor
+- PlayerController currently also owns the death visual orchestration because it owns the player sprites
 
-### 13.2 Player movement helpers
+### 14.2 Player movement helpers
 
 **PlayerInputState:**
 - tracks held movement directions
@@ -737,6 +891,7 @@ Current player-related files:
 - validates every committed pixel segment against the active playfield
 - resolves pushable rotating gates and re-evaluates the same step
 - returns the complete set of one-pixel movement segments completed during the tick
+- supports resetting the gameplay position to PlayerStartCell during respawn
 
 **PlayerTurnWindowMaps:**
 - generates available player turn lanes from MazeGrid
@@ -750,7 +905,7 @@ Current player-related files:
 - represent the outcome of one movement-motor tick
 - expose the real one-pixel movement segments completed during that tick
 
-## 14. Current Player Movement Behavior
+## 15. Current Player Movement Behavior
 
 The current player movement model includes:
 
@@ -773,17 +928,21 @@ The current player movement model includes:
 - short gate turning visuals
 - collectible pickup checks across all movement segments in a tick
 - pause of normal player movement while a heart / letter popup is active
+- pause of normal player movement while the player death sequence is active
+- respawn reset to PlayerStartCell after a completed death sequence when lives remain
 
-## 15. What Is Currently Working
+## 16. What Is Currently Working
 
 The following is already implemented and functional:
 
 - Main scene launches correctly
 - Level scene is instantiated from Main
 - maze background is displayed
+- upper HUD strip has room above the maze
+- lower HUD displays lives and score below the maze
+- SPECIAL, EXTRA, and x2/x3/x5 are displayed in the upper HUD
 - pre-placed rotating gates are displayed
 - player is displayed
-- basic HUD score display is present below the maze
 - player start position is defined through Level.PlayerStartCell
 - player preview updates in the editor
 - rotating gate preview updates in the editor
@@ -817,56 +976,69 @@ The following is already implemented and functional:
 - hearts use an overlay-based visual setup
 - hearts and letters use a global visual color cycle
 - heart and letter colors use the arcade-style measured RGB values
+- collectible letter sprite mapping matches the current spritesheet
 - flowers add score immediately
 - hearts and letters add score according to current color and multiplier
 - blue hearts advance the heart multiplier after their own score is computed
+- the upper HUD highlights x2 / x3 / x5 as blue hearts unlock multiplier steps
 - heart / letter pickup shows a temporary score / multiplier popup
 - player sprite is hidden and normal gameplay is frozen during the popup
 - popup is removed and player sprite is restored after 30 ticks
+- SPECIAL word progress works for valid red letters
+- EXTRA word progress works for valid yellow letters
+- EXTRA completion grants one extra life
+- SPECIAL completion records a placeholder free-game award
+- lives are tracked and displayed
+- skull pickup is lethal
+- skull death removes one life and starts the player death sequence
+- player death uses the red shrink, ghost apparition, and ghost zigzag sequence
+- the player respawns at PlayerStartCell when lives remain
+- no-lives game over placeholder exists
 
-## 16. What Is Not Implemented Yet
+## 17. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
 - enemies
-- skull lethality / player death from skulls
-- lives system
-- lives display in the HUD
-- EXTRA / SPECIAL word progression logic
-- extra-life reward from EXTRA
-- free-credit / free-game behavior from SPECIAL
 - bonus vegetables
 - enemy freeze caused by vegetables
 - title screen flow
-- gameplay / game over / high score screen flow
+- gameplay screen / screen transition architecture
+- proper game-over screen flow
+- high score screen flow
 - persistent session state / GameSession
 - high-score persistence
+- level-clear logic when all flowers / required collectibles are eaten
+- immediate next-level transition when SPECIAL or EXTRA is completed
+- exact free-credit / free-game behavior from SPECIAL
+- credits / coin / arcade-style free-play handling
+- top score display
 - automated movement regression tests
 
-## 17. Current Limitations
+## 18. Current Limitations
 
 The movement and gate systems are stable and much closer to the arcade behavior than the early prototype.
 Player turn-lane candidates are generated from the logical maze, while the arcade-style pixel window policy remains implemented in the movement resolver.
 However, this is still a practical remake implementation rather than a literal ROM-level reproduction.
 
 Current limitations include:
-- score and multiplier are still owned by Level rather than a future GameSession
-- HUD currently displays only the score
+- score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
+- HUD is functional but still scene-local rather than part of a full screen-flow architecture
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
-- skulls are present but not lethal yet
-- letters score correctly but do not yet progress SPECIAL / EXTRA
-- lives and game over are not implemented yet
+- SPECIAL completion is only a placeholder award and does not implement credits/free games yet
+- SPECIAL / EXTRA completion does not yet trigger stage transition
+- game over is only a placeholder state
 - enemies are not implemented yet
 - exact low-level tile / color RAM behavior is not reproduced literally
 
-## 18. Current Development Priority
+## 19. Current Development Priority
 
 A reasonable current priority is now:
 
-1) keep the current movement, gate, scoring, and collectible popup systems stable
+1) keep the current movement, gate, scoring, collectible, HUD, lives, and death systems stable
 2) document and protect validated movement behavior with regression scenarios
-3) implement a lives state and lives HUD display
-4) implement skull lethality using the lives system
-5) implement SPECIAL / EXTRA letter progression
+3) implement level-clear / stage transition flow
+4) decide the remake behavior for SPECIAL completion
+5) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
 6) implement enemies and remaining gameplay systems
 7) continue refining arcade fidelity only where reverse engineering or testing justifies it

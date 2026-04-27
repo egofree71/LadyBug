@@ -16,7 +16,7 @@ This document is intentionally more future-oriented than current_implementation.
 - architecture.md = the global target structure of the whole game
 
 This document should stay more stable than current_implementation.md.
-It may evolve when reverse-engineering results change the global structure, but it is not intended to be updated for every implementation detail.
+It may evolve when reverse-engineering results change the global structure, but it is not intended to be updated for every small implementation detail.
 
 ## 1. Architecture Goal
 
@@ -28,6 +28,8 @@ The goal is to build a structure that supports:
 - rotating gates
 - collectibles and bonus items
 - score / lives / stage progression
+- player death and respawn flow
+- SPECIAL / EXTRA word progression
 - screen flow: title, gameplay, game over, high score
 - future reverse-engineering refinements without turning the codebase into a monolithic prototype
 
@@ -54,6 +56,7 @@ The final project architecture is intended to have these major layers:
    - current stage
    - high scores
    - SPECIAL / EXTRA progress
+   - credits / free-game state if the arcade behavior is modeled
    - progression between screens and levels
 
 3) Level Runtime
@@ -67,6 +70,7 @@ The final project architecture is intended to have these major layers:
    - collectible field runtime
    - collectible color cycle
    - pickup popup state and view
+   - player death sequence coordination
    - player instance
    - future enemy instances
    - HUD integration
@@ -91,6 +95,7 @@ The final project architecture is intended to have these major layers:
    - animations
    - sprite flipping / visual offsets
    - temporary pickup popups
+   - player death sprite sequence
    - debug overlays
 
 ## 3. Target Folder Structure
@@ -192,51 +197,11 @@ scripts/
 │  └─ EnemyMovementStepResult.cs
 ├─ gameplay/
 │  ├─ maze/
-│  │  ├─ WallFlags.cs
-│  │  ├─ MazeCell.cs
-│  │  ├─ MazeDataFile.cs
-│  │  ├─ MazeGrid.cs
-│  │  ├─ MazeLoader.cs
-│  │  └─ MazeStepResult.cs
 │  ├─ gates/
-│  │  ├─ GateContactHalf.cs
-│  │  ├─ GateLogicalState.cs
-│  │  ├─ GateOrientation.cs
-│  │  ├─ GateSystem.cs
-│  │  ├─ GateTuning.cs
-│  │  ├─ GateTurningVisual.cs
-│  │  ├─ GateVisualState.cs
-│  │  └─ RotatingGateRuntimeState.cs
 │  ├─ collectibles/
-│  │  ├─ CollectibleKind.cs
-│  │  ├─ CollectibleColor.cs
-│  │  ├─ LetterKind.cs
-│  │  ├─ CollectibleColorCycle.cs
-│  │  ├─ CollectibleAnchorFamily.cs
-│  │  ├─ CollectibleAnchorFamilies.cs
-│  │  ├─ CollectibleLayoutFile.cs
-│  │  ├─ CollectibleLoader.cs
-│  │  ├─ CollectiblePlacement.cs
-│  │  ├─ CollectibleSpawnPlan.cs
-│  │  ├─ CollectibleSpawnPlanner.cs
-│  │  ├─ CollectiblePickupPopupState.cs
-│  │  ├─ CollectibleRuntimeState.cs
-│  │  ├─ CollectibleField.cs
-│  │  └─ CollectiblePickupResult.cs
 │  ├─ scoring/
-│  │  ├─ ScoreState.cs
-│  │  ├─ HeartMultiplierState.cs
-│  │  ├─ CollectibleScoreCalculation.cs
-│  │  ├─ CollectibleScoreService.cs
-│  │  ├─ BonusRules.cs
-│  │  └─ HighScoreEntry.cs
-│  ├─ words/
-│  │  ├─ WordProgressState.cs
-│  │  └─ LetterProgressRules.cs
+│  ├─ player/
 │  ├─ session/
-│  │  ├─ StageDefinition.cs
-│  │  ├─ StageFlowController.cs
-│  │  └─ LifeState.cs
 │  ├─ PlayfieldCollisionResolver.cs
 │  ├─ PlayfieldStepKind.cs
 │  └─ PlayfieldStepResult.cs
@@ -247,6 +212,11 @@ scripts/
    └─ GameSession.cs
 ```
 
+Important current deviation:
+- `WordProgressState` currently lives in `scripts/gameplay/collectibles/` because it is directly tied to collectible letter pickup effects.
+- A future refactor may move it to `scripts/gameplay/words/` or keep it under collectibles if that remains clearer.
+- `PlayerLifeState` currently lives in `scripts/gameplay/player/`; a future GameSession may own lives instead.
+
 ## 4. Main Application Flow
 
 ### 4.1 Main
@@ -256,7 +226,7 @@ scripts/
 
 **Role:**
 - global root scene of the whole application
-- owner of screen switching
+- owner of screen switching in the final architecture
 
 **Responsibilities:**
 - start on title screen
@@ -265,6 +235,10 @@ scripts/
 - return to title screen when needed
 
 Main should not contain gameplay logic.
+
+Current implementation:
+- Main still instantiates Level directly
+- screen flow is not implemented yet
 
 ### 4.2 TitleScreen
 
@@ -318,8 +292,10 @@ Expected global state:
 - lives remaining
 - current stage number
 - collected SPECIAL / EXTRA letter state
+- current heart multiplier state if it should persist outside a level
 - high score table
 - current game state
+- credit / free-game state if the remake models it
 
 Proposed location:
 - scripts/autoload/GameSession.cs
@@ -334,8 +310,9 @@ Level should not own long-term session state.
 Level should only manage one active playfield runtime.
 
 Current temporary implementation note:
-- Level currently owns ScoreState and HeartMultiplierState as a prototype-level bridge
-- these should later move into GameSession or a GameplayScreen-owned session model when screen flow exists
+- Level currently owns ScoreState, HeartMultiplierState, WordProgressState, PlayerLifeState, a special-award placeholder counter, and a minimal game-over flag
+- this is acceptable while the project has no screen flow
+- these should later move into GameSession or a GameplayScreen-owned session model when title/gameplay/game-over flow exists
 
 ## 6. Level Architecture
 
@@ -347,7 +324,7 @@ Current role:
 - coordinate the active board runtime
 - own the fixed simulation tick for the active board
 - create and connect the maze, gate runtime, collectible field and collision resolver
-- integrate the current HUD and pickup popup
+- integrate the current HUD, pickup popup, and player death state
 - expose a small public integration surface for actors
 - initialize the player after board systems exist
 - keep editor previews working
@@ -383,12 +360,14 @@ Level (Node2D)
 └─ Hud or HudAnchor (CanvasLayer or screen-owned UI reference)
 ```
 
-Notes:
+Current implementation note:
+- the HUD is currently a CanvasLayer directly inside Level.tscn
+- the maze is shifted down in Level.tscn to make room for the upper HUD strip
 - the static maze background remains a Sprite2D
-- moving / interactive objects should remain separate from the static background
-- gate view instances can be pre-placed in Level.tscn and converted into a separate runtime gate system during level initialization
+- moving / interactive objects remain separate from the static background
+- gate view instances are pre-placed in Level.tscn and converted into a separate runtime gate system during initialization
 - the current collectible direction is to spawn a base flower layout first, then replace selected cells with special collectibles
-- temporary pickup popups are high-level gameplay effects, not literal emulation of sprite RAM
+- temporary pickup popups and player death are high-level gameplay states, not literal emulation of sprite RAM
 
 ### 6.3 Current Level helper classes
 
@@ -409,6 +388,15 @@ LevelGateRuntime
 
 CollectibleScoreService
 - computes collectible base score and final score delta
+
+WordProgressState
+- tracks SPECIAL / EXTRA letter progress and applies color-based word rules
+
+PlayerLifeState
+- tracks remaining lives and extra-life awards
+
+PlayerDeathSequenceState
+- provides tick-accurate visual state for the player death sequence
 
 CollectiblePickupPopupState
 - tracks the short 30-tick heart / letter pickup pause state
@@ -437,6 +425,10 @@ Implemented pieces:
 - PlayerTurnPath
 - PlayerTurnAssistFlags
 - PlayerMovementDebugTrace
+- PlayerLifeState
+- PlayerDeathState
+- PlayerDeathVisualSheet
+- PlayerDeathSequenceState
 
 Current responsibility split:
 
@@ -444,13 +436,17 @@ PlayerController:
 - handles player input, player movement ticks, sprite facing, render offset, debug overlay updates and collectible pickup checks
 - no longer owns the global fixed tick accumulator
 - exposes AdvanceOneSimulationTick() so Level can drive the player from the board-level tick
-- exposes SetGameplaySpriteVisible(...) so Level can hide the player during popup / future death states without destroying gameplay state
+- exposes SetGameplaySpriteVisible(...) so Level can hide the player during pickup popup states
+- starts and advances the visual player death sequence through a separate death sprite
+- respawns the player at PlayerStartCell after death when lives remain
 
 PlayerInputState:
 - resolves intended movement direction using last-pressed-wins input policy
 
 PlayerMovementMotor:
 - owns gameplay movement state and applies one arcade-style movement tick
+- exposes the movement segments completed each tick
+- supports resetting to the level start cell during respawn
 
 PlayerTurnWindowMaps:
 - generates available player turn lanes from the logical maze
@@ -470,11 +466,15 @@ PlayerDebugOverlay:
 PlayerMovementDebugTrace:
 - optional debug tracing, disabled by default
 
+PlayerDeathSequenceState:
+- expresses the reverse-engineered death animation as deterministic tick state
+- handles red shrink frames, ghost apparition frames, and ghost zigzag visual offsets
+
 Future possible additions:
 - PlayerAnimationState
-- PlayerDeathState
 - PlayerPickupHandler
 - PlayerScoringHooks
+- cleaner extraction of death visuals into a dedicated view class if PlayerController grows too much
 
 The player should remain split into:
 - orchestration
@@ -482,6 +482,7 @@ The player should remain split into:
 - input policy
 - rendering / animation concerns
 - pickup / score interactions
+- death visual state
 
 The current movement system is stable enough that future changes should be protected by regression scenarios.
 
@@ -508,6 +509,7 @@ Possible shared concepts:
 - same static maze validation
 - same dynamic gate legality framework
 - same Level-owned fixed tick structure
+- same board-level temporary freeze states for pickup popups, death, and stage transitions
 
 Important:
 Enemy logic should probably reuse the same playfield-step legality model, but not necessarily the exact player movement rules.
@@ -555,7 +557,7 @@ Future work:
 
 ## 10. Item / Collectible Architecture
 
-The project now has a stronger collectible foundation.
+The project now has a strong collectible foundation.
 
 Current implemented direction:
 - base flower layout loaded from data/collectibles_layout.json
@@ -568,6 +570,10 @@ Current implemented direction:
 - CollectiblePickupResult returns semantic pickup data to Level
 - CollectibleColorCycle drives the global heart / letter color cycle
 - CollectibleScoreService calculates current score contribution
+- WordProgressState applies SPECIAL / EXTRA letter effects
+- HeartMultiplierState applies blue-heart multiplier effects
+- PlayerLifeState supports EXTRA extra-life rewards
+- skull pickup triggers the player death sequence
 - CollectiblePickupPopupState and CollectiblePickupPopupView handle the temporary heart / letter popup and short freeze
 
 This keeps a useful separation between:
@@ -576,8 +582,11 @@ This keeps a useful separation between:
 - runtime view lookup / removal
 - current color classification
 - score calculation
+- word progress
+- multiplier progress
+- life and death consequences
 - visual pickup popup
-- future pickup consequences such as death and SPECIAL / EXTRA progression
+- future pickup consequences such as stage clear and bonus vegetable effects
 
 Expected long-term item families:
 - flowers
@@ -594,6 +603,7 @@ Expected responsibilities:
 - color-cycle state
 - skull lethality
 - temporary pickup effects
+- level-clear participation
 
 Likely long-term architecture:
 - base collectible placement data
@@ -604,13 +614,14 @@ Likely long-term architecture:
 - scoring and word-progression rules
 - bonus item appearance logic
 - pickup / death / score visual effects
+- stage transition hooks
 
 Important:
 The collectible system should remain driven by logical maze cells, not by free-form scene-space placement.
 
 ## 11. Scoring, Multiplier, Lives, and Word Progression
 
-The current prototype now has a small scoring foundation:
+The current prototype now has a useful scoring / bonus foundation:
 
 ```text
 ScoreState
@@ -625,6 +636,14 @@ CollectibleScoreService
 
 CollectibleScoreCalculation
 - score calculation result object
+
+WordProgressState
+- SPECIAL and EXTRA progress
+- color-based letter progression rules
+
+PlayerLifeState
+- current lives
+- life loss and extra-life awards
 ```
 
 Current implemented rules:
@@ -633,26 +652,21 @@ Current implemented rules:
 - yellow heart / letter = 300 × current multiplier
 - red heart / letter = 800 × current multiplier
 - blue hearts advance the multiplier after their own score is computed
+- red valid letters progress SPECIAL
+- yellow valid letters progress EXTRA
+- blue letters are score-only
+- EXTRA completion awards one extra life
+- SPECIAL completion currently increments a placeholder free-game award counter
+- skulls give no score and trigger death
 
 Future session architecture:
 - ScoreState should move from Level to GameSession
 - HeartMultiplierState may either reset per level or live in the stage/session state depending on the final arcade behavior being modeled
+- WordProgressState should probably move from Level to GameSession once stages and screen flow exist
 - lives should be owned by GameSession or a session-level LifeState
 - EXTRA should call into the life/session system to award an extra life
 - SPECIAL should call into the session/screen-flow system to award a credit/free game or remake-equivalent reward
-
-Future word progression architecture:
-
-```text
-WordProgressState
-- tracks collected SPECIAL letters
-- tracks collected EXTRA letters
-
-LetterProgressRules
-- determines whether a collected letter can progress SPECIAL or EXTRA
-- applies red/yellow/blue color rules
-- reports completed words
-```
+- stage transitions should be owned above Level or coordinated through explicit Level events
 
 ## 12. Pickup Popup / Temporary Freeze Architecture
 
@@ -671,7 +685,31 @@ Long-term direction:
 - enemy movement and other future timers should also pause while this state is active
 - death and stage-clear transitions can use a similar board-level temporary state pattern
 
-## 13. Playfield Collision Architecture
+## 13. Player Death / Respawn Architecture
+
+The player death path is now partially implemented.
+
+Current remake implementation:
+- skull pickup enters the death path
+- Level decrements PlayerLifeState immediately
+- Level freezes normal board simulation
+- PlayerController hides the normal living sprite
+- PlayerController shows a runtime death Sprite2D
+- PlayerDeathSequenceState drives:
+  - red shrink frames
+  - ghost apparition frames
+  - ghost zigzag upward movement
+- after the sequence:
+  - if lives remain, PlayerController resets movement state to PlayerStartCell
+  - if no lives remain, Level enters a minimal game-over placeholder
+
+Long-term direction:
+- keep death as a board-level temporary gameplay state
+- move life-loss and game-over decisions to GameSession or GameplayScreen later
+- emit explicit events such as LifeLost, PlayerRespawned, GameOver, or StageComplete when the screen/session layer exists
+- keep death visual timing isolated from movement rules
+
+## 14. Playfield Collision Architecture
 
 PlayfieldCollisionResolver is the current bridge between the static maze and dynamic gates.
 
@@ -687,22 +725,38 @@ Responsibilities:
 It should remain independent of player-specific turn logic.
 Players and future enemies can ask the playfield whether a step is legal without duplicating static maze + gate overlay checks.
 
-## 14. HUD / UI Architecture
+## 15. HUD / UI Architecture
 
-Hud should eventually represent the gameplay HUD.
+Hud now represents the active gameplay HUD for the current Level prototype.
 
 Current implemented HUD:
-- Hud is currently a CanvasLayer inside Level.tscn
-- Hud.cs finds ScoreLabel and updates the score text
-- layout and visual styling are controlled in the Godot editor
+- Hud is a CanvasLayer inside Level.tscn
+- Hud.cs finds and updates:
+  - ScoreLabel
+  - LivesLabel
+  - SpecialWordLabel
+  - ExtraWordLabel
+  - MultipliersLabel
+- ScoreLabel and LivesLabel are normal Label nodes
+- SPECIAL, EXTRA, and x2/x3/x5 use RichTextLabel so individual letters or multiplier entries can be colored independently
+- layout and visual styling are controlled in Level.tscn
+
+Current display rules:
+- inactive SPECIAL letters are grey
+- active SPECIAL letters are red
+- inactive EXTRA letters are grey
+- active EXTRA letters are yellow
+- inactive multiplier entries are grey
+- active multiplier entries are blue
+- lives are shown at bottom-left
+- score is shown at bottom-right
 
 Expected future HUD responsibilities:
-- display current score
-- display remaining lives
-- display multiplier, if desired
+- display top score
+- display credits / free-game state if desired
 - display stage / bonus information
-- display SPECIAL / EXTRA progress
-- display top score / credits / arcade-style labels if desired
+- display game-over / pause / title overlays if not handled by separate screens
+- observe GameSession or GameplayScreen rather than Level-owned prototype state
 
 HUD is not the long-term owner of session data.
 It should observe GameSession and/or GameplayScreen.
@@ -710,7 +764,7 @@ It should observe GameSession and/or GameplayScreen.
 Debug overlays should remain separate from normal HUD.
 PlayerDebugOverlay is currently a small actor-specific debug helper, not a final HUD system.
 
-## 15. Logical Maze Architecture
+## 16. Logical Maze Architecture
 
 The logical maze system already has a good foundation and should remain central.
 
@@ -741,7 +795,7 @@ Important:
 - collectible layout data should remain separate from static wall data
 - rotating gates can be authored in the level scene while still being converted into a separate runtime system at initialization
 
-## 16. Coordinate System Design
+## 17. Coordinate System Design
 
 A central architectural principle is the separation between:
 
@@ -757,6 +811,8 @@ This must remain true for:
 - pickups
 - hit / interaction checks
 - popup / effect placement
+- death visual offsets
+- HUD layout boundaries when the maze is moved in the scene
 
 Why this matters:
 - gameplay logic should stay independent of scene-space float rendering
@@ -768,9 +824,10 @@ Current implementation:
 - Level exposes wrapper methods so gameplay systems do not need to know the concrete helper
 - PlayerTurnWindowMaps generates turn-lane candidates from MazeGrid
 - PlayerTurnWindowResolver handles original-style mirrored Y conversion and pixel-window policy locally
+- PlayerDeathSequenceState stores offsets in arcade-pixel terms and PlayerController converts them to scene-space deltas
 - PlayerDebugOverlay formats player debug coordinates separately from normal gameplay conversion
 
-## 17. Current Implemented Foundation
+## 18. Current Implemented Foundation
 
 The following part of the target architecture is already implemented now:
 
@@ -779,7 +836,7 @@ The following part of the target architecture is already implemented now:
 - RotatingGate scene
 - Collectible scene
 - Player scene
-- basic Hud inside Level
+- gameplay Hud inside Level
 - logical maze loading from JSON
 - base collectible layout loading from JSON
 - MazeGrid / MazeCell / WallFlags / MazeLoader
@@ -794,6 +851,10 @@ The following part of the target architecture is already implemented now:
 - HeartMultiplierState
 - CollectibleScoreService
 - CollectibleScoreCalculation
+- WordProgressState
+- PlayerLifeState
+- PlayerDeathSequenceState
+- PlayerDeathVisualSheet
 - LevelGateRuntime
 - collectible layout loading and flower field spawning
 - start-of-level special collectible placement planning
@@ -801,7 +862,13 @@ The following part of the target architecture is already implemented now:
 - flower scoring
 - heart / letter scoring
 - blue-heart score multiplier advancement
+- SPECIAL / EXTRA word progress
+- EXTRA extra-life reward
+- SPECIAL placeholder award
+- skull lethality
+- player death sequence and respawn
 - temporary heart / letter score popup with short freeze and player hide/restore
+- HUD display for score, lives, SPECIAL, EXTRA, and multipliers
 - PlayerController
 - PlayerDebugOverlay
 - PlayerInputState
@@ -832,7 +899,7 @@ The following part of the target architecture is already implemented now:
 For the detailed current state, see:
 - current_implementation.md
 
-## 18. Main Systems Still To Implement
+## 19. Main Systems Still To Implement
 
 The largest remaining systems are:
 
@@ -841,24 +908,21 @@ The largest remaining systems are:
 - GameOverScreen
 - HighScoreScreen
 - GameSession
-- lives / life-loss state
-- skull lethality
-- player death / respawn flow
-- SPECIAL / EXTRA word progression
-- EXTRA extra-life reward
-- SPECIAL free-credit / free-game behavior or remake equivalent
+- proper stage progression / stage flow controller
+- level-clear logic after all required collectibles are eaten
+- immediate next-level transition when SPECIAL or EXTRA is completed
+- final SPECIAL free-credit / free-game behavior or remake equivalent
 - EnemyController and enemy runtime logic
 - enemy AI / movement helpers
 - enemy interaction with rotating gates
 - bonus vegetables
 - vegetable-based enemy freeze
-- score service migration to session-level ownership
+- score / lives / word-progress migration to session-level ownership
 - high-score persistence
-- full gameplay HUD
-- stage progression / stage flow controller
+- top score / credits / final arcade HUD elements
 - automated regression scenarios for movement-sensitive behavior
 
-## 19. Architectural Guiding Principles
+## 20. Architectural Guiding Principles
 
 The architecture should continue to follow these rules:
 
@@ -873,19 +937,19 @@ The architecture should continue to follow these rules:
 9) Protect stable movement behavior before further movement refactoring
 10) Avoid prematurely generalizing player movement into a shared actor motor before enemy behavior is understood
 11) Prefer high-level gameplay states for pauses, popups, death and stage transitions instead of literal RAM-layout emulation
+12) Move session-wide state out of Level when screen flow and stage transitions make that necessary
 
-## 20. Current Architectural Direction
+## 21. Current Architectural Direction
 
-The player movement, level runtime, rotating gates, and early collectible scoring foundation are now stable enough to build on.
+The player movement, level runtime, rotating gates, collectible scoring, lives, death, HUD, and word-progress foundation are now stable enough to build on.
 
 The next major architectural expansions should happen around:
 - documenting and protecting movement behavior with regression scenarios
-- lives and player death flow
-- skull lethality
-- SPECIAL / EXTRA word progression
-- HUD expansion for lives and word progress
-- GameSession / screen flow extraction when the level needs persistent state across screens and stages
+- level clear and stage transition flow
+- deciding final SPECIAL reward behavior in a remake context
+- GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
 - enemy movement and AI
+- bonus vegetable behavior
 
 Future refactoring candidates should be driven by new gameplay systems rather than by abstract cleanup alone.
 The major current Level extractions have already been done:
@@ -894,9 +958,13 @@ The major current Level extractions have already been done:
 - collectible field runtime
 - gate runtime
 - scoring calculation
+- word progress state
+- life state
+- death sequence state
 - pickup popup state / view
+- HUD rendering
 
-## 21. Summary
+## 22. Summary
 
 The final architecture is intended to support the whole game, not only the player movement subsystem.
 
@@ -910,17 +978,22 @@ It should ultimately contain:
 - collectibles and bonus systems
 - scoring and high scores
 - lives and death flow
+- SPECIAL / EXTRA flow
 - HUD and other UI
 
-The project already has a solid movement, maze, rotating-gate, coordinate, collision, and collectible/scoring foundation.
+The project already has a solid movement, maze, rotating-gate, coordinate, collision, collectible, scoring, HUD, lives, death, and word-progress foundation.
 
-The most important architectural shift since the previous version of this document is that Level now owns the board-level fixed simulation tick and coordinates more gameplay states:
+The most important architectural shift since the previous version of this document is that Level now coordinates more board-level temporary states and prototype session-like state:
 - coordinate conversion is isolated
 - playfield collision is isolated
 - gate runtime is isolated
 - collectible runtime is isolated
 - scoring calculation is isolated
+- word progress is isolated
+- life state is isolated
+- death visual timing is isolated
 - pickup popup state and view are isolated
+- HUD rendering is separated from gameplay state
 - player movement is modular and stable
 
 The next work should build gameplay systems on top of this foundation rather than keep reshaping it without a concrete need.
