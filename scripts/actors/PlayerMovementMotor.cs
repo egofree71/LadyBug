@@ -91,7 +91,18 @@ public sealed class PlayerMovementMotor
     {
         _level = level;
         _turnWindowMaps = PlayerTurnWindowMaps.FromMazeGrid(level.MazeGrid);
-        _arcadePixelPos = level.LogicalCellToArcadePixel(level.PlayerStartCell);
+        ResetToStartCell();
+    }
+
+    /// <summary>
+    /// Resets the gameplay movement state to the level's configured start cell.
+    /// </summary>
+    public void ResetToStartCell()
+    {
+        if (_level == null)
+            return;
+
+        _arcadePixelPos = _level.LogicalCellToArcadePixel(_level.PlayerStartCell);
         _currentDir = Vector2I.Zero;
         _offsetDir = Vector2I.Up;
         _latchedRequestedDir = Vector2I.Zero;
@@ -99,6 +110,7 @@ public sealed class PlayerMovementMotor
         _turnAssistFlags = PlayerTurnAssistFlags.None;
         _assistedTurnActive = false;
         _deferredSameAxisAssistDir = Vector2I.Zero;
+        _movementSegmentsThisTick.Clear();
         _debugTrace.Reset();
     }
 

@@ -4,6 +4,7 @@ using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay.Player;
 using LadyBug.Gameplay.Scoring;
 
 /// <summary>
@@ -49,6 +50,18 @@ public partial class Level : Node2D
     // Short heart / letter pickup popup state. While active, normal gameplay is frozen.
     private readonly CollectiblePickupPopupState _pickupPopupState = new();
 
+    // Current prototype life state. Later this can move to a broader game/session state.
+    private readonly PlayerLifeState _lifeState = new();
+
+    // Short freeze state used after the player touches a skull.
+    private readonly PlayerDeathState _deathState = new();
+
+    // Temporary high-level death duration. The exact arcade death animation can replace this later.
+    private const int SkullDeathFreezeTicks = 60;
+
+    // Minimal game-over guard until proper screen flow exists.
+    private bool _isGameOver;
+
     // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
     private const string CollectiblesJsonPath = "res://data/collectibles_layout.json";
@@ -77,7 +90,7 @@ public partial class Level : Node2D
     // Runtime player controller owned by this level.
     private PlayerController? _player;
 
-    // Optional HUD node. It currently displays only the score.
+    // Optional HUD node. It currently displays score and lives.
     private Hud? _hud;
 
     // Runtime popup view displayed when collecting hearts and letters.
@@ -196,6 +209,14 @@ public partial class Level : Node2D
             _player.SynchronizeSceneFromGameplay();
     }
 
+    /// <summary>
+    /// Builds all runtime-only board systems after the scene nodes have been resolved.
+    /// </summary>
+    /// <remarks>
+    /// This method keeps the startup order explicit: load the static maze first,
+    /// build gate collision state, create collectible runtime state, then apply the
+    /// start-of-level special collectible plan and initial color cycle.
+    /// </remarks>
     private void InitializeRuntimeSystems()
     {
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
@@ -228,6 +249,14 @@ public partial class Level : Node2D
         _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
     }
 
+    /// <summary>
+    /// Initializes prototype session state that is currently displayed through the HUD.
+    /// </summary>
+    /// <remarks>
+    /// Score, multiplier, lives, death state, and game-over state are still owned by
+    /// <see cref="Level"/>. They can later move to a persistent game-session object
+    /// when title screen, level transitions, and game-over flow are implemented.
+    /// </remarks>
     private void InitializeHud()
     {
         _hud = GetNodeOrNull<Hud>("Hud");
@@ -237,9 +266,21 @@ public partial class Level : Node2D
 
         _scoreState.Reset();
         _heartMultiplierState.Reset();
+        _lifeState.Reset();
+        _deathState.Reset();
+        _isGameOver = false;
         _hud?.SetScore(_scoreState.Score);
+        _hud?.SetLives(_lifeState.Lives);
     }
 
+    /// <summary>
+    /// Finds the player scene instance and initializes its movement state from this level.
+    /// </summary>
+    /// <remarks>
+    /// The player must be initialized after the maze, gates, collectibles, HUD, and
+    /// collision resolver exist, because the movement motor queries the level for
+    /// maze geometry and playfield collision checks.
+    /// </remarks>
     private void InitializePlayer()
     {
         _player = GetNodeOrNull<PlayerController>("Player");
@@ -259,6 +300,15 @@ public partial class Level : Node2D
     /// </remarks>
     private void RunOneSimulationTick()
     {
+        if (_isGameOver)
+            return;
+
+        if (_deathState.IsActive)
+        {
+            AdvancePlayerDeathOneTick();
+            return;
+        }
+
         if (_pickupPopupState.IsActive)
         {
             AdvancePickupPopupOneTick();
@@ -292,7 +342,9 @@ public partial class Level : Node2D
     /// </returns>
     public bool TryConsumeCollectible(Vector2I cell)
     {
-        if (_pickupPopupState.IsActive)
+        if (_pickupPopupState.IsActive ||
+            _deathState.IsActive ||
+            _isGameOver)
             return false;
 
         CollectiblePickupResult pickupResult = _collectibleField.TryConsume(cell);
@@ -304,10 +356,33 @@ public partial class Level : Node2D
         return true;
     }
 
+    /// <summary>
+    /// Applies the gameplay consequences of one consumed collectible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="CollectibleFieldRuntime"/> has already removed the collectible
+    /// from the board before this method runs. This method is therefore responsible
+    /// only for semantic consequences: score changes, multiplier changes, popup
+    /// startup, or skull death.
+    /// </para>
+    /// <para>
+    /// Skull handling is intentionally routed before score calculation because skulls
+    /// are lethal objects with no score value and no pickup popup.
+    /// </para>
+    /// </remarks>
+    /// <param name="cell">Logical cell where the collectible was consumed.</param>
+    /// <param name="pickupResult">Semantic result returned by the collectible runtime.</param>
     private void ApplyCollectiblePickupResult(
         Vector2I cell,
         CollectiblePickupResult pickupResult)
     {
+        if (pickupResult.Kind == CollectibleKind.Skull)
+        {
+            HandlePlayerDeathFromSkull();
+            return;
+        }
+
         CollectibleScoreCalculation scoreCalculation =
             CollectibleScoreService.Calculate(
                 pickupResult.Kind,
@@ -336,6 +411,16 @@ public partial class Level : Node2D
         }
     }
 
+    /// <summary>
+    /// Starts the short score / multiplier popup shown after collecting a heart or letter.
+    /// </summary>
+    /// <remarks>
+    /// While this state is active, normal gameplay ticks are frozen and only the popup
+    /// timer advances. The player sprite is hidden to match the current high-level
+    /// interpretation of the arcade pickup pause.
+    /// </remarks>
+    /// <param name="cell">Logical cell where the popup should be displayed.</param>
+    /// <param name="scoreCalculation">Score information to display and track during the popup.</param>
     private void StartPickupPopup(
         Vector2I cell,
         CollectibleScoreCalculation scoreCalculation)
@@ -358,6 +443,13 @@ public partial class Level : Node2D
         _player?.SetGameplaySpriteVisible(false);
     }
 
+    /// <summary>
+    /// Advances the active pickup popup by one fixed simulation tick.
+    /// </summary>
+    /// <remarks>
+    /// When the popup completes, its temporary view is removed and the player sprite
+    /// becomes visible again so normal gameplay can resume on the next tick.
+    /// </remarks>
     private void AdvancePickupPopupOneTick()
     {
         if (!_pickupPopupState.AdvanceOneTick())
@@ -367,12 +459,71 @@ public partial class Level : Node2D
         _player?.SetGameplaySpriteVisible(true);
     }
 
+    /// <summary>
+    /// Removes the temporary popup view if it currently exists.
+    /// </summary>
+    /// <remarks>
+    /// The instance-valid check protects against cases where Godot has already queued
+    /// or freed the node during scene teardown.
+    /// </remarks>
     private void ClearPickupPopupView()
     {
         if (_pickupPopupView != null && GodotObject.IsInstanceValid(_pickupPopupView))
             _pickupPopupView.QueueFree();
 
         _pickupPopupView = null;
+    }
+
+    // --- Player Life / Death ----------------------------------------------
+
+    /// <summary>
+    /// Starts the simplified player-death sequence after touching a skull.
+    /// </summary>
+    /// <remarks>
+    /// The current implementation deliberately keeps the arcade behavior high-level:
+    /// the skull is removed, no score is awarded, one life is lost, gameplay freezes
+    /// briefly, and the player either respawns or reaches the placeholder game-over
+    /// state. The exact shrinking / halo animation can be added later without changing
+    /// the life-state logic.
+    /// </remarks>
+    private void HandlePlayerDeathFromSkull()
+    {
+        // A skull has already been removed by CollectibleFieldRuntime.TryConsume.
+        // It gives no score and immediately starts the player-death path.
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+
+        _lifeState.LoseLife();
+        _hud?.SetLives(_lifeState.Lives);
+
+        _player?.SetGameplaySpriteVisible(false);
+        _deathState.Start(SkullDeathFreezeTicks);
+    }
+
+    /// <summary>
+    /// Advances the temporary death freeze and performs respawn or game-over handling.
+    /// </summary>
+    /// <remarks>
+    /// The simulation accumulator is cleared when the death pause ends so the player
+    /// does not immediately process a backlog of fixed ticks after respawning.
+    /// </remarks>
+    private void AdvancePlayerDeathOneTick()
+    {
+        if (!_deathState.AdvanceOneTick())
+            return;
+
+        // Avoid consuming accumulated ticks immediately after respawn or game over.
+        _simulationAccumulator = 0.0;
+
+        if (_lifeState.IsGameOver)
+        {
+            _isGameOver = true;
+            _player?.SetGameplaySpriteVisible(false);
+            GD.Print("Game Over placeholder: proper game-over flow is not implemented yet.");
+            return;
+        }
+
+        _player?.RespawnAtStartCell();
     }
 
     // --- Rotating Gates -----------------------------------------------------
@@ -470,6 +621,14 @@ public partial class Level : Node2D
             GetMazeSceneOrigin());
     }
 
+    /// <summary>
+    /// Gets the scene-space origin used by all playfield coordinate conversions.
+    /// </summary>
+    /// <remarks>
+    /// The maze sprite position is treated as the visual origin of the arcade
+    /// playfield. Returning <see cref="Vector2.Zero"/> keeps editor previews and
+    /// runtime code safe if the node is temporarily unavailable.
+    /// </remarks>
     private Vector2 GetMazeSceneOrigin()
     {
         _mazeSprite ??= GetNodeOrNull<Sprite2D>("Maze");

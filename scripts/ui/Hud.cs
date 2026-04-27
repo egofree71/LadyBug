@@ -5,12 +5,18 @@ public partial class Hud : CanvasLayer
     [Export]
     public NodePath ScoreLabelPath { get; set; } = "Root/ScoreLabel";
 
+    [Export]
+    public NodePath LivesLabelPath { get; set; } = "Root/LivesLabel";
+
     private Label? _scoreLabel;
+    private Label? _livesLabel;
     private int _lastScore;
+    private int _lastLives = 3;
 
     public override void _Ready()
     {
         _scoreLabel = FindScoreLabel();
+        _livesLabel = FindLivesLabel();
 
         if (_scoreLabel == null)
         {
@@ -21,6 +27,7 @@ public partial class Hud : CanvasLayer
         // Important: this script intentionally does not set position, size,
         // anchors, alignment or font size. Those belong in Level.tscn.
         SetScore(_lastScore);
+        SetLives(_lastLives);
     }
 
     public void SetScore(int score)
@@ -31,6 +38,16 @@ public partial class Hud : CanvasLayer
             return;
 
         _scoreLabel.Text = score.ToString();
+    }
+
+    public void SetLives(int lives)
+    {
+        _lastLives = lives;
+
+        if (_livesLabel == null)
+            return;
+
+        _livesLabel.Text = $"LIVES {lives}";
     }
 
     private Label? FindScoreLabel()
@@ -47,5 +64,21 @@ public partial class Hud : CanvasLayer
             return rootChildLabel;
 
         return GetNodeOrNull<Label>("ScoreLabel");
+    }
+
+    private Label? FindLivesLabel()
+    {
+        if (!LivesLabelPath.IsEmpty)
+        {
+            Label? exportedPathLabel = GetNodeOrNull<Label>(LivesLabelPath);
+            if (exportedPathLabel != null)
+                return exportedPathLabel;
+        }
+
+        Label? rootChildLabel = GetNodeOrNull<Label>("Root/LivesLabel");
+        if (rootChildLabel != null)
+            return rootChildLabel;
+
+        return GetNodeOrNull<Label>("LivesLabel");
     }
 }

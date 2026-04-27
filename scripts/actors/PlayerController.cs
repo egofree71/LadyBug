@@ -152,7 +152,6 @@ public partial class PlayerController : Node2D
         UpdateDebugOverlay();
     }
 
-
     /// <summary>
     /// Shows or hides only the rendered player sprite while preserving gameplay state.
     /// </summary>
@@ -160,6 +159,23 @@ public partial class PlayerController : Node2D
     {
         if (_animatedSprite != null)
             _animatedSprite.Visible = visible;
+    }
+
+    /// <summary>
+    /// Resets the player gameplay state and scene transform to the level start cell.
+    /// </summary>
+    public void RespawnAtStartCell()
+    {
+        if (_level == null)
+            return;
+
+        _movementMotor.ResetToStartCell();
+        _inputState.InitializeFromCurrentInput();
+        _facingDir = Vector2I.Up;
+
+        ApplyVisualFacing(_facingDir);
+        SetGameplaySpriteVisible(true);
+        SynchronizeSceneFromGameplay();
     }
 
     /// <summary>
