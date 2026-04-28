@@ -93,3 +93,20 @@ The key findings used by the current implementation are:
 - each logical maze cell corresponds to a **2 × 2 tile footprint**
 - the maze is built procedurally into VRAM by code, not copied from a prebuilt map
 - the Godot maze JSON is derived by converting VRAM layout into per-cell wall bitmasks
+
+## Related Timer Documentation
+
+This document covers the static maze layout and the reconstruction of the logical maze
+used by Godot.
+
+The animated maze border is related visually, but it is a gameplay timer rather than part
+of the static maze reconstruction.
+
+See `gameplay_timers_reverse_engineering.md` for:
+
+- `35E3` / `InitMazeBorderTimerForLevel`
+- `39B1` / `UpdateMazeBorderTimer`
+- `60AA` / `MazeBorderCountdown`
+- `60AB` / `MazeBorderPeriod`
+- level-dependent border cadence: 9, 6, then 3 ticks per border step
+

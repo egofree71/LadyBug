@@ -48,6 +48,42 @@ Enemy movement in Lady Bug is not purely random and not a permanent direct chase
 - 0x447D : BFS map construction from Lady Bug
 - 0x46D8 : BFS override on enemy preferred directions
 
+
+## Enemy Release / Maze-Border Timer
+
+Confirmed
+
+Enemy movement logic starts once an enemy is active in the maze. The cadence for releasing
+enemies from the central area is driven separately by the animated maze-border timer.
+
+The border timer is initialized at `0x35E3` and updated at `0x39B1`.
+
+Relevant RAM:
+
+```text
+60AA = MazeBorderCountdown
+60AB = MazeBorderPeriod
+```
+
+The period depends on the current level:
+
+| Level | Period |
+|---:|---:|
+| 1 | 9 ticks per border step |
+| 2 to 4 | 6 ticks per border step |
+| 5+ | 3 ticks per border step |
+
+Practical meaning
+
+Enemy movement, chase, BFS, and local door validation should stay in the enemy movement
+system. Enemy release timing should be synchronized with the maze-border timer documented
+in `gameplay_timers_reverse_engineering.md`.
+
+Implementation note
+
+Do not reuse the heart / letter color-cycle counter for enemy release. The collectible
+color cycle uses `6199/619A`; the maze-border / enemy-release timer uses `60AA/60AB`.
+
 ## Enemy Update Loop
 
 Confirmed

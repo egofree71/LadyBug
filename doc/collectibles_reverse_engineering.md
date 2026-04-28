@@ -24,6 +24,7 @@ It does **not** currently cover:
 
 - vegetable spawning and enemy-freeze behavior
 - the enemy-release maze-border timer in detail
+  - see `gameplay_timers_reverse_engineering.md` for the separate maze-border / enemy-release timer
 - exact low-level color RAM animation outside gameplay-relevant color mode
 - the detailed player death animation internals; those are documented separately in the player death sequence reverse-engineering notes
 
@@ -292,6 +293,31 @@ Current Godot implementation:
 - `CollectibleScoreService` receives the same color in `CollectiblePickupResult`
 - `WordProgressState` receives the same color for letter progress
 - `HeartMultiplierState` advances only when the collected heart color is blue
+
+## Cross-System Timer Note
+
+The heart / letter color cycle is **not** the same timer as the animated maze-border /
+enemy-release timer.
+
+Confirmed split:
+
+```text
+heart / letter color cycle:
+	3956  TickCollectibleColorCycle
+	6199/619A  CollectibleColorCycleCounter
+	600-tick red/yellow/blue cycle
+
+maze-border / enemy-release timer:
+	35E3  InitMazeBorderTimerForLevel
+	39B1  UpdateMazeBorderTimer
+	60AA  MazeBorderCountdown
+	60AB  MazeBorderPeriod
+	9 / 6 / 3 ticks per border step depending on level
+```
+
+The two routines are called next to each other in the gameplay loop, but they keep
+separate RAM state. The border timer is documented in
+`gameplay_timers_reverse_engineering.md`.
 
 ## Score Values
 
