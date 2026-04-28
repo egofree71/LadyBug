@@ -46,6 +46,7 @@ scenes/
 ├─ level/
 │  ├─ Collectible.tscn
 │  ├─ Level.tscn
+│  ├─ MazeBorderTimer.tscn
 │  └─ RotatingGate.tscn
 └─ player/
    └─ Player.tscn
@@ -86,6 +87,8 @@ scripts/
 │  │  ├─ CollectibleSpawnPlanner.cs
 │  │  ├─ LetterKind.cs
 │  │  └─ WordProgressState.cs
+│  ├─ enemies/
+│  │  └─ EnemyReleaseBorderTimer.cs
 │  ├─ gates/
 │  │  ├─ GateContactHalf.cs
 │  │  ├─ GateLogicalState.cs
@@ -122,6 +125,7 @@ scripts/
 │  ├─ Level.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
+│  ├─ MazeBorderTimerView.cs
 │  └─ RotatingGateView.cs
 └─ ui/
    └─ Hud.cs
@@ -153,6 +157,7 @@ doc/
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
 - assets/sprites/props/collectibles.png
+- assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
 
 ## 3. Current Scene Structure
@@ -188,6 +193,7 @@ Main (Node)
 ```text
 Level (Node2D)
 ├─ Maze (Sprite2D)
+├─ MazeBorderTimer (instance of scenes/level/MazeBorderTimer.tscn)
 ├─ Collectibles (Node2D)
 ├─ Gates (Node2D)
 │  └─ 20 instances of scenes/level/RotatingGate.tscn
@@ -214,6 +220,16 @@ Level (Node2D)
 - offset = Vector2(16, 24)
 - scene position = Vector2(0, 40)
 - the maze is shifted down to make room for the upper HUD strip
+
+**MazeBorderTimer node:**
+- instance of scenes/level/MazeBorderTimer.tscn
+- script = scripts/level/MazeBorderTimerView.cs
+- renders the animated white / green border tiles around the maze
+- creates the individual Sprite2D tile views at runtime from assets/sprites/props/maze_border_timer_tiles.png
+- keeps the border-timer graphics separate from the static purple maze background
+- uses scripts/gameplay/enemies/EnemyReleaseBorderTimer.cs for the arcade-style countdown / reload timing
+- starts the visual cycle near the middle of the top border and advances clockwise
+- currently prints a placeholder message when the border cycle completes because enemies are not implemented yet
 
 **Collectibles node:**
 - runtime parent for spawned collectible instances
@@ -431,6 +447,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - create PlayfieldCollisionResolver from MazeGrid and GateSystem
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
+- configure the maze-border enemy-release timer for the current level number
 - own the current prototype score state
 - own the current prototype heart multiplier state
 - own the current prototype SPECIAL / EXTRA word progress state
@@ -438,7 +455,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - own the short heart / letter pickup popup state
 - own the player death sequence state at board-coordinator level
 - own the minimal game-over guard
-- own the fixed gameplay tick for board-level systems and the player
+- own the fixed gameplay tick for board-level systems, the maze-border timer, and the player
 - expose runtime MazeGrid and GateSystem
 - expose coordinate conversion wrapper methods
 - expose TryConsumeCollectible(...) for the player pickup path
@@ -449,6 +466,8 @@ Level.cs is currently the runtime coordinator for one active board.
 **Delegated responsibilities:**
 - coordinate conversion math: LevelCoordinateSystem
 - gate view/runtime management: LevelGateRuntime
+- maze-border timer rendering and visual state: MazeBorderTimerView
+- maze-border countdown / reload timing: EnemyReleaseBorderTimer
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
 - collectible scoring calculation: CollectibleScoreService
@@ -461,6 +480,7 @@ Level.cs is currently the runtime coordinator for one active board.
 **Fixed tick ownership:**
 - Level owns the fixed gameplay simulation tick
 - board-level systems are advanced before the player
+- the maze-border timer is advanced as a normal board-level system
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
@@ -789,7 +809,64 @@ Level
 - visual placement is controlled by Level.tscn
 - credits, top score, title screen HUD, and full arcade screen flow are not implemented yet
 
-## 12. Rotating Gate System
+
+## 12. Maze Border Enemy Release Timer
+
+Current maze-border timer files:
+
+```text
+scenes/level/MazeBorderTimer.tscn
+scripts/level/MazeBorderTimerView.cs
+scripts/gameplay/enemies/EnemyReleaseBorderTimer.cs
+assets/sprites/props/maze_border_timer_tiles.png
+```
+
+**Current role:**
+- render the animated white / green border tiles around the maze
+- represent the arcade enemy-release clock visually
+- keep the border clock separate from the collectible heart / letter color cycle
+- return a completion signal that will later be used to release the next enemy
+
+**Current visual model:**
+- MazeBorderTimerView creates Sprite2D tile instances at runtime
+- the fixed purple maze wall remains inside assets/images/maze_background.png
+- the timer layer uses transparent white / green tiles from assets/sprites/props/maze_border_timer_tiles.png
+- the simplified tilesheet contains:
+  - top-left corner
+  - top-right corner
+  - bottom-left corner
+  - bottom-right corner
+  - vertical border tile
+  - horizontal border tile
+- the right and bottom edge tiles use separate placement offsets so the simplified tileset can match the current maze background
+- the visual sequence starts near the middle of the top border and proceeds clockwise
+
+**Current timing model:**
+- EnemyReleaseBorderTimer implements a countdown / reload model based on the reverse-engineered arcade RAM pair 60AA / 60AB
+- the border timer is independent from the 600-tick collectible color cycle used by hearts and letters
+- the first border step occurs only after a full countdown period
+- current level-based periods are:
+
+```text
+Level 1       = 9 simulation ticks per border step
+Levels 2 to 4 = 6 simulation ticks per border step
+Level 5+      = 3 simulation ticks per border step
+```
+
+**Current Level integration:**
+- Level finds the optional MazeBorderTimer node at startup
+- Level configures it from the current _levelNumber
+- Level advances it from AdvanceBoardSimulationOneTick()
+- the timer is frozen during heart / letter popup pauses
+- the timer is frozen during the player death sequence
+- when the border cycle completes, Level currently prints a placeholder message instead of releasing an enemy
+
+**Current limitation:**
+- the visual border clock is implemented, but enemies are not implemented yet
+- completion therefore does not currently spawn or release any enemy
+- the remake uses high-level Sprite2D rendering rather than reproducing the original VRAM / color RAM writes literally
+
+## 13. Rotating Gate System
 
 Rotating gates are implemented as a dynamic gameplay system.
 
@@ -813,7 +890,7 @@ Current gate-related files:
 - scripts/level/LevelGateRuntime.cs
 - scripts/level/RotatingGateView.cs
 
-## 13. Playfield Step Evaluation
+## 14. Playfield Step Evaluation
 
 Dynamic movement legality is evaluated beyond the static maze.
 
@@ -833,7 +910,7 @@ Current flow:
 - BlockedByFixedWall
 - BlockedByGate
 
-## 14. Player Movement System
+## 15. Player Movement System
 
 The current player movement system is an arcade-oriented fixed-tick model.
 It includes reverse-engineered assisted-turn behavior and is split into dedicated helper classes.
@@ -905,7 +982,7 @@ Current player-related files:
 - represent the outcome of one movement-motor tick
 - expose the real one-pixel movement segments completed during that tick
 
-## 15. Current Player Movement Behavior
+## 16. Current Player Movement Behavior
 
 The current player movement model includes:
 
@@ -931,7 +1008,7 @@ The current player movement model includes:
 - pause of normal player movement while the player death sequence is active
 - respawn reset to PlayerStartCell after a completed death sequence when lives remain
 
-## 16. What Is Currently Working
+## 17. What Is Currently Working
 
 The following is already implemented and functional:
 
@@ -942,6 +1019,9 @@ The following is already implemented and functional:
 - lower HUD displays lives and score below the maze
 - SPECIAL, EXTRA, and x2/x3/x5 are displayed in the upper HUD
 - pre-placed rotating gates are displayed
+- maze-border timer tiles are displayed around the maze
+- maze-border timer animation starts near the middle of the top border and advances clockwise
+- maze-border timer speed follows the reverse-engineered level periods: 9 ticks at level 1, 6 ticks at levels 2-4, and 3 ticks at level 5+
 - player is displayed
 - player start position is defined through Level.PlayerStartCell
 - player preview updates in the editor
@@ -955,6 +1035,8 @@ The following is already implemented and functional:
 - rotating gates influence movement legality
 - rotating gates can be pushed
 - gate runtime state is managed through LevelGateRuntime
+- maze-border timer is driven by the Level-owned fixed simulation tick
+- maze-border timer is frozen during pickup popups and the player death sequence
 - gate logical state toggles immediately on successful push
 - gate turning visuals are shown briefly
 - Level owns the fixed simulation tick
@@ -995,11 +1077,12 @@ The following is already implemented and functional:
 - the player respawns at PlayerStartCell when lives remain
 - no-lives game over placeholder exists
 
-## 17. What Is Not Implemented Yet
+## 18. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
 - enemies
+- actual enemy release when the maze-border timer completes
 - bonus vegetables
 - enemy freeze caused by vegetables
 - title screen flow
@@ -1015,7 +1098,7 @@ The following systems are still not implemented yet:
 - top score display
 - automated movement regression tests
 
-## 18. Current Limitations
+## 19. Current Limitations
 
 The movement and gate systems are stable and much closer to the arcade behavior than the early prototype.
 Player turn-lane candidates are generated from the logical maze, while the arcade-style pixel window policy remains implemented in the movement resolver.
@@ -1029,9 +1112,10 @@ Current limitations include:
 - SPECIAL / EXTRA completion does not yet trigger stage transition
 - game over is only a placeholder state
 - enemies are not implemented yet
+- maze-border timer completion currently prints a placeholder instead of releasing an enemy
 - exact low-level tile / color RAM behavior is not reproduced literally
 
-## 19. Current Development Priority
+## 20. Current Development Priority
 
 A reasonable current priority is now:
 
@@ -1040,5 +1124,6 @@ A reasonable current priority is now:
 3) implement level-clear / stage transition flow
 4) decide the remake behavior for SPECIAL completion
 5) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-6) implement enemies and remaining gameplay systems
-7) continue refining arcade fidelity only where reverse engineering or testing justifies it
+6) implement enemies and connect maze-border timer completion to enemy release
+7) implement remaining gameplay systems
+8) continue refining arcade fidelity only where reverse engineering or testing justifies it

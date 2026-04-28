@@ -69,6 +69,7 @@ The final project architecture is intended to have these major layers:
    - gate runtime
    - collectible field runtime
    - collectible color cycle
+   - maze border enemy-release timer
    - pickup popup state and view
    - player death sequence coordination
    - player instance
@@ -87,6 +88,7 @@ The final project architecture is intended to have these major layers:
    - score / multiplier / bonus logic
    - lives and death flow
    - word progression rules for SPECIAL / EXTRA
+   - maze border enemy-release clock
    - enemy target / movement logic
 
 6) Rendering / UI
@@ -111,6 +113,7 @@ assets/
 │  ├─ player/
 │  ├─ enemies/
 │  └─ props/
+│     └─ maze_border_timer_tiles.png
 ├─ audio/
 │  ├─ music/
 │  └─ sfx/
@@ -147,6 +150,7 @@ scenes/
 │  └─ HighScoreScreen.tscn
 ├─ level/
 │  ├─ Level.tscn
+│  ├─ MazeBorderTimer.tscn
 │  ├─ RotatingGate.tscn
 │  └─ Collectible.tscn
 ├─ player/
@@ -176,6 +180,7 @@ scripts/
 │  ├─ LevelGateRuntime.cs
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
+│  ├─ MazeBorderTimerView.cs
 │  ├─ RotatingGateView.cs
 │  └─ Collectible.cs
 ├─ actors/
@@ -199,6 +204,8 @@ scripts/
 │  ├─ maze/
 │  ├─ gates/
 │  ├─ collectibles/
+│  ├─ enemies/
+│  │  └─ EnemyReleaseBorderTimer.cs
 │  ├─ scoring/
 │  ├─ player/
 │  ├─ session/
@@ -347,6 +354,7 @@ The current direction is to keep Level as a coordinator while delegating special
 ```text
 Level (Node2D)
 ├─ MazeBackground or Maze (Sprite2D)
+├─ MazeBorderTimer (Node2D)
 ├─ Gates (Node2D)
 │  └─ RotatingGate instances
 ├─ Collectibles (Node2D)
@@ -364,6 +372,7 @@ Current implementation note:
 - the HUD is currently a CanvasLayer directly inside Level.tscn
 - the maze is shifted down in Level.tscn to make room for the upper HUD strip
 - the static maze background remains a Sprite2D
+- the maze-border timer is a separate Sprite2D-based visual layer around the static maze background
 - moving / interactive objects remain separate from the static background
 - gate view instances are pre-placed in Level.tscn and converted into a separate runtime gate system during initialization
 - the current collectible direction is to spawn a base flower layout first, then replace selected cells with special collectibles
@@ -385,6 +394,12 @@ CollectibleFieldRuntime
 
 LevelGateRuntime
 - owns placed gate views, GateSystem creation, gate ticking, pushes and view sync
+
+MazeBorderTimerView
+- owns the generated border-timer sprites and maps timer state to white / green visuals
+
+EnemyReleaseBorderTimer
+- owns the countdown / reload timing for the future enemy-release border clock
 
 CollectibleScoreService
 - computes collectible base score and final score delta
@@ -516,7 +531,53 @@ Enemy logic should probably reuse the same playfield-step legality model, but no
 Do not extract a generic ActorMovementMotor too early.
 The player has special input and assisted-turn behavior that enemies may not share.
 
-## 9. Rotating Gate Architecture
+
+## 9. Maze Border Timer / Enemy Release Clock Architecture
+
+The maze border timer is a board-level clock that visually communicates future enemy release.
+It should remain separate from the collectible heart / letter color cycle.
+
+Current implemented split:
+
+```text
+MazeBorderTimerView
+- visual Node2D layer inside Level.tscn
+- creates border tile Sprite2D nodes at runtime
+- maps timer progress to white / green tile colors
+- controls visual ordering, including the top-middle start point and clockwise progression
+
+EnemyReleaseBorderTimer
+- pure gameplay timing helper
+- implements the countdown / reload model reverse-engineered from the arcade border timer
+- exposes whether a visual step occurred
+- exposes whether the green fill completed and an enemy should be released later
+```
+
+Current timing model:
+
+```text
+Level 1       -> one border step every 9 simulation ticks
+Levels 2 to 4 -> one border step every 6 simulation ticks
+Level 5+      -> one border step every 3 simulation ticks
+```
+
+Architectural rule:
+- CollectibleColorCycle owns the 600-tick color mode for hearts and letters
+- EnemyReleaseBorderTimer owns the maze-border countdown and future enemy-release cadence
+- both advance from the Level-owned fixed tick, but they should not share logical state
+
+Current Level integration:
+- Level configures MazeBorderTimerView from the current level number
+- Level advances MazeBorderTimerView as a normal board-level system
+- completion currently prints a placeholder because enemies are not implemented yet
+
+Expected future integration:
+- when enemies exist, MazeBorderTimerView / EnemyReleaseBorderTimer completion should call into an enemy runtime or emit an explicit board event
+- the enemy runtime should decide which queued enemy can be released and enforce maximum active enemy rules
+- the visual border timer should reset according to the same high-level timing model after each release cycle
+- pickup popups, player death, and stage transitions should pause this timer with the rest of the board simulation
+
+## 10. Rotating Gate Architecture
 
 Rotating gates are already implemented as gameplay objects, not visual-only props.
 
@@ -555,7 +616,7 @@ Future work:
 - verify enemy interaction with gates
 - refine rare player/gate edge cases only if testing shows mismatches
 
-## 10. Item / Collectible Architecture
+## 11. Item / Collectible Architecture
 
 The project now has a strong collectible foundation.
 
@@ -569,6 +630,7 @@ Current implemented direction:
 - pickup timing follows all movement segments reported by the player motor
 - CollectiblePickupResult returns semantic pickup data to Level
 - CollectibleColorCycle drives the global heart / letter color cycle
+- the heart / letter color cycle remains separate from the maze-border enemy-release timer
 - CollectibleScoreService calculates current score contribution
 - WordProgressState applies SPECIAL / EXTRA letter effects
 - HeartMultiplierState applies blue-heart multiplier effects
@@ -619,7 +681,7 @@ Likely long-term architecture:
 Important:
 The collectible system should remain driven by logical maze cells, not by free-form scene-space placement.
 
-## 11. Scoring, Multiplier, Lives, and Word Progression
+## 12. Scoring, Multiplier, Lives, and Word Progression
 
 The current prototype now has a useful scoring / bonus foundation:
 
@@ -668,7 +730,7 @@ Future session architecture:
 - SPECIAL should call into the session/screen-flow system to award a credit/free game or remake-equivalent reward
 - stage transitions should be owned above Level or coordinated through explicit Level events
 
-## 12. Pickup Popup / Temporary Freeze Architecture
+## 13. Pickup Popup / Temporary Freeze Architecture
 
 The reverse-engineered arcade behavior includes a short freeze and temporary score / multiplier popup when collecting hearts and letters.
 
@@ -685,7 +747,7 @@ Long-term direction:
 - enemy movement and other future timers should also pause while this state is active
 - death and stage-clear transitions can use a similar board-level temporary state pattern
 
-## 13. Player Death / Respawn Architecture
+## 14. Player Death / Respawn Architecture
 
 The player death path is now partially implemented.
 
@@ -709,7 +771,7 @@ Long-term direction:
 - emit explicit events such as LifeLost, PlayerRespawned, GameOver, or StageComplete when the screen/session layer exists
 - keep death visual timing isolated from movement rules
 
-## 14. Playfield Collision Architecture
+## 15. Playfield Collision Architecture
 
 PlayfieldCollisionResolver is the current bridge between the static maze and dynamic gates.
 
@@ -725,7 +787,7 @@ Responsibilities:
 It should remain independent of player-specific turn logic.
 Players and future enemies can ask the playfield whether a step is legal without duplicating static maze + gate overlay checks.
 
-## 15. HUD / UI Architecture
+## 16. HUD / UI Architecture
 
 Hud now represents the active gameplay HUD for the current Level prototype.
 
@@ -764,7 +826,7 @@ It should observe GameSession and/or GameplayScreen.
 Debug overlays should remain separate from normal HUD.
 PlayerDebugOverlay is currently a small actor-specific debug helper, not a final HUD system.
 
-## 16. Logical Maze Architecture
+## 17. Logical Maze Architecture
 
 The logical maze system already has a good foundation and should remain central.
 
@@ -795,7 +857,7 @@ Important:
 - collectible layout data should remain separate from static wall data
 - rotating gates can be authored in the level scene while still being converted into a separate runtime system at initialization
 
-## 17. Coordinate System Design
+## 18. Coordinate System Design
 
 A central architectural principle is the separation between:
 
@@ -827,7 +889,7 @@ Current implementation:
 - PlayerDeathSequenceState stores offsets in arcade-pixel terms and PlayerController converts them to scene-space deltas
 - PlayerDebugOverlay formats player debug coordinates separately from normal gameplay conversion
 
-## 18. Current Implemented Foundation
+## 19. Current Implemented Foundation
 
 The following part of the target architecture is already implemented now:
 
@@ -847,6 +909,8 @@ The following part of the target architecture is already implemented now:
 - CollectiblePickupResult
 - CollectiblePickupPopupState
 - CollectiblePickupPopupView
+- MazeBorderTimerView
+- EnemyReleaseBorderTimer
 - ScoreState
 - HeartMultiplierState
 - CollectibleScoreService
@@ -869,6 +933,9 @@ The following part of the target architecture is already implemented now:
 - player death sequence and respawn
 - temporary heart / letter score popup with short freeze and player hide/restore
 - HUD display for score, lives, SPECIAL, EXTRA, and multipliers
+- maze-border timer visual layer
+- reverse-engineered maze-border timer cadence by level
+- Level-driven maze-border timer ticking and pause behavior
 - PlayerController
 - PlayerDebugOverlay
 - PlayerInputState
@@ -899,7 +966,7 @@ The following part of the target architecture is already implemented now:
 For the detailed current state, see:
 - current_implementation.md
 
-## 19. Main Systems Still To Implement
+## 20. Main Systems Still To Implement
 
 The largest remaining systems are:
 
@@ -913,6 +980,7 @@ The largest remaining systems are:
 - immediate next-level transition when SPECIAL or EXTRA is completed
 - final SPECIAL free-credit / free-game behavior or remake equivalent
 - EnemyController and enemy runtime logic
+- connection from maze-border timer completion to actual enemy release
 - enemy AI / movement helpers
 - enemy interaction with rotating gates
 - bonus vegetables
@@ -922,7 +990,7 @@ The largest remaining systems are:
 - top score / credits / final arcade HUD elements
 - automated regression scenarios for movement-sensitive behavior
 
-## 20. Architectural Guiding Principles
+## 21. Architectural Guiding Principles
 
 The architecture should continue to follow these rules:
 
@@ -935,19 +1003,21 @@ The architecture should continue to follow these rules:
 7) Stay close to reverse-engineered arcade behavior where it matters
 8) Isolate low-level reverse-engineering details behind readable gameplay names
 9) Protect stable movement behavior before further movement refactoring
-10) Avoid prematurely generalizing player movement into a shared actor motor before enemy behavior is understood
-11) Prefer high-level gameplay states for pauses, popups, death and stage transitions instead of literal RAM-layout emulation
-12) Move session-wide state out of Level when screen flow and stage transitions make that necessary
+10) Keep the collectible color cycle independent from the maze-border enemy-release timer
+11) Avoid prematurely generalizing player movement into a shared actor motor before enemy behavior is understood
+12) Prefer high-level gameplay states for pauses, popups, death and stage transitions instead of literal RAM-layout emulation
+13) Move session-wide state out of Level when screen flow and stage transitions make that necessary
 
-## 21. Current Architectural Direction
+## 22. Current Architectural Direction
 
-The player movement, level runtime, rotating gates, collectible scoring, lives, death, HUD, and word-progress foundation are now stable enough to build on.
+The player movement, level runtime, rotating gates, maze-border timer, collectible scoring, lives, death, HUD, and word-progress foundation are now stable enough to build on.
 
 The next major architectural expansions should happen around:
 - documenting and protecting movement behavior with regression scenarios
 - level clear and stage transition flow
 - deciding final SPECIAL reward behavior in a remake context
 - GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
+- connecting the maze-border timer to actual enemy release
 - enemy movement and AI
 - bonus vegetable behavior
 
@@ -963,8 +1033,9 @@ The major current Level extractions have already been done:
 - death sequence state
 - pickup popup state / view
 - HUD rendering
+- maze-border timer rendering and timing
 
-## 22. Summary
+## 23. Summary
 
 The final architecture is intended to support the whole game, not only the player movement subsystem.
 
@@ -974,6 +1045,7 @@ It should ultimately contain:
 - level runtime
 - player
 - enemies
+- enemy-release border clock
 - rotating gates
 - collectibles and bonus systems
 - scoring and high scores
@@ -981,7 +1053,7 @@ It should ultimately contain:
 - SPECIAL / EXTRA flow
 - HUD and other UI
 
-The project already has a solid movement, maze, rotating-gate, coordinate, collision, collectible, scoring, HUD, lives, death, and word-progress foundation.
+The project already has a solid movement, maze, rotating-gate, maze-border timer, coordinate, collision, collectible, scoring, HUD, lives, death, and word-progress foundation.
 
 The most important architectural shift since the previous version of this document is that Level now coordinates more board-level temporary states and prototype session-like state:
 - coordinate conversion is isolated
@@ -993,6 +1065,7 @@ The most important architectural shift since the previous version of this docume
 - life state is isolated
 - death visual timing is isolated
 - pickup popup state and view are isolated
+- maze-border timer visual and timing concerns are isolated
 - HUD rendering is separated from gameplay state
 - player movement is modular and stable
 
