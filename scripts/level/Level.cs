@@ -90,6 +90,10 @@ public partial class Level : Node2D
     // Parent node used by CollectibleFieldRuntime to spawn collectible views.
     private Node2D? _collectiblesRoot;
 
+    // Optional visual/runtime maze-border timer. It is advanced only from the
+    // Level-owned fixed gameplay tick, never from its own _Process callback.
+    private MazeBorderTimerView? _mazeBorderTimer;
+
     // Runtime player controller owned by this level.
     private PlayerController? _player;
 
@@ -162,6 +166,7 @@ public partial class Level : Node2D
         _mazeSprite = GetNodeOrNull<Sprite2D>("Maze");
         _gatesRoot = GetNodeOrNull<Node2D>("Gates");
         _collectiblesRoot = GetNodeOrNull<Node2D>("Collectibles");
+        _mazeBorderTimer = GetNodeOrNull<MazeBorderTimerView>("MazeBorderTimer");
 
         if (_gatesRoot == null)
         {
@@ -217,8 +222,9 @@ public partial class Level : Node2D
     /// </summary>
     /// <remarks>
     /// This method keeps the startup order explicit: load the static maze first,
-    /// build gate collision state, create collectible runtime state, then apply the
-    /// start-of-level special collectible plan and initial color cycle.
+    /// build gate collision state, create collectible runtime state, apply the
+    /// start-of-level special collectible plan and initial color cycle, then configure
+    /// the optional maze-border timer for the current level number.
     /// </remarks>
     private void InitializeRuntimeSystems()
     {
@@ -250,6 +256,10 @@ public partial class Level : Node2D
 
         _collectibleColorCycle.ResetToBlue();
         _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
+
+        // The maze-border timer uses a separate arcade countdown from the heart /
+        // letter color cycle. Configure it after the view has built its tile loop.
+        _mazeBorderTimer?.ConfigureForLevel(_levelNumber);
     }
 
     /// <summary>
@@ -331,9 +341,21 @@ public partial class Level : Node2D
     /// <summary>
     /// Advances board-level systems that are not owned by a specific actor.
     /// </summary>
+    /// <remarks>
+    /// The maze-border timer is advanced separately from the collectible color cycle.
+    /// Reverse engineering showed that the arcade updates the border timer routine
+    /// before the heart / letter color-cycle routine in the main gameplay loop.
+    /// </remarks>
     private void AdvanceBoardSimulationOneTick()
     {
         _gateRuntime.AdvanceOneTick();
+
+        if (_mazeBorderTimer?.AdvanceOneSimulationTick() == true)
+        {
+            // Enemy runtime is not implemented yet. Keep this signal visible so the
+            // future enemy-release integration can be wired to the same condition.
+            GD.Print("Maze border completed: release enemy placeholder.");
+        }
 
         if (_collectibleColorCycle.AdvanceOneTick())
             _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);

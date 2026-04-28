@@ -215,7 +215,7 @@ place_heart(pickC[1])
 
 skull_positions = [pickA[2], pickB[2], pickC[2], pickA[3], pickB[3], pickC[3]]
 for i in range(skull_count_for_level(level)):
-    place_skull(skull_positions[i])
+	place_skull(skull_positions[i])
 ```
 
 ## Runtime Pickup Timing
@@ -235,8 +235,8 @@ Recommended Godot rule:
 
 ```text
 for each committed movement segment:
-    if the segment crosses the destination logical-cell anchor:
-        consume collectible at that logical cell
+	if the segment crosses the destination logical-cell anchor:
+		consume collectible at that logical cell
 ```
 
 If the movement motor reports an explicit snapped anchor, check that exact anchor too.
@@ -357,17 +357,17 @@ Current Godot behavior:
 
 ```text
 when heart/letter pickup is confirmed:
-    compute pickup result and score using current color mode and multiplier
-    apply SPECIAL / EXTRA progress or blue-heart multiplier update if relevant
-    start a 30-tick pickup popup state
-    hide the player sprite during the popup
-    pause normal player/enemy movement during the popup
-    display score text above the collectible anchor
-    display multiplier text below the collectible anchor when multiplier is active
-    after 30 ticks:
-        remove the popup
-        show the player again
-        resume normal gameplay
+	compute pickup result and score using current color mode and multiplier
+	apply SPECIAL / EXTRA progress or blue-heart multiplier update if relevant
+	start a 30-tick pickup popup state
+	hide the player sprite during the popup
+	pause normal player/enemy movement during the popup
+	display score text above the collectible anchor
+	display multiplier text below the collectible anchor when multiplier is active
+	after 30 ticks:
+		remove the popup
+		show the player again
+		resume normal gameplay
 ```
 
 For the remake, this is intentionally implemented as a high-level gameplay state rather
@@ -401,8 +401,8 @@ Recommended and current Godot logic:
 score += baseScore(currentMode) * multiplierForCurrentStep()
 
 if collectible is heart and currentMode is Blue:
-    multiplierStep = min(multiplierStep + 1, 3)
-    update HUD x2/x3/x5 display
+	multiplierStep = min(multiplierStep + 1, 3)
+	update HUD x2/x3/x5 display
 ```
 
 MAME showed the first three blue hearts produce `+100`, `+200`, then `+300`, while the
@@ -440,12 +440,12 @@ Confirmed MAME tests:
 
 ```text
 P red:
-    D=03, E=03
-    609D FF -> FD
+	D=03, E=03
+	609D FF -> FD
 
 X yellow:
-    D=07, E=02
-    609E FF -> FD
+	D=07, E=02
+	609E FF -> FD
 ```
 
 Current Godot interpretation:
@@ -493,8 +493,8 @@ Recommended Godot behavior:
 
 ```text
 if collectible is skull:
-    remove skull
-    kill player
+	remove skull
+	kill player
 ```
 
 Current Godot behavior:
@@ -523,8 +523,8 @@ Current Godot behavior:
 
 ```text
 if collectible is flower:
-    score += 10 * currentMultiplier
-    remove flower
+	score += 10 * currentMultiplier
+	remove flower
 ```
 
 Completing all required flowers / dots should eventually participate in the normal
@@ -585,39 +585,39 @@ or use a phase-order wrapper.
 ```csharp
 public enum CollectibleColorMode
 {
-    Red,
-    Yellow,
-    Blue
+	Red,
+	Yellow,
+	Blue
 }
 
 public sealed class CollectibleColorCycle
 {
-    private const int TotalTicks = 0x0258; // 600
-    private const int RedEnd = 0x001F;     // 31 ticks
-    private const int YellowEnd = 0x00B4;  // 180 ticks total from cycle origin
+	private const int TotalTicks = 0x0258; // 600
+	private const int RedEnd = 0x001F;     // 31 ticks
+	private const int YellowEnd = 0x00B4;  // 180 ticks total from cycle origin
 
-    private int _tick;
+	private int _tick;
 
-    public CollectibleColorMode CurrentMode
-    {
-        get
-        {
-            int t = _tick % TotalTicks;
+	public CollectibleColorMode CurrentMode
+	{
+		get
+		{
+			int t = _tick % TotalTicks;
 
-            if (t < RedEnd)
-                return CollectibleColorMode.Red;
+			if (t < RedEnd)
+				return CollectibleColorMode.Red;
 
-            if (t < YellowEnd)
-                return CollectibleColorMode.Yellow;
+			if (t < YellowEnd)
+				return CollectibleColorMode.Yellow;
 
-            return CollectibleColorMode.Blue;
-        }
-    }
+			return CollectibleColorMode.Blue;
+		}
+	}
 
-    public void AdvanceOneTick()
-    {
-        _tick = (_tick + 1) % TotalTicks;
-    }
+	public void AdvanceOneTick()
+	{
+		_tick = (_tick + 1) % TotalTicks;
+	}
 }
 ```
 

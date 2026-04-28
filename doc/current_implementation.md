@@ -194,11 +194,11 @@ Level (Node2D)
 ├─ Player (instance of scenes/player/Player.tscn)
 └─ Hud (CanvasLayer)
    └─ Root (Control)
-      ├─ SpecialWordLabel (RichTextLabel)
-      ├─ ExtraWordLabel (RichTextLabel)
-      ├─ MultipliersLabel (RichTextLabel)
-      ├─ ScoreLabel (Label)
-      └─ LivesLabel (Label)
+	  ├─ SpecialWordLabel (RichTextLabel)
+	  ├─ ExtraWordLabel (RichTextLabel)
+	  ├─ MultipliersLabel (RichTextLabel)
+	  ├─ ScoreLabel (Label)
+	  └─ LivesLabel (Label)
 ```
 
 **Current main script:**
@@ -764,11 +764,11 @@ scripts/gameplay/player/
 Level
 └─ Hud (CanvasLayer)
    └─ Root (Control)
-      ├─ SpecialWordLabel (RichTextLabel)
-      ├─ ExtraWordLabel (RichTextLabel)
-      ├─ MultipliersLabel (RichTextLabel)
-      ├─ ScoreLabel (Label)
-      └─ LivesLabel (Label)
+	  ├─ SpecialWordLabel (RichTextLabel)
+	  ├─ ExtraWordLabel (RichTextLabel)
+	  ├─ MultipliersLabel (RichTextLabel)
+	  ├─ ScoreLabel (Label)
+	  └─ LivesLabel (Label)
 ```
 
 **Current responsibilities:**

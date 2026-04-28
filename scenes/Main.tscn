@@ -5,3 +5,4 @@
 [node name="Main" type="Node" unique_id=1736592162]
 
 [node name="Level" parent="." unique_id=499888811 instance=ExtResource("1_elqb8")]
+position = Vector2(27, 0)

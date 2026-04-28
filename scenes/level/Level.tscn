@@ -5,17 +5,20 @@
 [ext_resource type="PackedScene" uid="uid://bb0ow503k3dgv" path="res://scenes/player/Player.tscn" id="2_l1x8v"]
 [ext_resource type="PackedScene" uid="uid://4p3nyknxs4ag" path="res://scenes/level/RotatingGate.tscn" id="4_5l2jw"]
 [ext_resource type="Script" uid="uid://dydfiym54jom0" path="res://scripts/ui/Hud.cs" id="5_ti4pp"]
+[ext_resource type="PackedScene" path="res://scenes/level/MazeBorderTimer.tscn" id="6_border"]
 
 [node name="Level" type="Node2D" unique_id=499888811]
 script = ExtResource("1_l1x8v")
 PlayerStartCell = Vector2i(5, 8)
 
 [node name="Maze" type="Sprite2D" parent="." unique_id=1774754904]
-position = Vector2(0, 40)
 texture_filter = 1
+position = Vector2(0, 40)
 texture = ExtResource("2_cne4c")
 centered = false
 offset = Vector2(16, 24)
+
+[node name="MazeBorderTimer" parent="." unique_id=1231913403 instance=ExtResource("6_border")]
 
 [node name="Collectibles" type="Node2D" parent="." unique_id=244134799]
 
@@ -135,9 +138,6 @@ GatePivot = Vector2i(9, 10)
 
 [node name="Hud" type="CanvasLayer" parent="." unique_id=170479958]
 script = ExtResource("5_ti4pp")
-SpecialWordLabelPath = NodePath("Root/SpecialWordLabel")
-ExtraWordLabelPath = NodePath("Root/ExtraWordLabel")
-MultipliersLabelPath = NodePath("Root/MultipliersLabel")
 
 [node name="Root" type="Control" parent="Hud" unique_id=2003974388]
 layout_mode = 3
@@ -147,42 +147,47 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="SpecialWordLabel" type="RichTextLabel" parent="Hud/Root"]
+[node name="SpecialWordLabel" type="RichTextLabel" parent="Hud/Root" unique_id=526001726]
 layout_mode = 1
+anchors_preset = -1
 anchor_right = 0.333333
 offset_left = 16.0
-offset_top = 4.0
+offset_top = -4.0
 offset_right = -6.0
-offset_bottom = 68.0
+offset_bottom = 60.0
+theme_override_font_sizes/normal_font_size = 36
 bbcode_enabled = true
 text = "[font_size=36][color=#C8C8C8]S[/color][color=#C8C8C8]P[/color][color=#C8C8C8]E[/color][color=#C8C8C8]C[/color][color=#C8C8C8]I[/color][color=#C8C8C8]A[/color][color=#C8C8C8]L[/color][/font_size]"
 scroll_active = false
-theme_override_font_sizes/normal_font_size = 36
 
-[node name="ExtraWordLabel" type="RichTextLabel" parent="Hud/Root"]
+[node name="ExtraWordLabel" type="RichTextLabel" parent="Hud/Root" unique_id=615272223]
 layout_mode = 1
+anchors_preset = -1
 anchor_left = 0.333333
 anchor_right = 0.666667
-offset_top = 4.0
-offset_bottom = 68.0
+offset_left = -0.0004119873
+offset_top = -4.0
+offset_right = -0.0004272461
+offset_bottom = 60.0
+theme_override_font_sizes/normal_font_size = 36
 bbcode_enabled = true
 text = "[center][font_size=36][color=#C8C8C8]E[/color][color=#C8C8C8]X[/color][color=#C8C8C8]T[/color][color=#C8C8C8]R[/color][color=#C8C8C8]A[/color][/font_size][/center]"
 scroll_active = false
-theme_override_font_sizes/normal_font_size = 36
 horizontal_alignment = 1
 
-[node name="MultipliersLabel" type="RichTextLabel" parent="Hud/Root"]
+[node name="MultipliersLabel" type="RichTextLabel" parent="Hud/Root" unique_id=2037252204]
 layout_mode = 1
+anchors_preset = -1
 anchor_left = 0.666667
 anchor_right = 1.0
-offset_left = 6.0
-offset_top = 4.0
-offset_right = -16.0
-offset_bottom = 68.0
+offset_left = 6.000458
+offset_top = -4.0
+offset_right = -15.999512
+offset_bottom = 60.0
+theme_override_font_sizes/normal_font_size = 36
 bbcode_enabled = true
 text = "[right][font_size=36][color=#C8C8C8]x2[/color] [color=#C8C8C8]x3[/color] [color=#C8C8C8]x5[/color][/font_size][/right]"
 scroll_active = false
-theme_override_font_sizes/normal_font_size = 36
 horizontal_alignment = 2
 
 [node name="ScoreLabel" type="Label" parent="Hud/Root" unique_id=922229364]
@@ -203,7 +208,7 @@ text = "0"
 horizontal_alignment = 2
 vertical_alignment = 1
 
-[node name="LivesLabel" type="Label" parent="Hud/Root"]
+[node name="LivesLabel" type="Label" parent="Hud/Root" unique_id=657179931]
 layout_mode = 1
 anchors_preset = 2
 anchor_top = 1.0
