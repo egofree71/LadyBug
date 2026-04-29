@@ -109,4 +109,3 @@ See `gameplay_timers_reverse_engineering.md` for:
 - `60AA` / `MazeBorderCountdown`
 - `60AB` / `MazeBorderPeriod`
 - level-dependent border cadence: 9, 6, then 3 ticks per border step
-

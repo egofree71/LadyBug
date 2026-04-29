@@ -43,6 +43,8 @@ It does not describe systems that are only planned.
 ```text
 scenes/
 ├─ Main.tscn
+├─ enemies/
+│  └─ Enemy.tscn
 ├─ level/
 │  ├─ Collectible.tscn
 │  ├─ Level.tscn
@@ -58,6 +60,7 @@ scenes/
 scripts/
 ├─ Main.cs
 ├─ actors/
+│  ├─ EnemyController.cs
 │  ├─ PlayerController.cs
 │  ├─ PlayerDebugOverlay.cs
 │  ├─ PlayerInputState.cs
@@ -88,7 +91,16 @@ scripts/
 │  │  ├─ LetterKind.cs
 │  │  └─ WordProgressState.cs
 │  ├─ enemies/
-│  │  └─ EnemyReleaseBorderTimer.cs
+│  │  ├─ EnemyChaseSystem.cs
+│  │  ├─ EnemyMovementAi.cs
+│  │  ├─ EnemyMovementTuning.cs
+│  │  ├─ EnemyNavigationCell.cs
+│  │  ├─ EnemyNavigationGrid.cs
+│  │  ├─ EnemyReleaseBorderTimer.cs
+│  │  ├─ EnemyRuntime.cs
+│  │  ├─ MonsterDir.cs
+│  │  ├─ MonsterEntity.cs
+│  │  └─ MonsterRuntimeState.cs
 │  ├─ gates/
 │  │  ├─ GateContactHalf.cs
 │  │  ├─ GateLogicalState.cs
@@ -156,6 +168,7 @@ doc/
 - assets/sprites/player/lady_bug_spritesheet.png
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
+- assets/sprites/enemies/enemy_level1.png
 - assets/sprites/props/collectibles.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
@@ -198,6 +211,7 @@ Level (Node2D)
 ├─ Gates (Node2D)
 │  └─ 20 instances of scenes/level/RotatingGate.tscn
 ├─ Player (instance of scenes/player/Player.tscn)
+├─ Enemies (runtime-created Node2D when not already present)
 └─ Hud (CanvasLayer)
    └─ Root (Control)
 	  ├─ SpecialWordLabel (RichTextLabel)
@@ -229,7 +243,8 @@ Level (Node2D)
 - keeps the border-timer graphics separate from the static purple maze background
 - uses scripts/gameplay/enemies/EnemyReleaseBorderTimer.cs for the arcade-style countdown / reload timing
 - starts the visual cycle near the middle of the top border and advances clockwise
-- currently prints a placeholder message when the border cycle completes because enemies are not implemented yet
+- emits a completion condition used by Level to release the next waiting enemy
+- is reset after player death so the next life begins a fresh enemy-release cadence
 
 **Collectibles node:**
 - runtime parent for spawned collectible instances
@@ -246,6 +261,11 @@ Level (Node2D)
 
 **Player node:**
 - instance of scenes/player/Player.tscn
+
+**Enemies node:**
+- runtime-created Node2D named Enemies if it is not already present in Level.tscn
+- used as the parent for the four enemy views created by EnemyRuntime
+- inserted before the Player node so enemies render below the player but above the maze / collectibles / gates
 
 **Hud node:**
 - type = CanvasLayer
@@ -380,6 +400,34 @@ Player (Node2D)
 - the death sequence is tick-driven by PlayerDeathSequenceState
 - the normal AnimatedSprite2D is hidden while the death sprite is active
 
+
+### 3.6 Enemy scene
+
+**Scene:**
+- scenes/enemies/Enemy.tscn
+
+**Current structure:**
+
+```text
+Enemy (Node2D)
+```
+
+**Current script:**
+- scripts/actors/EnemyController.cs
+
+**Current role:**
+- lightweight visual node used by EnemyRuntime for each enemy slot
+- creates and owns the AnimatedSprite2D runtime child used to display the enemy
+- loads assets/sprites/enemies/enemy_level1.png for the current first-level enemy graphics
+- keeps enemy rendering separate from enemy movement logic
+
+**Current visual setup:**
+- the spritesheet contains three right-moving frames followed by three upward-moving frames
+- right and up animations are built at runtime
+- left is handled by horizontal flip
+- down is handled by vertical flip
+- a small visual offset is applied so the sprite lines up with the maze while preserving the enemy decision-center anchor
+
 ## 4. Logical Maze System
 
 The project already includes a logical maze system separated from the visual maze.
@@ -421,6 +469,11 @@ Coordinate conversion has been extracted from Level into LevelCoordinateSystem.
 - render scale = 4
 - gameplay anchor inside a logical cell = Vector2I(8, 7)
 
+**Enemy-specific note:**
+- enemy decision centers use the reverse-engineered anchor X&0x0F=0x08 and Y&0x0F=0x06
+- the visible waiting enemy in the lair is placed at logical cell (5, 5) using that enemy anchor
+- enemy sprite rendering applies a small visual offset so the graphics align with the current maze art without changing gameplay coordinates
+
 **Current Level wrapper methods:**
 - LogicalCellToArcadePixel(...)
 - ArcadePixelToLogicalCell(...)
@@ -445,6 +498,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - create LevelGateRuntime from Level/Gates
 - create CollectibleFieldRuntime from Level/Collectibles
 - create PlayfieldCollisionResolver from MazeGrid and GateSystem
+- create EnemyRuntime from the runtime Enemies parent, MazeGrid, GateSystem and coordinate converters
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
 - configure the maze-border enemy-release timer for the current level number
@@ -455,11 +509,13 @@ Level.cs is currently the runtime coordinator for one active board.
 - own the short heart / letter pickup popup state
 - own the player death sequence state at board-coordinator level
 - own the minimal game-over guard
-- own the fixed gameplay tick for board-level systems, the maze-border timer, and the player
+- own the fixed gameplay tick for board-level systems, the maze-border timer, enemies, and the player
 - expose runtime MazeGrid and GateSystem
 - expose coordinate conversion wrapper methods
 - expose TryConsumeCollectible(...) for the player pickup path
 - expose TryPushGate(...) for movement / gate interactions
+- check player/enemy collision after enemy and player movement have both advanced
+- restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - initialize the player after maze, gates, collectibles, HUD, and collision resolver have been prepared
 - update player and gate previews in the editor
 
@@ -470,6 +526,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - maze-border countdown / reload timing: EnemyReleaseBorderTimer
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
+- enemy state, enemy views, enemy navigation, chase, release and reset: EnemyRuntime
 - collectible scoring calculation: CollectibleScoreService
 - SPECIAL / EXTRA word progress: WordProgressState
 - lives: PlayerLifeState
@@ -481,6 +538,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - Level owns the fixed gameplay simulation tick
 - board-level systems are advanced before the player
 - the maze-border timer is advanced as a normal board-level system
+- the enemy runtime is advanced before the player, then player/enemy collision is checked after player movement
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
@@ -535,6 +593,7 @@ Current implementation detail:
 - apply the start-of-level special collectible plan
 - apply the global color cycle to hearts and letters
 - support consumption of one collectible by logical cell
+- support enemy skull checks through TryConsumeSkullAt(...)
 - return a CollectiblePickupResult when something is consumed
 - clear tracked collectible views if needed
 
@@ -596,12 +655,13 @@ Current implementation detail:
 - level transition on completed SPECIAL / EXTRA is not implemented yet
 
 **Skull:**
-- consumed with no score
-- starts the player death sequence
-- decrements lives immediately
-- freezes normal gameplay while the death sequence runs
+- consumed with no score when touched by the player
+- starts the player death sequence when touched by the player
+- decrements lives immediately when it kills the player
+- freezes normal gameplay while the player death sequence runs
 - respawns the player at PlayerStartCell if lives remain
 - enters a minimal game-over placeholder if no lives remain
+- can also kill an enemy through EnemyRuntime / TryConsumeSkullAt(...), in which case the enemy returns to the lair and the skull is removed
 
 ## 8. Scoring, Heart Multiplier, Lives, and Word Progress
 
@@ -761,6 +821,19 @@ scripts/gameplay/player/
   - if lives remain, the player respawns at PlayerStartCell
   - if no lives remain, the player remains hidden and a game-over placeholder is entered
 
+**Current enemy-death behavior:**
+- touching an active enemy immediately hides all enemy views before the player death sequence starts
+- no collectible is consumed and no score is awarded
+- one life is removed immediately
+- normal gameplay freezes during the death sequence
+- when the death sequence completes and lives remain:
+  - the player respawns at PlayerStartCell
+  - all enemies active in the maze are cleared
+  - one enemy is shown waiting in the lair again
+  - the maze-border timer is reset
+  - already consumed collectibles remain consumed
+  - rotating gate orientations are preserved
+
 **Current death visual behavior:**
 - phase 1: red player shrink sequence
 - phase 2: ghost apparition sequence
@@ -771,7 +844,7 @@ scripts/gameplay/player/
 
 **Current limitations:**
 - proper game-over screen flow is not implemented yet
-- enemy interactions during death are not relevant yet because enemies are not implemented
+- player death still uses the current high-level red shrink / ghost sequence rather than exact tile-level arcade rendering
 
 ## 11. HUD
 
@@ -825,7 +898,7 @@ assets/sprites/props/maze_border_timer_tiles.png
 - render the animated white / green border tiles around the maze
 - represent the arcade enemy-release clock visually
 - keep the border clock separate from the collectible heart / letter color cycle
-- return a completion signal that will later be used to release the next enemy
+- return a completion signal used by Level / EnemyRuntime to release the next waiting enemy
 
 **Current visual model:**
 - MazeBorderTimerView creates Sprite2D tile instances at runtime
@@ -859,14 +932,123 @@ Level 5+      = 3 simulation ticks per border step
 - Level advances it from AdvanceBoardSimulationOneTick()
 - the timer is frozen during heart / letter popup pauses
 - the timer is frozen during the player death sequence
-- when the border cycle completes, Level currently prints a placeholder message instead of releasing an enemy
+- when the border cycle completes, Level asks EnemyRuntime to release the next waiting enemy
+- after player death, Level resets the border timer as part of the attempt restart
 
-**Current limitation:**
-- the visual border clock is implemented, but enemies are not implemented yet
-- completion therefore does not currently spawn or release any enemy
+**Current implementation note:**
+- the border clock is now connected to enemy release
+- every completed release cycle should provide a release opportunity; the current implementation avoids creating an extra visual cycle that releases no enemy
 - the remake uses high-level Sprite2D rendering rather than reproducing the original VRAM / color RAM writes literally
 
-## 13. Rotating Gate System
+
+## 13. Enemy System
+
+Enemies are now implemented as a first playable runtime system.
+The current implementation is intentionally high-level and maintainable: it keeps the reverse-engineered arcade principles but does not copy the original RAM layout literally.
+
+Current enemy-related files:
+
+```text
+scenes/enemies/Enemy.tscn
+assets/sprites/enemies/enemy_level1.png
+
+scripts/actors/EnemyController.cs
+scripts/gameplay/enemies/
+├─ EnemyChaseSystem.cs
+├─ EnemyMovementAi.cs
+├─ EnemyMovementTuning.cs
+├─ EnemyNavigationCell.cs
+├─ EnemyNavigationGrid.cs
+├─ EnemyReleaseBorderTimer.cs
+├─ EnemyRuntime.cs
+├─ MonsterDir.cs
+├─ MonsterEntity.cs
+└─ MonsterRuntimeState.cs
+```
+
+### 13.1 Runtime architecture
+
+**EnemyRuntime** is the top-level enemy coordinator owned by Level.
+It creates the runtime Enemies parent if needed, instantiates four enemy views, owns the four logical enemy slots, advances enemy navigation / chase / movement, checks skull deaths for enemies, exposes collision-active monsters to Level, handles release from the lair, and resets enemy state after player death.
+
+**MonsterEntity** stores the gameplay state of one enemy slot:
+- slot id
+- arcade-pixel position
+- current direction
+- preferred direction
+- chase timer
+- runtime state
+- movement / collision flags
+- lair visibility flag
+
+**EnemyController** owns only the visual node for one enemy.
+It loads the first-level enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
+
+**EnemyNavigationGrid** builds an enemy navigation map from the static MazeGrid and the current GateSystem state.
+It stores allowed directions and BFS guidance directions separately.
+
+**EnemyMovementAi** advances one active monster by one arcade pixel.
+It handles decision-center checks, preferred-direction validation, fallback directions, straight movement, and a simple forced reversal when the current path becomes blocked outside a decision center.
+
+**EnemyChaseSystem** owns the arcade-inspired chase timing state:
+- divider
+- B8-like activation counter
+- round-robin enemy selector
+- activation index / duration sequence
+
+### 13.2 Current enemy behavior
+
+Current implemented behavior:
+- four enemy slots exist
+- one enemy is visible in the central lair before the first release
+- the visible waiting enemy is placed at logical cell (5, 5), using the enemy decision anchor X&0x0F=0x08 and Y&0x0F=0x06
+- enemies are released by the maze-border timer
+- after one enemy leaves the lair, another waiting enemy becomes visible if a slot is available
+- active enemies move one arcade pixel per fixed simulation tick
+- enemies make direction choices at decision centers
+- enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
+- navigation considers the static maze and current rotating-gate states
+- a BFS guidance map can temporarily override preferred directions during chase phases
+- chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
+- enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
+- enemies can be killed by skulls and return to the lair
+
+### 13.3 Player death from enemy
+
+When the player touches an active enemy:
+- enemy views are hidden immediately before the red shrink / ghost death sequence starts
+- the player loses one life
+- normal board simulation freezes while the death sequence runs
+- if lives remain, the board attempt restarts after the death sequence
+
+The attempt restart resets only the enemy-related attempt state:
+- active enemies in the maze are cleared
+- one enemy is placed back in the lair as waiting / visible
+- chase timers and round-robin state are reset
+- the maze-border release timer is reset
+
+The attempt restart deliberately preserves:
+- consumed flowers, hearts, letters and skulls
+- current rotating-gate orientations
+- score
+- lives after the already-applied life loss
+- SPECIAL / EXTRA progress
+- heart multiplier state
+
+### 13.4 Current enemy limitations
+
+The current enemy system is a first playable approximation.
+The following details are still approximate or not implemented yet:
+- exact base preferred direction generation outside BFS chase phases
+- exact enemy path while leaving the lair
+- exact local door rejection behavior from the arcade routines
+- exact forced reversal semantics around rotating doors
+- full chase activation tables for all levels and DIP settings
+- enemy freeze caused by the future vegetable bonus
+- enemy type / spritesheet selection for later levels
+- exact visual state progression for lair / release transitions
+
+## 14. Rotating Gate System
 
 Rotating gates are implemented as a dynamic gameplay system.
 
@@ -890,7 +1072,7 @@ Current gate-related files:
 - scripts/level/LevelGateRuntime.cs
 - scripts/level/RotatingGateView.cs
 
-## 14. Playfield Step Evaluation
+## 15. Playfield Step Evaluation
 
 Dynamic movement legality is evaluated beyond the static maze.
 
@@ -910,7 +1092,7 @@ Current flow:
 - BlockedByFixedWall
 - BlockedByGate
 
-## 15. Player Movement System
+## 16. Player Movement System
 
 The current player movement system is an arcade-oriented fixed-tick model.
 It includes reverse-engineered assisted-turn behavior and is split into dedicated helper classes.
@@ -930,7 +1112,7 @@ Current player-related files:
 - PlayerTurnWindowMaps.cs
 - PlayerTurnWindowResolver.cs
 
-### 14.1 PlayerController
+### 16.1 PlayerController
 
 **File:**
 - scripts/actors/PlayerController.cs
@@ -946,6 +1128,7 @@ Current player-related files:
 - consume collectibles along every movement segment reported by the motor
 - hide or show the gameplay sprite when Level starts / finishes a pickup popup
 - run the visual player death sequence through a separate runtime death sprite
+- expose the current arcade-pixel position used by Level for player/enemy collision and enemy BFS guidance
 - respawn the player at the level start cell after death when lives remain
 
 **Important:**
@@ -954,7 +1137,7 @@ Current player-related files:
 - PlayerController is intentionally light for movement rules; gameplay movement rules are implemented in PlayerMovementMotor
 - PlayerController currently also owns the death visual orchestration because it owns the player sprites
 
-### 14.2 Player movement helpers
+### 16.2 Player movement helpers
 
 **PlayerInputState:**
 - tracks held movement directions
@@ -982,7 +1165,7 @@ Current player-related files:
 - represent the outcome of one movement-motor tick
 - expose the real one-pixel movement segments completed during that tick
 
-## 16. Current Player Movement Behavior
+## 17. Current Player Movement Behavior
 
 The current player movement model includes:
 
@@ -1008,7 +1191,7 @@ The current player movement model includes:
 - pause of normal player movement while the player death sequence is active
 - respawn reset to PlayerStartCell after a completed death sequence when lives remain
 
-## 17. What Is Currently Working
+## 18. What Is Currently Working
 
 The following is already implemented and functional:
 
@@ -1022,6 +1205,7 @@ The following is already implemented and functional:
 - maze-border timer tiles are displayed around the maze
 - maze-border timer animation starts near the middle of the top border and advances clockwise
 - maze-border timer speed follows the reverse-engineered level periods: 9 ticks at level 1, 6 ticks at levels 2-4, and 3 ticks at level 5+
+- maze-border timer completion is connected to enemy release
 - player is displayed
 - player start position is defined through Level.PlayerStartCell
 - player preview updates in the editor
@@ -1071,20 +1255,38 @@ The following is already implemented and functional:
 - EXTRA completion grants one extra life
 - SPECIAL completion records a placeholder free-game award
 - lives are tracked and displayed
-- skull pickup is lethal
+- skull pickup is lethal to the player
 - skull death removes one life and starts the player death sequence
+- enemies are implemented as a first playable system
+- one enemy is visible waiting in the central lair before the first release
+- enemies are released by the maze-border timer
+- enemy movement is fixed-tick and pixel-based
+- enemies use a separate direction enum from player movement
+- enemies use decision-center movement at X&0x0F=0x08 and Y&0x0F=0x06
+- enemies use a navigation grid generated from the static maze and current rotating-gate states
+- enemies can receive temporary BFS chase guidance toward the player
+- enemy chase activation uses a round-robin selector and level-dependent timing thresholds
+- enemies collide with the player using a strict <9 pixels window on both axes
+- touching an enemy starts the player death sequence
+- enemy views are hidden immediately when the player dies from an enemy
+- after player death, the player respawns at PlayerStartCell when lives remain
+- after player death, active enemies are cleared and one waiting enemy is restored in the lair
+- after player death, the maze-border timer is reset
+- after player death, consumed collectibles remain consumed and rotating gate states are preserved
+- enemies can be killed by skulls and return to the lair
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
 - no-lives game over placeholder exists
 
-## 18. What Is Not Implemented Yet
+## 19. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
-- enemies
-- actual enemy release when the maze-border timer completes
 - bonus vegetables
+- vegetable bonus scoring
 - enemy freeze caused by vegetables
+- level-specific enemy sprites beyond the first-level enemy spritesheet
+- exact enemy type rotation from level 9 onward
 - title screen flow
 - gameplay screen / screen transition architecture
 - proper game-over screen flow
@@ -1096,13 +1298,12 @@ The following systems are still not implemented yet:
 - exact free-credit / free-game behavior from SPECIAL
 - credits / coin / arcade-style free-play handling
 - top score display
-- automated movement regression tests
+- automated movement / enemy regression tests
 
-## 19. Current Limitations
+## 20. Current Limitations
 
-The movement and gate systems are stable and much closer to the arcade behavior than the early prototype.
-Player turn-lane candidates are generated from the logical maze, while the arcade-style pixel window policy remains implemented in the movement resolver.
-However, this is still a practical remake implementation rather than a literal ROM-level reproduction.
+The movement, gate, collectible, scoring, HUD, death-sequence, and first enemy systems are functional enough to continue development from this point.
+The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
 
 Current limitations include:
 - score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
@@ -1111,19 +1312,27 @@ Current limitations include:
 - SPECIAL completion is only a placeholder award and does not implement credits/free games yet
 - SPECIAL / EXTRA completion does not yet trigger stage transition
 - game over is only a placeholder state
-- enemies are not implemented yet
-- maze-border timer completion currently prints a placeholder instead of releasing an enemy
 - exact low-level tile / color RAM behavior is not reproduced literally
+- enemy base preferred direction generation outside chase is approximate
+- enemy movement around rotating doors is implemented through the current MazeGrid + GateSystem layer, but exact arcade local-door rejection / forced-reversal cases still need refinement
+- enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
+- chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
+- enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
+- vegetable freeze is not implemented yet, so frozen-but-fatal enemy behavior is still pending
 
-## 20. Current Development Priority
+## 21. Current Development Priority
 
 A reasonable current priority is now:
 
-1) keep the current movement, gate, scoring, collectible, HUD, lives, and death systems stable
-2) document and protect validated movement behavior with regression scenarios
-3) implement level-clear / stage transition flow
-4) decide the remake behavior for SPECIAL completion
-5) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-6) implement enemies and connect maze-border timer completion to enemy release
-7) implement remaining gameplay systems
-8) continue refining arcade fidelity only where reverse engineering or testing justifies it
+1) commit the current first playable enemy system as a stable checkpoint
+2) keep the current movement, gate, scoring, collectible, HUD, lives, death, and enemy reset systems stable
+3) document and protect validated player/enemy movement behavior with regression scenarios
+4) refine enemy movement around rotating doors using targeted MAME traces
+5) refine base enemy preferred-direction generation outside chase phases
+6) implement bonus vegetables and enemy freeze behavior
+7) implement level-clear / stage transition flow
+8) decide the remake behavior for SPECIAL completion
+9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
+10) add later-level enemy sprites / enemy-type selection
+11) implement remaining screen-flow and persistence systems
+12) continue refining arcade fidelity only where reverse engineering or testing justifies it
