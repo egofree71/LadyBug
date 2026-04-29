@@ -23,9 +23,16 @@ namespace LadyBug.Gameplay.Enemies;
 /// </remarks>
 public sealed class EnemyReleaseBorderTimer
 {
+    // Number of visible border tiles in the complete clockwise loop.
     private int _tileCount;
+
+    // Number of tiles already processed in the current fill or clear phase.
     private int _progress;
+
+    // Countdown equivalent of arcade RAM 60AA: ticks left before the next tile step.
     private int _ticksRemaining;
+
+    // Reload period equivalent of arcade RAM 60AB.
     private int _ticksPerTile;
 
     /// <summary>
@@ -162,16 +169,22 @@ public sealed class EnemyReleaseBorderTimer
             Phase = EnemyReleaseBorderTimerPhase.ClearingWhite;
             _progress = 0;
 
-            // At this instant all tiles are green. The owning level can use this
-            // signal to release the next enemy.
+            // The green pass has completed a full lap. Release one enemy now.
             return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true);
         }
 
         Phase = EnemyReleaseBorderTimerPhase.FillingGreen;
         _progress = 0;
-        return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: false);
+
+        // The white pass has also completed a full lap. This is still a real
+        // border-cycle completion, so it must release the next waiting enemy too.
+        // Otherwise the game wastes every second visible cycle.
+        return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true);
     }
 
+    /// <summary>
+    /// Builds a result snapshot from the current timer fields.
+    /// </summary>
     private EnemyReleaseBorderTimerStepResult CurrentStepResult(
         bool visualChanged,
         bool shouldReleaseEnemy)
@@ -208,6 +221,9 @@ public enum EnemyReleaseBorderTimerPhase
 /// </summary>
 public readonly struct EnemyReleaseBorderTimerStepResult
 {
+    /// <summary>
+    /// Creates an immutable snapshot of the border timer after one tick.
+    /// </summary>
     public EnemyReleaseBorderTimerStepResult(
         EnemyReleaseBorderTimerPhase phase,
         int progress,
@@ -257,7 +273,7 @@ public readonly struct EnemyReleaseBorderTimerStepResult
     public bool VisualChanged { get; }
 
     /// <summary>
-    /// True when the green-fill phase completed and the next enemy should be released.
+    /// True when a full visible border pass completed and the next enemy should be released.
     /// </summary>
     public bool ShouldReleaseEnemy { get; }
 }

@@ -1,9 +1,11 @@
+using System;
 using Godot;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
 using LadyBug.Gameplay.Maze;
+using LadyBug.Gameplay.Enemies;
 using LadyBug.Gameplay.Player;
 using LadyBug.Gameplay.Scoring;
 
@@ -90,6 +92,11 @@ public partial class Level : Node2D
     // Parent node used by CollectibleFieldRuntime to spawn collectible views.
     private Node2D? _collectiblesRoot;
 
+    // Runtime parent used for enemy views. It is created automatically when the
+    // scene does not already contain an Enemies node, so Level.tscn does not need
+    // to be edited manually for this first enemy package.
+    private Node2D? _enemiesRoot;
+
     // Optional visual/runtime maze-border timer. It is advanced only from the
     // Level-owned fixed gameplay tick, never from its own _Process callback.
     private MazeBorderTimerView? _mazeBorderTimer;
@@ -116,6 +123,10 @@ public partial class Level : Node2D
 
     // Movement collision facade combining the static maze and dynamic rotating gates.
     private PlayfieldCollisionResolver _playfieldCollisionResolver = null!;
+
+    // Runtime enemy system. It owns the four enemy slots, their views, navigation,
+    // release from the center area, chase timers, and player-collision checks.
+    private EnemyRuntime? _enemyRuntime;
 
     // Accumulates frame time for the level-owned fixed simulation tick.
     private double _simulationAccumulator = 0.0;
@@ -166,6 +177,7 @@ public partial class Level : Node2D
         _mazeSprite = GetNodeOrNull<Sprite2D>("Maze");
         _gatesRoot = GetNodeOrNull<Node2D>("Gates");
         _collectiblesRoot = GetNodeOrNull<Node2D>("Collectibles");
+        _enemiesRoot = GetNodeOrNull<Node2D>("Enemies");
         _mazeBorderTimer = GetNodeOrNull<MazeBorderTimerView>("MazeBorderTimer");
 
         if (_gatesRoot == null)
@@ -214,7 +226,10 @@ public partial class Level : Node2D
         }
 
         if (ranSimulationTick)
+        {
+            _enemyRuntime?.SynchronizeViewsFromEntities();
             _player.SynchronizeSceneFromGameplay();
+        }
     }
 
     /// <summary>
@@ -256,6 +271,14 @@ public partial class Level : Node2D
 
         _collectibleColorCycle.ResetToBlue();
         _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
+
+        _enemiesRoot = EnsureEnemiesRoot();
+        _enemyRuntime = new EnemyRuntime(
+            _enemiesRoot,
+            this,
+            _mazeGrid,
+            _gateRuntime.GateSystem,
+            _levelNumber);
 
         // The maze-border timer uses a separate arcade countdown from the heart /
         // letter color cycle. Configure it after the view has built its tile loop.
@@ -336,6 +359,7 @@ public partial class Level : Node2D
 
         AdvanceBoardSimulationOneTick();
         _player?.AdvanceOneSimulationTick();
+        CheckPlayerEnemyCollisions();
     }
 
     /// <summary>
@@ -352,13 +376,87 @@ public partial class Level : Node2D
 
         if (_mazeBorderTimer?.AdvanceOneSimulationTick() == true)
         {
-            // Enemy runtime is not implemented yet. Keep this signal visible so the
-            // future enemy-release integration can be wired to the same condition.
-            GD.Print("Maze border completed: release enemy placeholder.");
+            if (_enemyRuntime?.TryReleaseNextEnemy() == true)
+                GD.Print("Maze border completed: released one enemy.");
+            else
+                GD.Print("Maze border completed: no waiting enemy slot available.");
+        }
+
+        if (_player != null)
+        {
+            _enemyRuntime?.AdvanceOneSimulationTick(
+                _player.ArcadePixelPos,
+                _collectibleField.TryConsumeSkullAt);
         }
 
         if (_collectibleColorCycle.AdvanceOneTick())
             _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
+    }
+
+    /// <summary>
+    /// Ensures that the runtime enemy parent exists.
+    /// </summary>
+    /// <remarks>
+    /// This keeps the package drop-in friendly: if a future Level.tscn contains an
+    /// editor-authored Enemies node, it will be reused; otherwise the node is
+    /// created at runtime and inserted just before the Player node so enemies render
+    /// below the player but above the maze, collectibles, and gates.
+    /// </remarks>
+    private Node2D EnsureEnemiesRoot()
+    {
+        if (_enemiesRoot != null && GodotObject.IsInstanceValid(_enemiesRoot))
+            return _enemiesRoot;
+
+        Node2D enemiesRoot = new()
+        {
+            Name = "Enemies"
+        };
+
+        AddChild(enemiesRoot);
+
+        Node2D? playerNode = GetNodeOrNull<Node2D>("Player");
+        if (playerNode != null)
+            MoveChild(enemiesRoot, playerNode.GetIndex());
+
+        _enemiesRoot = enemiesRoot;
+        return enemiesRoot;
+    }
+
+    /// <summary>
+    /// Checks the arcade-style player/enemy collision window after both enemies
+    /// and the player have advanced for the current simulation tick.
+    /// </summary>
+    /// <remarks>
+    /// The reverse-engineered collision window is strict: both absolute coordinate
+    /// differences must be smaller than nine arcade pixels. This method intentionally
+    /// runs after <see cref="AdvanceBoardSimulationOneTick"/> and
+    /// <see cref="PlayerController.AdvanceOneSimulationTick"/> to match the observed
+    /// arcade ordering.
+    /// </remarks>
+    private void CheckPlayerEnemyCollisions()
+    {
+        if (_player == null || _enemyRuntime == null ||
+            _pickupPopupState.IsActive ||
+            _isPlayerDeathSequenceActive ||
+            _isGameOver)
+        {
+            return;
+        }
+
+        Vector2I playerPos = _player.ArcadePixelPos;
+
+        foreach (MonsterEntity monster in _enemyRuntime.CollisionActiveMonsters)
+        {
+            int dx = Math.Abs(playerPos.X - monster.ArcadePixelPos.X);
+            int dy = Math.Abs(playerPos.Y - monster.ArcadePixelPos.Y);
+
+            if (dx < EnemyMovementTuning.PlayerCollisionWindow &&
+                dy < EnemyMovementTuning.PlayerCollisionWindow)
+            {
+                HandlePlayerDeathFromEnemy();
+                return;
+            }
+        }
     }
 
     // --- Collectibles -------------------------------------------------------
@@ -544,6 +642,33 @@ public partial class Level : Node2D
     // --- Player Life / Death ----------------------------------------------
 
     /// <summary>
+    /// Starts the player death sequence after touching an active enemy.
+    /// </summary>
+    /// <remarks>
+    /// This mirrors the skull-death path but does not consume any collectible.
+    /// Normal board simulation will be frozen by <see cref="RunOneSimulationTick"/>
+    /// while the player death sequence is active.
+    /// </remarks>
+    private void HandlePlayerDeathFromEnemy()
+    {
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+
+        // In the arcade, the monster that hit Lady Bug disappears before the
+        // red shrink / ghost death animation starts. Because normal board
+        // simulation freezes during death, hide enemy views immediately here
+        // instead of waiting for the after-death attempt reset.
+        GD.Print("[EnemyDeathDebug] HandlePlayerDeathFromEnemy: collision detected, hiding enemies before starting death sequence.");
+        _enemyRuntime?.HideAllViewsForPlayerDeathSequence();
+
+        _lifeState.LoseLife();
+        _hud?.SetLives(_lifeState.Lives);
+
+        _isPlayerDeathSequenceActive = true;
+        _player?.StartDeathSequence();
+    }
+
+    /// <summary>
     /// Starts the player death sequence after touching a skull.
     /// </summary>
     /// <remarks>
@@ -594,7 +719,24 @@ public partial class Level : Node2D
             return;
         }
 
+        RestartBoardAttemptAfterPlayerDeath();
         _player?.RespawnAtStartCell();
+    }
+
+    /// <summary>
+    /// Restarts only the systems that the arcade resets after the player loses a life.
+    /// </summary>
+    /// <remarks>
+    /// The current collectible field and rotating-gate states are deliberately
+    /// preserved. Consumed flowers, hearts, letters and skulls stay consumed, and
+    /// gates keep the orientations chosen by the player. The enemy slots and
+    /// border-release timer restart so the next life begins like a fresh board
+    /// attempt instead of resuming with monsters already in the maze.
+    /// </remarks>
+    private void RestartBoardAttemptAfterPlayerDeath()
+    {
+        _enemyRuntime?.ResetAfterPlayerDeath();
+        _mazeBorderTimer?.ResetTimer();
     }
 
     // --- Rotating Gates -----------------------------------------------------

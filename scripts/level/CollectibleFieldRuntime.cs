@@ -119,6 +119,32 @@ public sealed class CollectibleFieldRuntime
     }
 
     /// <summary>
+    /// Consumes the skull at the given logical cell when an enemy crosses it.
+    /// </summary>
+    /// <remarks>
+    /// Player pickups still use <see cref="TryConsume"/> so the existing scoring,
+    /// popup, and player-death path remains unchanged. Enemies only need the
+    /// special skull case: the skull disappears and the enemy returns to the lair.
+    /// </remarks>
+    /// <param name="cell">Logical cell to test.</param>
+    /// <returns><see langword="true"/> if a skull was found and removed.</returns>
+    public bool TryConsumeSkullAt(Vector2I cell)
+    {
+        if (!_collectiblesByCell.TryGetValue(cell, out RuntimeCollectible? runtimeCollectible))
+            return false;
+
+        if (runtimeCollectible.Kind != CollectibleKind.Skull)
+            return false;
+
+        _collectiblesByCell.Remove(cell);
+
+        if (GodotObject.IsInstanceValid(runtimeCollectible.View))
+            runtimeCollectible.View.QueueFree();
+
+        return true;
+    }
+
+    /// <summary>
     /// Removes all active collectible views and clears the runtime lookup.
     /// </summary>
     public void Clear()

@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://dlxvc2dqlxyab"]
+
+[ext_resource type="Script" uid="uid://qxdyu84uih2x" path="res://scripts/actors/EnemyController.cs" id="1_enemy_controller"]
+
+[node name="Enemy" type="Node2D" unique_id=1087191329]
+position = Vector2(0, 1)
+script = ExtResource("1_enemy_controller")

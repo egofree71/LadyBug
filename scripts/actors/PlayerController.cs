@@ -68,6 +68,16 @@ public partial class PlayerController : Node2D
     private Vector2I _facingDir = Vector2I.Up;
 
     /// <summary>
+    /// Gets the current player gameplay position in arcade pixels.
+    /// </summary>
+    /// <remarks>
+    /// Enemy collision and BFS guidance use the same gameplay coordinate space as
+    /// the movement motor. Exposing this read-only value keeps those systems from
+    /// reaching into the motor directly.
+    /// </remarks>
+    public Vector2I ArcadePixelPos => _movementMotor.ArcadePixelPos;
+
+    /// <summary>
     /// Retrieves the sprite node and applies the initial visual facing.
     /// </summary>
     public override void _Ready()
