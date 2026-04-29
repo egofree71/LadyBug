@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Godot;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
@@ -64,6 +64,21 @@ public partial class Level : Node2D
     // Minimal game-over guard until proper screen flow exists.
     private bool _isGameOver;
 
+    // True while the simple between-level part screen is visible.
+    private bool _isLevelTransitionScreenActive;
+
+    // Queues the next level until the current pickup popup has finished.
+    private bool _isNextLevelQueuedAfterPopup;
+
+    // Next visible level number that should start after the transition screen.
+    private int _queuedNextLevelNumber;
+
+    // Remaining fixed ticks while the transition screen stays visible.
+    private int _levelTransitionTicksRemaining;
+
+    // Duration of the temporary between-level part screen, roughly two seconds.
+    private const int LevelTransitionDurationTicks = 120;
+
     // Prototype counter for completed SPECIAL awards. Proper free-game / credit flow is not implemented yet.
     private int _specialAwardCount;
 
@@ -109,6 +124,9 @@ public partial class Level : Node2D
 
     // Runtime popup view displayed when collecting hearts and letters.
     private CollectiblePickupPopupView? _pickupPopupView;
+
+    // Runtime-only between-level overlay shown before starting the next part.
+    private LevelTransitionOverlay? _levelTransitionOverlay;
 
     // --- Runtime State ------------------------------------------------------
 
@@ -204,6 +222,7 @@ public partial class Level : Node2D
         InitializeRuntimeSystems();
         InitializeHud();
         InitializePlayer();
+        EnsureLevelTransitionOverlay();
     }
 
     /// <summary>
@@ -232,6 +251,50 @@ public partial class Level : Node2D
         }
     }
 
+
+    /// <summary>
+    /// Debug shortcut used while implementing and testing level transitions.
+    /// </summary>
+    /// <remarks>
+    /// F1 behaves like the MAME-style "advance level" helper: it starts the normal
+    /// transition screen for the next level instead of instantly rebuilding the board.
+    /// This keeps the shortcut useful for validating the intermission flow.
+    /// </remarks>
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (Engine.IsEditorHint())
+            return;
+
+        if (@event is not InputEventKey keyEvent ||
+            !keyEvent.Pressed ||
+            keyEvent.Echo ||
+            keyEvent.Keycode != Key.F1)
+        {
+            return;
+        }
+
+        DebugAdvanceToNextLevel();
+        GetViewport().SetInputAsHandled();
+    }
+
+    /// <summary>
+    /// Starts the normal transition flow for the next level from the debug F1 shortcut.
+    /// </summary>
+    private void DebugAdvanceToNextLevel()
+    {
+        if (_isGameOver ||
+            _isPlayerDeathSequenceActive ||
+            _isLevelTransitionScreenActive)
+        {
+            return;
+        }
+
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+        _isNextLevelQueuedAfterPopup = false;
+
+        StartLevelTransitionScreen(_levelNumber + 1);
+    }
     /// <summary>
     /// Builds all runtime-only board systems after the scene nodes have been resolved.
     /// </summary>
@@ -245,6 +308,20 @@ public partial class Level : Node2D
     {
         _mazeGrid = MazeLoader.LoadFromJsonFile(MazeJsonPath);
 
+        _enemiesRoot = EnsureEnemiesRoot();
+        _collectibleField = new CollectibleFieldRuntime(
+            _collectiblesRoot!,
+            LogicalCellToScenePosition);
+
+        RebuildBoardForCurrentLevel();
+    }
+
+    /// <summary>
+    /// Rebuilds the per-level runtime state while preserving session state such as score and lives.
+    /// </summary>
+    private void RebuildBoardForCurrentLevel()
+    {
+        _gateRuntime.RefreshPlacedGateViewsFromDefinitions();
         _gateRuntime.BuildRuntimeGateSystem();
         _gateRuntime.SyncGateViewsFromRuntimeState();
 
@@ -254,9 +331,7 @@ public partial class Level : Node2D
             ArcadePixelToLogicalCell,
             GatePivotToArcadePixel);
 
-        _collectibleField = new CollectibleFieldRuntime(
-            _collectiblesRoot!,
-            LogicalCellToScenePosition);
+        _collectibleField.Clear();
 
         CollectibleLayoutFile collectibleLayout =
             CollectibleLoader.LoadFromJsonFile(CollectiblesJsonPath);
@@ -273,6 +348,7 @@ public partial class Level : Node2D
         _collectibleField.ApplyColorCycle(_collectibleColorCycle.CurrentColor);
 
         _enemiesRoot = EnsureEnemiesRoot();
+        QueueFreeAllChildren(_enemiesRoot);
         _enemyRuntime = new EnemyRuntime(
             _enemiesRoot,
             this,
@@ -280,8 +356,6 @@ public partial class Level : Node2D
             _gateRuntime.GateSystem,
             _levelNumber);
 
-        // The maze-border timer uses a separate arcade countdown from the heart /
-        // letter color cycle. Configure it after the view has built its tile loop.
         _mazeBorderTimer?.ConfigureForLevel(_levelNumber);
     }
 
@@ -308,6 +382,10 @@ public partial class Level : Node2D
         _specialAwardCount = 0;
         _isPlayerDeathSequenceActive = false;
         _isGameOver = false;
+        _isLevelTransitionScreenActive = false;
+        _isNextLevelQueuedAfterPopup = false;
+        _queuedNextLevelNumber = 0;
+        _levelTransitionTicksRemaining = 0;
 
         _hud?.SetScore(_scoreState.Score);
         _hud?.SetLives(_lifeState.Lives);
@@ -330,6 +408,22 @@ public partial class Level : Node2D
         _simulationAccumulator = 0.0;
     }
 
+    /// <summary>
+    /// Creates the runtime-only level transition overlay if needed.
+    /// </summary>
+    private void EnsureLevelTransitionOverlay()
+    {
+        if (_levelTransitionOverlay != null && GodotObject.IsInstanceValid(_levelTransitionOverlay))
+            return;
+
+        _levelTransitionOverlay = new LevelTransitionOverlay
+        {
+            Name = "LevelTransitionOverlay"
+        };
+
+        AddChild(_levelTransitionOverlay);
+    }
+
     // --- Simulation Tick ----------------------------------------------------
 
     /// <summary>
@@ -344,6 +438,12 @@ public partial class Level : Node2D
     {
         if (_isGameOver)
             return;
+
+        if (_isLevelTransitionScreenActive)
+        {
+            AdvanceLevelTransitionOneTick();
+            return;
+        }
 
         if (_isPlayerDeathSequenceActive)
         {
@@ -390,6 +490,92 @@ public partial class Level : Node2D
     }
 
     /// <summary>
+    /// Advances the current between-level screen by one gameplay tick.
+    /// </summary>
+    private void AdvanceLevelTransitionOneTick()
+    {
+        if (!_isLevelTransitionScreenActive)
+            return;
+
+        _levelTransitionTicksRemaining--;
+
+        if (_levelTransitionTicksRemaining > 0)
+            return;
+
+        CompleteLevelTransition();
+    }
+
+    /// <summary>
+    /// Starts the temporary between-level screen for the upcoming part.
+    /// </summary>
+    private void StartLevelTransitionScreen(int nextLevelNumber)
+    {
+        if (_isLevelTransitionScreenActive)
+            return;
+
+        EnsureLevelTransitionOverlay();
+
+        _isNextLevelQueuedAfterPopup = false;
+        _queuedNextLevelNumber = Math.Max(1, nextLevelNumber);
+        _isLevelTransitionScreenActive = true;
+        _levelTransitionTicksRemaining = LevelTransitionDurationTicks;
+
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+
+        _levelTransitionOverlay?.ShowForUpcomingLevel(_queuedNextLevelNumber);
+
+        if (_player != null)
+        {
+            _player.SetGameplaySpriteVisible(false);
+            _player.SynchronizeSceneFromGameplay();
+        }
+
+        if (_enemiesRoot != null)
+            _enemiesRoot.Visible = false;
+    }
+
+    /// <summary>
+    /// Applies the queued next level after the transition screen has finished.
+    /// </summary>
+    private void CompleteLevelTransition()
+    {
+        _isLevelTransitionScreenActive = false;
+        _levelTransitionOverlay?.HideOverlay();
+
+        _levelNumber = Math.Max(1, _queuedNextLevelNumber);
+        _queuedNextLevelNumber = 0;
+        _levelTransitionTicksRemaining = 0;
+
+        RebuildBoardForNextLevel();
+    }
+
+    /// <summary>
+    /// Rebuilds the board state for the new current level while preserving score, lives and progress.
+    /// </summary>
+    private void RebuildBoardForNextLevel()
+    {
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+        _simulationAccumulator = 0.0;
+        _isPlayerDeathSequenceActive = false;
+        _isNextLevelQueuedAfterPopup = false;
+
+        RebuildBoardForCurrentLevel();
+
+        if (_enemiesRoot != null)
+            _enemiesRoot.Visible = true;
+
+        _player?.RespawnAtStartCell();
+        _player?.SetGameplaySpriteVisible(true);
+
+        _hud?.SetScore(_scoreState.Score);
+        _hud?.SetLives(_lifeState.Lives);
+        _hud?.SetWordProgress(_wordProgressState);
+        _hud?.SetMultiplierStep(_heartMultiplierState.Step);
+    }
+
+    /// <summary>
     /// Ensures that the runtime enemy parent exists.
     /// </summary>
     /// <remarks>
@@ -419,6 +605,15 @@ public partial class Level : Node2D
     }
 
     /// <summary>
+    /// Queues all children of the given parent for deletion.
+    /// </summary>
+    private static void QueueFreeAllChildren(Node parent)
+    {
+        foreach (Node child in parent.GetChildren())
+            child.QueueFree();
+    }
+
+    /// <summary>
     /// Checks the arcade-style player/enemy collision window after both enemies
     /// and the player have advanced for the current simulation tick.
     /// </summary>
@@ -434,6 +629,7 @@ public partial class Level : Node2D
         if (_player == null || _enemyRuntime == null ||
             _pickupPopupState.IsActive ||
             _isPlayerDeathSequenceActive ||
+            _isLevelTransitionScreenActive ||
             _isGameOver)
         {
             return;
@@ -469,6 +665,7 @@ public partial class Level : Node2D
     {
         if (_pickupPopupState.IsActive ||
             _isPlayerDeathSequenceActive ||
+            _isLevelTransitionScreenActive ||
             _isGameOver)
             return false;
 
@@ -538,6 +735,33 @@ public partial class Level : Node2D
         {
             StartPickupPopup(cell, scoreCalculation);
         }
+
+        TryQueueNextLevelAfterBoardClear();
+    }
+
+    /// <summary>
+    /// Queues or starts the next level when all non-skull collectibles are gone.
+    /// </summary>
+    private void TryQueueNextLevelAfterBoardClear()
+    {
+        if (_collectibleField.HasRemainingProgressCollectibles() ||
+            _isLevelTransitionScreenActive ||
+            _isPlayerDeathSequenceActive ||
+            _isGameOver)
+        {
+            return;
+        }
+
+        int nextLevelNumber = _levelNumber + 1;
+
+        if (_pickupPopupState.IsActive)
+        {
+            _isNextLevelQueuedAfterPopup = true;
+            _queuedNextLevelNumber = nextLevelNumber;
+            return;
+        }
+
+        StartLevelTransitionScreen(nextLevelNumber);
     }
 
     /// <summary>
@@ -618,6 +842,9 @@ public partial class Level : Node2D
 
         ClearPickupPopupView();
         _player?.SetGameplaySpriteVisible(true);
+
+        if (_isNextLevelQueuedAfterPopup)
+            StartLevelTransitionScreen(_queuedNextLevelNumber);
     }
 
     /// <summary>
@@ -649,6 +876,9 @@ public partial class Level : Node2D
     {
         _pickupPopupState.Clear();
         ClearPickupPopupView();
+        _isNextLevelQueuedAfterPopup = false;
+        _isLevelTransitionScreenActive = false;
+        _levelTransitionOverlay?.HideOverlay();
 
         // In the arcade, the monster that hit Lady Bug disappears before the
         // red shrink / ghost death animation starts. Because normal board
@@ -678,6 +908,9 @@ public partial class Level : Node2D
         // It gives no score and immediately starts the player-death path.
         _pickupPopupState.Clear();
         ClearPickupPopupView();
+        _isNextLevelQueuedAfterPopup = false;
+        _isLevelTransitionScreenActive = false;
+        _levelTransitionOverlay?.HideOverlay();
 
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
@@ -732,6 +965,9 @@ public partial class Level : Node2D
     {
         _enemyRuntime?.ResetAfterPlayerDeath();
         _mazeBorderTimer?.ResetTimer();
+
+        if (_enemiesRoot != null)
+            _enemiesRoot.Visible = true;
     }
 
     // --- Rotating Gates -----------------------------------------------------

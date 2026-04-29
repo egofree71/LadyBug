@@ -485,9 +485,9 @@ Observed level-1 rule:
 
 ```text
 if 0x61B9 >= 0x90:
-    derive the four preferred directions from the player's current direction
+	derive the four preferred directions from the player's current direction
 else:
-    generate one pseudo-random preferred direction per enemy
+	generate one pseudo-random preferred direction per enemy
 ```
 
 Important implementation consequence:

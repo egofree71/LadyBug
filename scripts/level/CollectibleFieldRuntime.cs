@@ -12,13 +12,24 @@ using LadyBug.Gameplay.Collectibles;
 /// </summary>
 public sealed class CollectibleFieldRuntime
 {
+    // Runtime scene used for every visual collectible instance spawned on the board.
     private static readonly PackedScene CollectibleScene =
         GD.Load<PackedScene>("res://scenes/level/Collectible.tscn");
 
+    // Scene node that owns the spawned collectible instances.
     private readonly Node2D _root;
+
+    // Coordinate conversion supplied by Level so this runtime stays independent from scene layout.
     private readonly Func<Vector2I, Vector2> _logicalCellToScenePosition;
+
+    // Main lookup from logical maze cell to the currently active collectible at that cell.
     private readonly Dictionary<Vector2I, RuntimeCollectible> _collectiblesByCell = new();
 
+    /// <summary>
+    /// Creates a collectible field runtime under the given scene root.
+    /// </summary>
+    /// <param name="root">Scene node used as parent for spawned collectible views.</param>
+    /// <param name="logicalCellToScenePosition">Converter from logical cells to Godot scene coordinates.</param>
     public CollectibleFieldRuntime(
         Node2D root,
         Func<Vector2I, Vector2> logicalCellToScenePosition)
@@ -95,6 +106,40 @@ public sealed class CollectibleFieldRuntime
     }
 
     /// <summary>
+    /// Returns whether any level-completion collectible is still present on the board.
+    /// </summary>
+    /// <remarks>
+    /// Flowers, hearts and letters must all be collected before the next level can start.
+    /// Skulls do not block level completion.
+    /// </remarks>
+    public bool HasRemainingProgressCollectibles()
+    {
+        foreach (RuntimeCollectible runtimeCollectible in _collectiblesByCell.Values)
+        {
+            if (runtimeCollectible.Kind != CollectibleKind.Skull)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Counts the remaining flowers, hearts and letters still present on the board.
+    /// </summary>
+    public int CountRemainingProgressCollectibles()
+    {
+        int count = 0;
+
+        foreach (RuntimeCollectible runtimeCollectible in _collectiblesByCell.Values)
+        {
+            if (runtimeCollectible.Kind != CollectibleKind.Skull)
+                count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// Removes the collectible at the given logical cell and returns its semantic result.
     /// </summary>
     /// <remarks>
@@ -158,6 +203,10 @@ public sealed class CollectibleFieldRuntime
         _collectiblesByCell.Clear();
     }
 
+    /// <summary>
+    /// Creates one flower collectible view and registers its semantic runtime state.
+    /// </summary>
+    /// <param name="cell">Logical maze cell where the flower should appear.</param>
     private void SpawnFlower(Vector2I cell)
     {
         Collectible collectible = CollectibleScene.Instantiate<Collectible>();
@@ -172,6 +221,13 @@ public sealed class CollectibleFieldRuntime
             LetterKind.None);
     }
 
+    /// <summary>
+    /// Refreshes the visual representation of one collectible from its semantic state.
+    /// </summary>
+    /// <remarks>
+    /// The runtime state is the source of truth. The view only mirrors that state by
+    /// choosing the correct sprite frame, letter, and color modulation.
+    /// </remarks>
     private static void ApplyCollectibleVisual(RuntimeCollectible runtimeCollectible)
     {
         if (!GodotObject.IsInstanceValid(runtimeCollectible.View))
@@ -200,8 +256,19 @@ public sealed class CollectibleFieldRuntime
         }
     }
 
+    /// <summary>
+    /// Small semantic wrapper paired with a spawned collectible view.
+    /// </summary>
+    /// <remarks>
+    /// Keeping kind, color and letter here avoids inferring gameplay meaning from
+    /// visual sprite frames. That matters because hearts and letters share a global
+    /// color cycle while flowers and skulls remain visually fixed.
+    /// </remarks>
     private sealed class RuntimeCollectible
     {
+        /// <summary>
+        /// Creates one runtime collectible state object.
+        /// </summary>
         public RuntimeCollectible(
             Collectible view,
             CollectibleKind kind,
@@ -214,9 +281,24 @@ public sealed class CollectibleFieldRuntime
             Letter = letter;
         }
 
+        /// <summary>
+        /// Visual node currently representing this collectible.
+        /// </summary>
         public Collectible View { get; }
+
+        /// <summary>
+        /// Gameplay category of the collectible.
+        /// </summary>
         public CollectibleKind Kind { get; set; }
+
+        /// <summary>
+        /// Current gameplay color used by hearts and letters.
+        /// </summary>
         public CollectibleColor Color { get; set; }
+
+        /// <summary>
+        /// Letter identity when <see cref="Kind"/> is <see cref="CollectibleKind.Letter"/>.
+        /// </summary>
         public LetterKind Letter { get; set; }
     }
 }

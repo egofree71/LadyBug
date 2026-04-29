@@ -9,21 +9,19 @@ namespace LadyBug.Actors;
 /// <remarks>
 /// The enemy node is created by <see cref="EnemyRuntime"/> so Level.tscn does not
 /// need to be edited manually. The controller builds its SpriteFrames at runtime
-/// from the six-frame level-1 enemy spritesheet.
+/// from the six-frame enemy spritesheet selected for the current level.
 /// </remarks>
 public partial class EnemyController : Node2D
 {
-    // Runtime spritesheet currently used for the level-1 enemy.
-    private const string EnemyTexturePath = "res://assets/sprites/enemies/enemy_level1.png";
-
-    // Width and height of one enemy animation frame in the spritesheet.
-    private const int FrameSize = 64;
-
     // Owning level used only for arcade-pixel to scene-space conversion.
     private Level _level = null!;
 
     // Runtime-created animated sprite; kept out of the scene file on purpose.
     private AnimatedSprite2D _animatedSprite = null!;
+
+    // Current level-specific visual definition. Level 1 remains the safe default
+    // so the node can still preview or initialize if no runtime definition is supplied.
+    private EnemyLevelDefinition _enemyLevelDefinition = EnemyLevelCatalog.Get(1);
 
     // Cached enemy texture so SpriteFrames can be rebuilt without repeated loads.
     private Texture2D? _texture;
@@ -40,13 +38,51 @@ public partial class EnemyController : Node2D
     }
 
     /// <summary>
+    /// Selects the current level's enemy graphics.
+    /// </summary>
+    /// <remarks>
+    /// This can be called before or after the node enters the scene tree. When the
+    /// sprite already exists, its SpriteFrames are rebuilt immediately.
+    /// </remarks>
+    public void ConfigureEnemyLevel(EnemyLevelDefinition definition)
+    {
+        if (definition == null)
+            return;
+
+        if (_enemyLevelDefinition.SpritesheetPath == definition.SpritesheetPath &&
+            _enemyLevelDefinition.FrameSize == definition.FrameSize)
+        {
+            return;
+        }
+
+        _enemyLevelDefinition = definition;
+        _texture = null;
+        _warningShown = false;
+
+        if (_animatedSprite != null)
+            BuildSpriteFrames();
+    }
+
+    /// <summary>
     /// Initializes this view from the owning level and initial enemy entity.
     /// </summary>
     /// <param name="level">Owning level used for coordinate conversion.</param>
     /// <param name="entity">Initial logical enemy state to render.</param>
     public void Initialize(Level level, MonsterEntity entity)
     {
+        Initialize(level, entity, EnemyLevelCatalog.Get(1));
+    }
+
+    /// <summary>
+    /// Initializes this view from the owning level, initial enemy entity and level graphics.
+    /// </summary>
+    /// <param name="level">Owning level used for coordinate conversion.</param>
+    /// <param name="entity">Initial logical enemy state to render.</param>
+    /// <param name="definition">Enemy graphics selected for the current visible level.</param>
+    public void Initialize(Level level, MonsterEntity entity, EnemyLevelDefinition definition)
+    {
         _level = level;
+        ConfigureEnemyLevel(definition);
         EnsureSprite();
         SynchronizeFromEntity(entity);
     }
@@ -97,22 +133,22 @@ public partial class EnemyController : Node2D
     /// </summary>
     private void BuildSpriteFrames()
     {
-        _texture ??= ResourceLoader.Load<Texture2D>(EnemyTexturePath);
+        _texture ??= ResourceLoader.Load<Texture2D>(_enemyLevelDefinition.SpritesheetPath);
 
         if (_texture == null)
         {
             if (!_warningShown)
             {
                 _warningShown = true;
-                GD.PushWarning($"[EnemyController] Missing enemy spritesheet: {EnemyTexturePath}");
+                GD.PushWarning($"[EnemyController] Missing enemy spritesheet: {_enemyLevelDefinition.SpritesheetPath}");
             }
 
             return;
         }
 
         SpriteFrames frames = new();
-        AddAnimation(frames, "move_right", 0, 1, 2, speed: 6.0f);
-        AddAnimation(frames, "move_up", 3, 4, 5, speed: 5.0f);
+        AddAnimation(frames, "move_right", 0, 1, 2, _enemyLevelDefinition.MoveRightAnimationSpeed);
+        AddAnimation(frames, "move_up", 3, 4, 5, _enemyLevelDefinition.MoveUpAnimationSpeed);
 
         _animatedSprite.SpriteFrames = frames;
         _animatedSprite.Play("move_right");
@@ -138,14 +174,16 @@ public partial class EnemyController : Node2D
     }
 
     /// <summary>
-    /// Creates an atlas frame pointing at one 64x64 tile inside the enemy spritesheet.
+    /// Creates an atlas frame pointing at one tile inside the enemy spritesheet.
     /// </summary>
     private AtlasTexture MakeAtlasTexture(int frame)
     {
+        int frameSize = _enemyLevelDefinition.FrameSize;
+
         return new AtlasTexture
         {
             Atlas = _texture!,
-            Region = new Rect2(frame * FrameSize, 0, FrameSize, FrameSize)
+            Region = new Rect2(frame * frameSize, 0, frameSize, frameSize)
         };
     }
 

@@ -23,6 +23,9 @@ public sealed class EnemyRuntime
     // Owning level, used as the source of coordinate conversion and collision helpers.
     private readonly Level _level;
 
+    // Level-specific enemy spritesheet / visual definition.
+    private readonly EnemyLevelDefinition _enemyLevelDefinition;
+
     // Per-tick navigation map rebuilt from the static maze plus current rotating gates.
     private readonly EnemyNavigationGrid _navigationGrid;
 
@@ -53,7 +56,7 @@ public sealed class EnemyRuntime
     /// <param name="level">Owning level.</param>
     /// <param name="mazeGrid">Static logical maze.</param>
     /// <param name="gateSystem">Current rotating-gate system.</param>
-    /// <param name="levelNumber">Current level number used by chase timing.</param>
+    /// <param name="levelNumber">Current level number used by graphics and chase timing.</param>
     public EnemyRuntime(
         Node2D root,
         Level level,
@@ -66,6 +69,7 @@ public sealed class EnemyRuntime
         MazeGrid = mazeGrid ?? throw new ArgumentNullException(nameof(mazeGrid));
         GateSystem = gateSystem ?? throw new ArgumentNullException(nameof(gateSystem));
 
+        _enemyLevelDefinition = EnemyLevelCatalog.Get(levelNumber);
         _navigationGrid = new EnemyNavigationGrid(mazeGrid.Width, mazeGrid.Height);
         _movementAi = new EnemyMovementAi(level);
         _basePreferenceSystem = new EnemyBasePreferenceSystem(levelNumber);
@@ -235,8 +239,9 @@ public sealed class EnemyRuntime
                 Name = $"Enemy{i}"
             };
 
+            view.ConfigureEnemyLevel(_enemyLevelDefinition);
             _root.AddChild(view);
-            view.Initialize(_level, monster);
+            view.Initialize(_level, monster, _enemyLevelDefinition);
             _views[i] = view;
         }
     }
