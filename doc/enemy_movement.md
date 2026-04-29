@@ -220,6 +220,12 @@ EnemyMovementAi
     direction validation, fallback direction selection and simplified forced
     reversal when a door/gate blocks the current path.
 
+EnemyBasePreferenceSystem
+    Prepares the non-chase preferred directions continuously before chase/BFS
+    overrides. The current implementation follows the new B9-like two-mode
+    finding: player-direction-derived preferences when the counter is above the
+    threshold, pseudo-random per-enemy preferences below it.
+
 EnemyChaseSystem
     Owns the arcade-inspired timing divider, B8-like activation counter,
     round-robin enemy selector and chase duration sequence.
@@ -465,8 +471,82 @@ and sometimes the Z80 R register pseudo-random source.
 
 Do not describe non-chase enemy movement as purely random.
 
-Base preferred direction is still the least important part for first implementation.
-A simple approximation can be refined later after the main maze/chase/door system works.
+Base preferred direction two-mode behavior
+------------------------------------------
+
+Confirmed for the level-1 stationary-player test; keep cadence and higher-level
+patterns configurable until more traces are collected.
+
+The arcade does not keep one fixed base preferred direction, and it is not pure
+random movement. Routine `0x2E5C` compares the B9-like value at `0x61B9` with a
+threshold table value. In the observed level-1 test, the threshold was `0x90`.
+
+Observed level-1 rule:
+
+```text
+if 0x61B9 >= 0x90:
+    derive the four preferred directions from the player's current direction
+else:
+    generate one pseudo-random preferred direction per enemy
+```
+
+Important implementation consequence:
+
+```text
+Base preferred directions are recalculated continuously, not only when an enemy
+reaches an intersection. The enemy reads the current preferred direction when it
+arrives at a decision center.
+```
+
+Player-direction-derived mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Enemy direction bits are rotated through the four one-bit directions:
+
+```text
+01 -> 08 -> 04 -> 02 -> 01
+```
+
+Observed with player current direction `01`:
+
+```text
+Enemy0 preferred dir = 08
+Enemy1 preferred dir = 04
+Enemy2 preferred dir = 02
+Enemy3 preferred dir = 01
+```
+
+Expected examples:
+
+```text
+player dir 01 -> 08,04,02,01
+player dir 02 -> 01,08,04,02
+player dir 04 -> 02,01,08,04
+player dir 08 -> 04,02,01,08
+```
+
+Use the player's current/effective direction, not only the currently held input.
+When the player is standing still, the arcade still keeps a current direction.
+
+Pseudo-random mode
+~~~~~~~~~~~~~~~~~~
+
+The pseudo-random branch generates one preferred direction per enemy. It does
+not choose one shared random direction for all enemies. The arcade uses the Z80
+`R` register as part of this behavior; the current Godot version uses a small
+deterministic PRNG approximation so the behavior is varied and reproducible.
+
+Current Godot implementation note:
+
+```text
+PrepareBasePreferredDirections();
+TickAndActivateChaseTimersIfNeeded();
+ApplyChaseBfsOverride();
+UpdateEnemies();
+```
+
+The important rule is that base preferences are prepared before the BFS/chase
+override. Chase remains authoritative for enemies with active chase timers.
 
 BFS chase system
 ----------------
@@ -561,6 +641,7 @@ The chase system uses:
 61B6 = timing divider
 61B7 = elapsed tick-like counter
 61B8 = chase activation counter
+61B9 = base preferred-direction mode / countdown-like value
 61D2 = round-robin selector
 ```
 
@@ -1335,6 +1416,7 @@ Implemented in the current Godot version:
 - one-pixel arcade movement
 - decision-center based direction changes
 - navigation from static maze + rotating gates
+- two-mode B9-like base preferred-direction generation
 - BFS chase pressure
 - round-robin chase timers
 - player/enemy collision
@@ -1347,7 +1429,7 @@ Implemented in the current Godot version:
 Still approximate / to refine:
 
 ```text
-- exact base preferred direction generation outside chase
+- exact B9 cadence / reload behavior and Z80 R-register pseudo-random details beyond the observed tests
 - exact enemy release path from the lair into the maze
 - exact behavior of enemies around rotating doors
 - exact local door rejection and forced reversal semantics
@@ -1385,6 +1467,7 @@ Confirmed enough:
 - pixel-by-pixel movement
 - decision center X&0F=08, Y&0F=06
 - preferred dirs at 61C4..61C7
+- B9-like two-mode base preference behavior observed for level 1
 - chase timers at 61CE..61D1
 - round-robin chase selector 61D2
 - BFS guidance in low nibble of 6200..62AF
@@ -1400,7 +1483,8 @@ Confirmed enough:
 Open / should remain configurable:
 
 ```text
-- exact base preferred direction generation outside chase
+- exact B9 reload/cadence and threshold tables outside observed level-1 behavior
+- exact Z80 R-register pseudo-random distribution
 - exact full chase activation table for high levels and all DIP difficulties
 - exact semantics of bit0 in enemy state byte
 - exact visual/lair state progression after 0x81 / 0x82 transitions
@@ -1420,6 +1504,15 @@ preferred direction accepted
 preferred direction rejected by maze -> fallback
 preferred direction rejected by local door tile -> fallback
 forced reversal outside decision center from door change
+```
+
+Base preference:
+
+```text
+B9 >= threshold derives four preferences from player current direction
+player dir 01 -> 08,04,02,01
+pseudo-random mode generates one direction per enemy
+base preferences are prepared before BFS/chase override
 ```
 
 Chase:
@@ -1450,6 +1543,7 @@ Debugging anchors
 Useful breakpoints:
 
 ```text
+0x2E5C = base preferred-direction preparation
 0x43D4 = enemy commit final dir/x/y
 0x42E6 = preferred direction decision
 0x4241 = fallback start
@@ -1479,6 +1573,7 @@ fixed tick update
 one-pixel enemy movement
 decision only at cell centers
 dynamic allowed directions from doors
+B9-like base preferred-direction preparation
 BFS guidance toward Lady Bug
 temporary chase timers
 round-robin activation

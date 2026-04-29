@@ -91,6 +91,7 @@ scripts/
 │  │  ├─ LetterKind.cs
 │  │  └─ WordProgressState.cs
 │  ├─ enemies/
+│  │  ├─ EnemyBasePreferenceSystem.cs
 │  │  ├─ EnemyChaseSystem.cs
 │  │  ├─ EnemyMovementAi.cs
 │  │  ├─ EnemyMovementTuning.cs
@@ -990,6 +991,9 @@ It stores allowed directions and BFS guidance directions separately.
 **EnemyMovementAi** advances one active monster by one arcade pixel.
 It handles decision-center checks, preferred-direction validation, fallback directions, straight movement, and a simple forced reversal when the current path becomes blocked outside a decision center.
 
+**EnemyBasePreferenceSystem** prepares the non-chase preferred directions continuously before chase/BFS overrides are applied.
+It implements the currently reverse-engineered two-mode arcade-inspired behavior: a B9-like counter chooses between player-direction-derived preferences and one pseudo-random preferred direction per enemy.
+
 **EnemyChaseSystem** owns the arcade-inspired chase timing state:
 - divider
 - B8-like activation counter
@@ -1008,6 +1012,10 @@ Current implemented behavior:
 - enemies make direction choices at decision centers
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
+- base preferred directions are recalculated continuously before chase/BFS override
+- the base preference system alternates between a B9-like player-direction-derived mode and a pseudo-random mode
+- the deterministic mode rotates the player's current/effective direction through the four enemy direction bits
+- enemy collision probes use the enemy anchor directly, so enemies can reach their X&0x0F=0x08 / Y&0x0F=0x06 decision centers
 - a BFS guidance map can temporarily override preferred directions during chase phases
 - chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
@@ -1039,7 +1047,8 @@ The attempt restart deliberately preserves:
 
 The current enemy system is a first playable approximation.
 The following details are still approximate or not implemented yet:
-- exact base preferred direction generation outside BFS chase phases
+- exact arcade cadence / reload behavior of the B9-like base preference counter beyond the currently observed level-1 behavior
+- exact pseudo-random source behavior compared with the Z80 R register
 - exact enemy path while leaving the lair
 - exact local door rejection behavior from the arcade routines
 - exact forced reversal semantics around rotating doors
@@ -1313,7 +1322,7 @@ Current limitations include:
 - SPECIAL / EXTRA completion does not yet trigger stage transition
 - game over is only a placeholder state
 - exact low-level tile / color RAM behavior is not reproduced literally
-- enemy base preferred direction generation outside chase is approximate
+- enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
 - enemy movement around rotating doors is implemented through the current MazeGrid + GateSystem layer, but exact arcade local-door rejection / forced-reversal cases still need refinement
 - enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
@@ -1324,11 +1333,11 @@ Current limitations include:
 
 A reasonable current priority is now:
 
-1) commit the current first playable enemy system as a stable checkpoint
+1) commit the current improved enemy preference / probe behavior as a stable checkpoint
 2) keep the current movement, gate, scoring, collectible, HUD, lives, death, and enemy reset systems stable
 3) document and protect validated player/enemy movement behavior with regression scenarios
-4) refine enemy movement around rotating doors using targeted MAME traces
-5) refine base enemy preferred-direction generation outside chase phases
+4) refine enemy fallback behavior and local door/gate decisions using targeted MAME traces
+5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
 6) implement bonus vegetables and enemy freeze behavior
 7) implement level-clear / stage transition flow
 8) decide the remake behavior for SPECIAL completion
