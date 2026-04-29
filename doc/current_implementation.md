@@ -93,6 +93,8 @@ scripts/
 │  ├─ enemies/
 │  │  ├─ EnemyBasePreferenceSystem.cs
 │  │  ├─ EnemyChaseSystem.cs
+│  │  ├─ EnemyLevelCatalog.cs
+│  │  ├─ EnemyLevelDefinition.cs
 │  │  ├─ EnemyMovementAi.cs
 │  │  ├─ EnemyMovementTuning.cs
 │  │  ├─ EnemyNavigationCell.cs
@@ -136,6 +138,7 @@ scripts/
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
 │  ├─ Level.cs
+│  ├─ LevelTransitionOverlay.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
 │  ├─ MazeBorderTimerView.cs
@@ -170,6 +173,13 @@ doc/
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
 - assets/sprites/enemies/enemy_level1.png
+- assets/sprites/enemies/enemy_level2.png
+- assets/sprites/enemies/enemy_level3.png
+- assets/sprites/enemies/enemy_level4.png
+- assets/sprites/enemies/enemy_level5.png
+- assets/sprites/enemies/enemy_level6.png
+- assets/sprites/enemies/enemy_level7.png
+- assets/sprites/enemies/enemy_level8.png
 - assets/sprites/props/collectibles.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
@@ -278,6 +288,14 @@ Level (Node2D)
   - x2 x3 x5 aligned to the right third
 - the bottom HUD displays lives on the left and score on the right
 - visual layout, font sizes, anchors, and positions are controlled in Level.tscn rather than hardcoded in Hud.cs
+
+**Level transition overlay:**
+- runtime-created CanvasLayer named LevelTransitionOverlay
+- script = scripts/level/LevelTransitionOverlay.cs
+- displays a temporary black transition screen between levels
+- currently shows only the upcoming level number as PART 2, PART 3, etc.
+- is not authored directly in Level.tscn yet; Level creates it at runtime
+- normal board simulation is frozen while the transition overlay is active
 
 ### 3.3 Collectible scene
 
@@ -419,7 +437,8 @@ Enemy (Node2D)
 **Current role:**
 - lightweight visual node used by EnemyRuntime for each enemy slot
 - creates and owns the AnimatedSprite2D runtime child used to display the enemy
-- loads assets/sprites/enemies/enemy_level1.png for the current first-level enemy graphics
+- chooses a level-aware enemy spritesheet through EnemyLevelCatalog / EnemyLevelDefinition
+- currently supports assets/sprites/enemies/enemy_level1.png through enemy_level8.png
 - keeps enemy rendering separate from enemy movement logic
 
 **Current visual setup:**
@@ -503,6 +522,9 @@ Level.cs is currently the runtime coordinator for one active board.
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
 - configure the maze-border enemy-release timer for the current level number
+- detect board completion when all progression collectibles are consumed
+- own the current level-transition screen state
+- rebuild board-local runtime state when advancing to the next level
 - own the current prototype score state
 - own the current prototype heart multiplier state
 - own the current prototype SPECIAL / EXTRA word progress state
@@ -517,6 +539,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - expose TryPushGate(...) for movement / gate interactions
 - check player/enemy collision after enemy and player movement have both advanced
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
+- preserve prototype session-like state while advancing to the next level
+- expose a temporary F1 debug shortcut that starts the normal next-level transition
 - initialize the player after maze, gates, collectibles, HUD, and collision resolver have been prepared
 - update player and gate previews in the editor
 
@@ -534,6 +558,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - player death animation timing: PlayerDeathSequenceState
 - HUD rendering: Hud
 - pickup popup rendering: CollectiblePickupPopupView
+- transition overlay rendering: LevelTransitionOverlay
 
 **Fixed tick ownership:**
 - Level owns the fixed gameplay simulation tick
@@ -542,7 +567,9 @@ Level.cs is currently the runtime coordinator for one active board.
 - the enemy runtime is advanced before the player, then player/enemy collision is checked after player movement
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
+- while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
 - when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
+- when the transition timer completes, Level rebuilds the board for the next level and respawns the player at PlayerStartCell
 
 ## 7. Collectible System
 
@@ -594,6 +621,8 @@ Current implementation detail:
 - apply the start-of-level special collectible plan
 - apply the global color cycle to hearts and letters
 - support consumption of one collectible by logical cell
+- expose HasRemainingProgressCollectibles() for level-completion checks
+- expose CountRemainingProgressCollectibles() for debugging / future UI if needed
 - support enemy skull checks through TryConsumeSkullAt(...)
 - return a CollectiblePickupResult when something is consumed
 - clear tracked collectible views if needed
@@ -629,6 +658,7 @@ Current implementation detail:
 - consumed immediately
 - adds 10 points multiplied by the active heart multiplier
 - no popup is shown
+- if it was the final remaining progression collectible, the next-level transition can start immediately
 
 **Heart:**
 - consumed and scored according to the current color
@@ -639,6 +669,7 @@ Current implementation detail:
 - if the heart is blue, the heart multiplier advances after the score for that heart is calculated
 - the HUD multiplier display updates when the multiplier step advances
 - triggers the temporary pickup popup
+- if it was the final remaining progression collectible, the next-level transition is queued until the popup finishes
 
 **Letter:**
 - consumed and scored according to the current color
@@ -651,9 +682,10 @@ Current implementation detail:
 - yellow letters can progress EXTRA when the letter belongs to EXTRA
 - A and E can progress either SPECIAL or EXTRA depending on color
 - triggers the temporary pickup popup
+- if it was the final remaining progression collectible, the next-level transition is queued until the popup finishes
 - when EXTRA completes, the player gains one extra life immediately
 - when SPECIAL completes, a placeholder free-game award counter is incremented and a debug message is printed
-- level transition on completed SPECIAL / EXTRA is not implemented yet
+- SPECIAL / EXTRA completion does not yet trigger an immediate separate stage transition; normal board-clear level transition is implemented
 
 **Skull:**
 - consumed with no score when touched by the player
@@ -663,6 +695,26 @@ Current implementation detail:
 - respawns the player at PlayerStartCell if lives remain
 - enters a minimal game-over placeholder if no lives remain
 - can also kill an enemy through EnemyRuntime / TryConsumeSkullAt(...), in which case the enemy returns to the lair and the skull is removed
+
+### 7.7 Level completion participation
+
+CollectibleFieldRuntime now distinguishes between progression collectibles and non-progression hazards.
+
+**Progression collectibles:**
+- flowers
+- hearts
+- letters
+
+**Non-progression collectibles:**
+- skulls
+
+A level is considered cleared when no flower, heart or letter remains in the collectible field.
+Skulls do not block level completion.
+
+Level checks this after each non-skull collectible pickup:
+- if the last collectible was a flower, the transition can start immediately
+- if the last collectible was a heart or letter, the normal pickup popup finishes first
+- after the popup finishes, the level-transition screen is shown
 
 ## 8. Scoring, Heart Multiplier, Lives, and Word Progress
 
@@ -791,7 +843,8 @@ scripts/level/CollectiblePickupPopupView.cs
 - after the popup finishes:
   - popup view is removed
   - player sprite is restored
-  - normal gameplay resumes
+  - normal gameplay resumes unless a next-level transition was queued
+  - if a final heart / letter cleared the board, the PART transition screen starts after the popup
 
 **Current popup tuning:**
 - font size = 22
@@ -933,6 +986,7 @@ Level 5+      = 3 simulation ticks per border step
 - Level advances it from AdvanceBoardSimulationOneTick()
 - the timer is frozen during heart / letter popup pauses
 - the timer is frozen during the player death sequence
+- the timer is frozen during the level-transition screen
 - when the border cycle completes, Level asks EnemyRuntime to release the next waiting enemy
 - after player death, Level resets the border timer as part of the attempt restart
 
@@ -952,10 +1006,19 @@ Current enemy-related files:
 ```text
 scenes/enemies/Enemy.tscn
 assets/sprites/enemies/enemy_level1.png
+assets/sprites/enemies/enemy_level2.png
+assets/sprites/enemies/enemy_level3.png
+assets/sprites/enemies/enemy_level4.png
+assets/sprites/enemies/enemy_level5.png
+assets/sprites/enemies/enemy_level6.png
+assets/sprites/enemies/enemy_level7.png
+assets/sprites/enemies/enemy_level8.png
 
 scripts/actors/EnemyController.cs
 scripts/gameplay/enemies/
 ├─ EnemyChaseSystem.cs
+├─ EnemyLevelCatalog.cs
+├─ EnemyLevelDefinition.cs
 ├─ EnemyMovementAi.cs
 ├─ EnemyMovementTuning.cs
 ├─ EnemyNavigationCell.cs
@@ -983,7 +1046,10 @@ It creates the runtime Enemies parent if needed, instantiates four enemy views, 
 - lair visibility flag
 
 **EnemyController** owns only the visual node for one enemy.
-It loads the first-level enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
+It receives the current level visual definition, loads the matching enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
+
+**EnemyLevelCatalog / EnemyLevelDefinition** map the current level number to the spritesheet and animation frame layout used by EnemyController.
+The current implementation provides enemy visual sheets for levels 1 through 8.
 
 **EnemyNavigationGrid** builds an enemy navigation map from the static MazeGrid and the current GateSystem state.
 It stores allowed directions and BFS guidance directions separately.
@@ -1007,6 +1073,7 @@ Current implemented behavior:
 - one enemy is visible in the central lair before the first release
 - the visible waiting enemy is placed at logical cell (5, 5), using the enemy decision anchor X&0x0F=0x08 and Y&0x0F=0x06
 - enemies are released by the maze-border timer
+- enemy spritesheets are selected from the current level number for levels 1 through 8
 - after one enemy leaves the lair, another waiting enemy becomes visible if a slot is available
 - active enemies move one arcade pixel per fixed simulation tick
 - enemies make direction choices at decision centers
@@ -1054,7 +1121,7 @@ The following details are still approximate or not implemented yet:
 - exact forced reversal semantics around rotating doors
 - full chase activation tables for all levels and DIP settings
 - enemy freeze caused by the future vegetable bonus
-- enemy type / spritesheet selection for later levels
+- exact enemy type rotation / visual reuse rules from level 9 onward
 - exact visual state progression for lair / release transitions
 
 ## 14. Rotating Gate System
@@ -1200,7 +1267,93 @@ The current player movement model includes:
 - pause of normal player movement while the player death sequence is active
 - respawn reset to PlayerStartCell after a completed death sequence when lives remain
 
-## 18. What Is Currently Working
+## 18. Level Progression and Transition Screen
+
+The game now supports automatic progression from one level to the next.
+
+### 18.1 Completion rule
+
+A board is complete when all progression collectibles have been consumed:
+
+```text
+flowers + hearts + letters = required for level clear
+skulls = hazards only, not required for level clear
+```
+
+This rule is evaluated by Level using CollectibleFieldRuntime after each non-skull pickup.
+
+### 18.2 Transition timing
+
+When the final progression collectible is consumed:
+
+```text
+last flower consumed
+-> PART screen starts immediately
+
+last heart / letter consumed
+-> normal score popup runs first
+-> PART screen starts after the popup ends
+```
+
+Normal board simulation is frozen while the transition screen is active.
+
+### 18.3 Transition overlay
+
+The temporary transition screen is implemented by LevelTransitionOverlay.
+It is created by Level at runtime and currently displays only the next level number:
+
+```text
+PART 2
+PART 3
+PART 4
+...
+```
+
+Current duration:
+
+```text
+120 fixed simulation ticks, roughly two seconds
+```
+
+The current transition screen is a simplified placeholder for the arcade intermission screen.
+It does not yet display the upcoming collectible / vegetable information shown by the original game.
+
+### 18.4 State preserved and reset
+
+The current prototype still owns session-like state inside Level.
+When moving to the next level, the following state is preserved:
+
+```text
+score
+lives
+SPECIAL progress
+EXTRA progress
+heart multiplier step
+SPECIAL placeholder award count
+```
+
+The following board-local runtime state is rebuilt:
+
+```text
+rotating gate runtime state
+collectible field and special collectible placement
+collectible color cycle
+enemy runtime and enemy views
+maze-border enemy-release timer
+player gameplay position
+```
+
+### 18.5 Debug shortcut
+
+A temporary debug shortcut is implemented to test level transitions:
+
+```text
+F1 = start the normal transition to the next level
+```
+
+This shortcut is development-only and should later either be removed or guarded behind a debug flag.
+
+## 19. What Is Currently Working
 
 The following is already implemented and functional:
 
@@ -1283,18 +1436,23 @@ The following is already implemented and functional:
 - after player death, the maze-border timer is reset
 - after player death, consumed collectibles remain consumed and rotating gate states are preserved
 - enemies can be killed by skulls and return to the lair
+- enemy visuals can use level-specific spritesheets for levels 1 through 8
+- all flowers, hearts and letters are now required for normal level clear
+- skulls do not block level clear
+- completing a board starts the next-level transition
+- the transition screen displays the next PART number
+- F1 can be used as a debug shortcut to test the normal next-level transition
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
 - no-lives game over placeholder exists
 
-## 19. What Is Not Implemented Yet
+## 20. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
 - bonus vegetables
 - vegetable bonus scoring
 - enemy freeze caused by vegetables
-- level-specific enemy sprites beyond the first-level enemy spritesheet
 - exact enemy type rotation from level 9 onward
 - title screen flow
 - gameplay screen / screen transition architecture
@@ -1302,24 +1460,26 @@ The following systems are still not implemented yet:
 - high score screen flow
 - persistent session state / GameSession
 - high-score persistence
-- level-clear logic when all flowers / required collectibles are eaten
-- immediate next-level transition when SPECIAL or EXTRA is completed
+- immediate separate next-level transition when SPECIAL or EXTRA is completed
+- arcade-accurate PART screen with upcoming collectible / vegetable information
 - exact free-credit / free-game behavior from SPECIAL
 - credits / coin / arcade-style free-play handling
 - top score display
 - automated movement / enemy regression tests
 
-## 20. Current Limitations
+## 21. Current Limitations
 
 The movement, gate, collectible, scoring, HUD, death-sequence, and first enemy systems are functional enough to continue development from this point.
 The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
 
 Current limitations include:
+- level transition is implemented as a Level-owned prototype state rather than a future GameplayScreen / GameSession flow
+- the PART screen currently shows only the upcoming level number, not the full arcade item preview
 - score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
 - HUD is functional but still scene-local rather than part of a full screen-flow architecture
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
 - SPECIAL completion is only a placeholder award and does not implement credits/free games yet
-- SPECIAL / EXTRA completion does not yet trigger stage transition
+- SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition
 - game over is only a placeholder state
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
@@ -1329,7 +1489,7 @@ Current limitations include:
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
 - vegetable freeze is not implemented yet, so frozen-but-fatal enemy behavior is still pending
 
-## 21. Current Development Priority
+## 22. Current Development Priority
 
 A reasonable current priority is now:
 
@@ -1339,9 +1499,9 @@ A reasonable current priority is now:
 4) refine enemy fallback behavior and local door/gate decisions using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
 6) implement bonus vegetables and enemy freeze behavior
-7) implement level-clear / stage transition flow
+7) refine the simplified PART transition screen toward the arcade version
 8) decide the remake behavior for SPECIAL completion
 9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-10) add later-level enemy sprites / enemy-type selection
+10) refine later-level enemy visual rotation beyond level 8 if needed
 11) implement remaining screen-flow and persistence systems
 12) continue refining arcade fidelity only where reverse engineering or testing justifies it

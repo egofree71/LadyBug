@@ -71,6 +71,7 @@ The final project architecture is intended to have these major layers:
    - collectible color cycle
    - maze border enemy-release timer
    - pickup popup state and view
+   - level-clear / stage-transition temporary state
    - player death sequence coordination
    - player instance
    - future enemy instances
@@ -180,6 +181,7 @@ scripts/
 │  ├─ LevelGateRuntime.cs
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
+│  ├─ LevelTransitionOverlay.cs
 │  ├─ MazeBorderTimerView.cs
 │  ├─ RotatingGateView.cs
 │  └─ Collectible.cs
@@ -317,7 +319,7 @@ Level should not own long-term session state.
 Level should only manage one active playfield runtime.
 
 Current temporary implementation note:
-- Level currently owns ScoreState, HeartMultiplierState, WordProgressState, PlayerLifeState, a special-award placeholder counter, and a minimal game-over flag
+- Level currently owns ScoreState, HeartMultiplierState, WordProgressState, PlayerLifeState, a special-award placeholder counter, the current level number, a minimal game-over flag, and the current prototype level-transition state
 - this is acceptable while the project has no screen flow
 - these should later move into GameSession or a GameplayScreen-owned session model when title/gameplay/game-over flow exists
 
@@ -331,7 +333,7 @@ Current role:
 - coordinate the active board runtime
 - own the fixed simulation tick for the active board
 - create and connect the maze, gate runtime, collectible field and collision resolver
-- integrate the current HUD, pickup popup, and player death state
+- integrate the current HUD, pickup popup, level-transition overlay, and player death state
 - expose a small public integration surface for actors
 - initialize the player after board systems exist
 - keep editor previews working
@@ -344,7 +346,7 @@ Level should remain the public integration point for:
 - playfield step evaluation
 - gate push requests
 - collectible pickup requests
-- temporary board-level pause states, such as pickup popups or death sequences
+- temporary board-level pause states, such as pickup popups, level transitions or death sequences
 
 But Level should not own all implementation details directly.
 The current direction is to keep Level as a coordinator while delegating specialized behavior.
@@ -365,7 +367,8 @@ Level (Node2D)
 │  └─ Enemy instances
 ├─ Effects (Node2D)
 │  └─ pickup / death / score effect nodes
-└─ Hud or HudAnchor (CanvasLayer or screen-owned UI reference)
+├─ Hud or HudAnchor (CanvasLayer or screen-owned UI reference)
+└─ TransitionOverlay / IntermissionOverlay (CanvasLayer, runtime-created or screen-owned)
 ```
 
 Current implementation note:
@@ -376,7 +379,8 @@ Current implementation note:
 - moving / interactive objects remain separate from the static background
 - gate view instances are pre-placed in Level.tscn and converted into a separate runtime gate system during initialization
 - the current collectible direction is to spawn a base flower layout first, then replace selected cells with special collectibles
-- temporary pickup popups and player death are high-level gameplay states, not literal emulation of sprite RAM
+- temporary pickup popups, level transitions and player death are high-level gameplay states, not literal emulation of sprite RAM
+- the current PART transition overlay is runtime-created by Level and can later become a screen-flow / intermission scene
 
 ### 6.3 Current Level helper classes
 
@@ -418,6 +422,9 @@ CollectiblePickupPopupState
 
 CollectiblePickupPopupView
 - renders the temporary score / multiplier popup
+
+LevelTransitionOverlay
+- renders the temporary between-level PART screen
 ```
 
 This makes Level closer to a coordinator and reduces the risk of a monolithic gameplay script.
@@ -637,6 +644,8 @@ Current implemented direction:
 - PlayerLifeState supports EXTRA extra-life rewards
 - skull pickup triggers the player death sequence
 - CollectiblePickupPopupState and CollectiblePickupPopupView handle the temporary heart / letter popup and short freeze
+- CollectibleFieldRuntime exposes whether any flower, heart or letter remains for level-clear checks
+- skulls remain hazards and do not block level completion
 
 This keeps a useful separation between:
 - static base layout data
@@ -741,11 +750,41 @@ Current remake implementation:
 - Level hides the player sprite while the popup is active
 - Level freezes normal board simulation while the popup is active
 - after the popup, Level clears the popup view and restores the player sprite
+- if that pickup cleared the board, Level starts the PART transition screen after the popup finishes
 
 Long-term direction:
 - this should remain a high-level gameplay state, not a literal reproduction of temporary sprite RAM
 - enemy movement and other future timers should also pause while this state is active
 - death and stage-clear transitions can use a similar board-level temporary state pattern
+
+### 13.1 Level completion and stage transition state
+
+The project now has a first prototype of level completion and next-level transition.
+
+Current completion rule:
+
+```text
+all flowers + hearts + letters consumed -> stage complete
+skulls do not block stage completion
+```
+
+Current ownership is still inside Level:
+- Level asks CollectibleFieldRuntime whether progression collectibles remain
+- Level queues the next level when the board is cleared
+- if a final heart / letter popup is active, Level waits for it to finish
+- Level shows a simple LevelTransitionOverlay announcing the next PART number
+- Level rebuilds board-local runtime state for the next level
+- Level preserves prototype session-like state such as score, lives, word progress and multiplier
+
+This is a practical intermediate architecture because Main still instantiates Level directly and there is no GameplayScreen / GameSession flow yet.
+
+Long-term direction:
+- Level should eventually emit a StageComplete event rather than own the whole transition policy
+- GameplayScreen or GameSession should own the current stage number, session state and screen transitions
+- LevelTransitionOverlay could become a dedicated intermission screen or a richer screen-owned overlay
+- the current F1 next-level shortcut should remain debug-only or be removed from release builds
+
+The current transition screen is intentionally simplified. It displays only the upcoming part number and does not yet reproduce the arcade screen that previews the upcoming collectible / vegetable information.
 
 ## 14. Player Death / Respawn Architecture
 
@@ -909,8 +948,11 @@ The following part of the target architecture is already implemented now:
 - CollectiblePickupResult
 - CollectiblePickupPopupState
 - CollectiblePickupPopupView
+- LevelTransitionOverlay
 - MazeBorderTimerView
 - EnemyReleaseBorderTimer
+- EnemyRuntime / enemy movement runtime helpers
+- level-aware enemy visual catalog for enemy_level1 through enemy_level8
 - ScoreState
 - HeartMultiplierState
 - CollectibleScoreService
@@ -932,6 +974,9 @@ The following part of the target architecture is already implemented now:
 - skull lethality
 - player death sequence and respawn
 - temporary heart / letter score popup with short freeze and player hide/restore
+- board-clear detection when all flowers, hearts and letters are consumed
+- simplified PART transition screen between levels
+- Level-owned next-level board rebuild while preserving prototype session state
 - HUD display for score, lives, SPECIAL, EXTRA, and multipliers
 - maze-border timer visual layer
 - reverse-engineered maze-border timer cadence by level
@@ -976,12 +1021,10 @@ The largest remaining systems are:
 - HighScoreScreen
 - GameSession
 - proper stage progression / stage flow controller
-- level-clear logic after all required collectibles are eaten
+- arcade-accurate intermission screen with upcoming item / vegetable preview
 - immediate next-level transition when SPECIAL or EXTRA is completed
 - final SPECIAL free-credit / free-game behavior or remake equivalent
-- EnemyController and enemy runtime logic
-- connection from maze-border timer completion to actual enemy release
-- enemy AI / movement helpers
+- further enemy AI / movement refinements toward arcade accuracy
 - enemy interaction with rotating gates
 - bonus vegetables
 - vegetable-based enemy freeze
@@ -1014,11 +1057,11 @@ The player movement, level runtime, rotating gates, maze-border timer, collectib
 
 The next major architectural expansions should happen around:
 - documenting and protecting movement behavior with regression scenarios
-- level clear and stage transition flow
+- moving level clear and stage transition flow out of Level into GameplayScreen / GameSession when screen flow exists
 - deciding final SPECIAL reward behavior in a remake context
 - GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
-- connecting the maze-border timer to actual enemy release
-- enemy movement and AI
+- refining the maze-border / enemy-release interaction where arcade traces justify it
+- refining enemy movement and AI
 - bonus vegetable behavior
 
 Future refactoring candidates should be driven by new gameplay systems rather than by abstract cleanup alone.
@@ -1053,7 +1096,7 @@ It should ultimately contain:
 - SPECIAL / EXTRA flow
 - HUD and other UI
 
-The project already has a solid movement, maze, rotating-gate, maze-border timer, coordinate, collision, collectible, scoring, HUD, lives, death, and word-progress foundation.
+The project already has a solid movement, maze, rotating-gate, maze-border timer, coordinate, collision, collectible, scoring, HUD, lives, death, word-progress, enemy-runtime, and simplified level-transition foundation.
 
 The most important architectural shift since the previous version of this document is that Level now coordinates more board-level temporary states and prototype session-like state:
 - coordinate conversion is isolated
@@ -1065,6 +1108,7 @@ The most important architectural shift since the previous version of this docume
 - life state is isolated
 - death visual timing is isolated
 - pickup popup state and view are isolated
+- level-transition overlay rendering is isolated
 - maze-border timer visual and timing concerns are isolated
 - HUD rendering is separated from gameplay state
 - player movement is modular and stable
