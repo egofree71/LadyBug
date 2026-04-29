@@ -375,17 +375,13 @@ public partial class Level : Node2D
         _gateRuntime.AdvanceOneTick();
 
         if (_mazeBorderTimer?.AdvanceOneSimulationTick() == true)
-        {
-            if (_enemyRuntime?.TryReleaseNextEnemy() == true)
-                GD.Print("Maze border completed: released one enemy.");
-            else
-                GD.Print("Maze border completed: no waiting enemy slot available.");
-        }
+            _enemyRuntime?.TryReleaseNextEnemy();
 
         if (_player != null)
         {
             _enemyRuntime?.AdvanceOneSimulationTick(
                 _player.ArcadePixelPos,
+                _player.CurrentDirectionForEnemies,
                 _collectibleField.TryConsumeSkullAt);
         }
 
@@ -658,7 +654,6 @@ public partial class Level : Node2D
         // red shrink / ghost death animation starts. Because normal board
         // simulation freezes during death, hide enemy views immediately here
         // instead of waiting for the after-death attempt reset.
-        GD.Print("[EnemyDeathDebug] HandlePlayerDeathFromEnemy: collision detected, hiding enemies before starting death sequence.");
         _enemyRuntime?.HideAllViewsForPlayerDeathSequence();
 
         _lifeState.LoseLife();

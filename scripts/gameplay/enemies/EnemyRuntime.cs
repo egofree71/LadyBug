@@ -17,15 +17,6 @@ namespace LadyBug.Gameplay.Enemies;
 /// </remarks>
 public sealed class EnemyRuntime
 {
-    // Approximate non-chase direction patterns used until the exact arcade base-preference logic is fully mapped.
-    private static readonly MonsterDir[][] BasePreferencePatterns =
-    {
-        new[] { MonsterDir.Left,  MonsterDir.Up,   MonsterDir.Right, MonsterDir.Down  },
-        new[] { MonsterDir.Right, MonsterDir.Down, MonsterDir.Left,  MonsterDir.Up    },
-        new[] { MonsterDir.Up,    MonsterDir.Right,MonsterDir.Down,  MonsterDir.Left  },
-        new[] { MonsterDir.Down,  MonsterDir.Left, MonsterDir.Up,    MonsterDir.Right }
-    };
-
     // Parent node that contains all runtime-created enemy view nodes.
     private readonly Node2D _root;
 
@@ -38,6 +29,9 @@ public sealed class EnemyRuntime
     // One-pixel movement and direction-decision helper.
     private readonly EnemyMovementAi _movementAi;
 
+    // Arcade-inspired non-chase base preference generator.
+    private readonly EnemyBasePreferenceSystem _basePreferenceSystem;
+
     // Temporary chase timer system with round-robin enemy activation.
     private readonly EnemyChaseSystem _chaseSystem;
 
@@ -46,9 +40,6 @@ public sealed class EnemyRuntime
 
     // Godot view node paired with each logical enemy slot.
     private readonly EnemyController[] _views = new EnemyController[EnemyMovementTuning.MaxEnemyCount];
-
-    // Slow counter used to rotate the approximate base preferred directions.
-    private int _basePreferenceTick;
 
     // True while the player death animation is running after an enemy collision.
     // During that pause the enemy logical slots are intentionally left untouched,
@@ -77,6 +68,7 @@ public sealed class EnemyRuntime
 
         _navigationGrid = new EnemyNavigationGrid(mazeGrid.Width, mazeGrid.Height);
         _movementAi = new EnemyMovementAi(level);
+        _basePreferenceSystem = new EnemyBasePreferenceSystem(levelNumber);
         _chaseSystem = new EnemyChaseSystem(levelNumber);
 
         CreateSlotsAndViews();
@@ -113,16 +105,17 @@ public sealed class EnemyRuntime
     /// Advances all enemy systems for one fixed simulation tick.
     /// </summary>
     /// <param name="playerArcadePixelPos">Current player position in arcade pixels.</param>
+    /// <param name="playerCurrentDirection">Player effective direction, preserved while input is idle.</param>
     /// <param name="tryConsumeSkullAt">Callback used when an enemy reaches a skull cell.</param>
     public void AdvanceOneSimulationTick(
         Vector2I playerArcadePixelPos,
+        Vector2I playerCurrentDirection,
         Func<Vector2I, bool> tryConsumeSkullAt)
     {
         _navigationGrid.RebuildAllowedDirections(MazeGrid, GateSystem);
         _navigationGrid.BuildBfsGuidanceFromPlayer(_level.ArcadePixelToLogicalCell(playerArcadePixelPos));
 
-        _basePreferenceTick++;
-        PrepareBasePreferredDirections();
+        _basePreferenceSystem.PrepareBasePreferredDirections(_monsters, playerCurrentDirection);
 
         _chaseSystem.AdvanceOneTick(_monsters);
         _chaseSystem.ApplyBfsOverride(
@@ -154,12 +147,11 @@ public sealed class EnemyRuntime
     /// </remarks>
     public void ResetAfterPlayerDeath()
     {
-        _basePreferenceTick = 0;
+        _basePreferenceSystem.Reset();
         _chaseSystem.Reset();
         _suppressEnemyViewsDuringPlayerDeath = false;
 
         _root.Visible = true;
-        GD.Print("[EnemyDeathDebug] ResetAfterPlayerDeath: enemy root visible again, slots reset to lair.");
 
         foreach (MonsterEntity monster in _monsters)
             PrepareMonsterInLair(monster);
@@ -179,16 +171,10 @@ public sealed class EnemyRuntime
     /// </remarks>
     public void HideAllViewsForPlayerDeathSequence()
     {
-        int visibleBefore = CountVisibleEnemyViews();
-
         _suppressEnemyViewsDuringPlayerDeath = true;
         _root.Visible = false;
 
         SynchronizeViewsFromEntities();
-
-        GD.Print($"[EnemyDeathDebug] HideAllViewsForPlayerDeathSequence: " +
-                 $"rootVisible={_root.Visible}, visibleBefore={visibleBefore}, " +
-                 $"visibleAfter={CountVisibleEnemyViews()}, suppress={_suppressEnemyViewsDuringPlayerDeath}");
     }
 
     /// <summary>
@@ -231,22 +217,6 @@ public sealed class EnemyRuntime
             _views[i].SynchronizeFromEntity(
                 _monsters[i],
                 forceHidden: _suppressEnemyViewsDuringPlayerDeath);
-    }
-
-    /// <summary>
-    /// Counts currently visible enemy view nodes for death-debug logging.
-    /// </summary>
-    private int CountVisibleEnemyViews()
-    {
-        int count = 0;
-
-        foreach (EnemyController view in _views)
-        {
-            if (view != null && GodotObject.IsInstanceValid(view) && view.Visible)
-                count++;
-        }
-
-        return count;
     }
 
     /// <summary>
@@ -321,28 +291,6 @@ public sealed class EnemyRuntime
 
             monster.VisibleInLair = true;
             selectedWaitingEnemy = true;
-        }
-    }
-
-    /// <summary>
-    /// Assigns approximate non-chase preferred directions to active enemies.
-    /// </summary>
-    /// <remarks>
-    /// This is intentionally conservative and table-driven. The exact arcade base
-    /// preference generation remains open, while temporary BFS chase override is
-    /// handled separately by <see cref="EnemyChaseSystem"/>.
-    /// </remarks>
-    private void PrepareBasePreferredDirections()
-    {
-        int patternStep = _basePreferenceTick / 48;
-
-        foreach (MonsterEntity monster in _monsters)
-        {
-            if (!monster.MovementActive || monster.ChaseTimer > 0)
-                continue;
-
-            MonsterDir[] pattern = BasePreferencePatterns[monster.Id % BasePreferencePatterns.Length];
-            monster.PreferredDirection = pattern[(patternStep + monster.Id) % pattern.Length];
         }
     }
 

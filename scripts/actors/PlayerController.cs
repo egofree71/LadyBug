@@ -78,6 +78,19 @@ public partial class PlayerController : Node2D
     public Vector2I ArcadePixelPos => _movementMotor.ArcadePixelPos;
 
     /// <summary>
+    /// Gets the player direction used by enemy base-preference generation.
+    /// </summary>
+    /// <remarks>
+    /// The arcade keeps an effective current direction even when no input is held.
+    /// For enemies, use the movement motor direction when available and fall back
+    /// to the visual facing direction at level start or immediately after respawn.
+    /// </remarks>
+    public Vector2I CurrentDirectionForEnemies =>
+        _movementMotor.CurrentDir != Vector2I.Zero
+            ? _movementMotor.CurrentDir
+            : _facingDir;
+
+    /// <summary>
     /// Retrieves the sprite node and applies the initial visual facing.
     /// </summary>
     public override void _Ready()

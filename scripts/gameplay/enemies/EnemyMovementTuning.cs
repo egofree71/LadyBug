@@ -68,26 +68,28 @@ public static class EnemyMovementTuning
         };
     }
 
-    // Forward probe distances aligned with the current player collision resolver.
+    // Enemy movement uses the anchor pixel itself as the movement probe.
+    // Player-style forward probes (8/7 px) made enemies reverse one pixel before
+    // their own decision centers, especially near the upper border.
     /// <summary>
     /// Forward probe distance used when an enemy moves left.
     /// </summary>
-    public const int CollisionLeadLeft = 8;
+    public const int CollisionLeadLeft = 0;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves right.
     /// </summary>
-    public const int CollisionLeadRight = 7;
+    public const int CollisionLeadRight = 0;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves up.
     /// </summary>
-    public const int CollisionLeadUp = 8;
+    public const int CollisionLeadUp = 0;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves down.
     /// </summary>
-    public const int CollisionLeadDown = 7;
+    public const int CollisionLeadDown = 0;
 
     /// <summary>
     /// Returns whether an arcade-pixel position is an enemy decision center.
