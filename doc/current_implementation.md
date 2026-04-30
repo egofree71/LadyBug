@@ -89,6 +89,7 @@ scripts/
 │  │  ├─ CollectibleSpawnPlan.cs
 │  │  ├─ CollectibleSpawnPlanner.cs
 │  │  ├─ LetterKind.cs
+│  │  ├─ VegetableBonusCatalog.cs
 │  │  └─ WordProgressState.cs
 │  ├─ enemies/
 │  │  ├─ EnemyBasePreferenceSystem.cs
@@ -138,11 +139,14 @@ scripts/
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
 │  ├─ Level.cs
+│  ├─ Level.VegetableBonus.cs
 │  ├─ LevelTransitionOverlay.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
 │  ├─ MazeBorderTimerView.cs
-│  └─ RotatingGateView.cs
+│  ├─ RotatingGateView.cs
+│  ├─ VegetableBonusRuntime.cs
+│  └─ VegetableBonusView.cs
 └─ ui/
    └─ Hud.cs
 ```
@@ -183,6 +187,7 @@ doc/
 - assets/sprites/props/collectibles.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
+- assets/sprites/props/vegetables.png
 
 ## 3. Current Scene Structure
 
@@ -223,6 +228,7 @@ Level (Node2D)
 │  └─ 20 instances of scenes/level/RotatingGate.tscn
 ├─ Player (instance of scenes/player/Player.tscn)
 ├─ Enemies (runtime-created Node2D when not already present)
+├─ VegetableBonusRuntime (runtime-created Node2D)
 └─ Hud (CanvasLayer)
    └─ Root (Control)
 	  ├─ SpecialWordLabel (RichTextLabel)
@@ -232,8 +238,9 @@ Level (Node2D)
 	  └─ LivesLabel (Label)
 ```
 
-**Current main script:**
+**Current main scripts:**
 - scripts/level/Level.cs
+- scripts/level/Level.VegetableBonus.cs
 
 **Important current properties:**
 - PlayerStartCell = Vector2I(5, 8)
@@ -277,6 +284,13 @@ Level (Node2D)
 - runtime-created Node2D named Enemies if it is not already present in Level.tscn
 - used as the parent for the four enemy views created by EnemyRuntime
 - inserted before the Player node so enemies render below the player but above the maze / collectibles / gates
+
+**VegetableBonusRuntime node:**
+- runtime-created Node2D installed by the partial Level.VegetableBonus.cs class
+- owns the central vegetable bonus visual and pickup / freeze state
+- renders the vegetable above the enemy / maze layers but below the player
+- uses assets/sprites/props/vegetables.png through VegetableBonusView
+- is not authored directly in Level.tscn
 
 **Hud node:**
 - type = CanvasLayer
@@ -493,6 +507,7 @@ Coordinate conversion has been extracted from Level into LevelCoordinateSystem.
 - enemy decision centers use the reverse-engineered anchor X&0x0F=0x08 and Y&0x0F=0x06
 - the visible waiting enemy in the lair is placed at logical cell (5, 5) using that enemy anchor
 - enemy sprite rendering applies a small visual offset so the graphics align with the current maze art without changing gameplay coordinates
+- the central vegetable bonus is also placed at the lair position, aligned to the enemy visual anchor so it appears centered in the lair
 
 **Current Level wrapper methods:**
 - LogicalCellToArcadePixel(...)
@@ -519,6 +534,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - create CollectibleFieldRuntime from Level/Collectibles
 - create PlayfieldCollisionResolver from MazeGrid and GateSystem
 - create EnemyRuntime from the runtime Enemies parent, MazeGrid, GateSystem and coordinate converters
+- install the runtime-only vegetable bonus system through Level.VegetableBonus.cs
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
 - configure the maze-border enemy-release timer for the current level number
@@ -538,6 +554,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - expose TryConsumeCollectible(...) for the player pickup path
 - expose TryPushGate(...) for movement / gate interactions
 - check player/enemy collision after enemy and player movement have both advanced
+- support vegetable bonus score updates and enemy-freeze state through the vegetable runtime bridge
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - preserve prototype session-like state while advancing to the next level
 - expose a temporary F1 debug shortcut that starts the normal next-level transition
@@ -552,6 +569,9 @@ Level.cs is currently the runtime coordinator for one active board.
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
 - enemy state, enemy views, enemy navigation, chase, release and reset: EnemyRuntime
+- central vegetable bonus spawn / pickup / freeze state: VegetableBonusRuntime
+- central vegetable visual rendering: VegetableBonusView
+- vegetable frame and score lookup: VegetableBonusCatalog
 - collectible scoring calculation: CollectibleScoreService
 - SPECIAL / EXTRA word progress: WordProgressState
 - lives: PlayerLifeState
@@ -565,6 +585,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - board-level systems are advanced before the player
 - the maze-border timer is advanced as a normal board-level system
 - the enemy runtime is advanced before the player, then player/enemy collision is checked after player movement
+- when a vegetable freeze is active, enemy movement is suppressed but enemy collision remains active
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
@@ -716,6 +737,44 @@ Level checks this after each non-skull collectible pickup:
 - if the last collectible was a heart or letter, the normal pickup popup finishes first
 - after the popup finishes, the level-transition screen is shown
 
+### 7.8 Vegetable bonus
+
+The central vegetable bonus is implemented separately from CollectibleFieldRuntime.
+
+Current files:
+
+```text
+assets/sprites/props/vegetables.png
+
+scripts/gameplay/collectibles/
+└─ VegetableBonusCatalog.cs
+
+scripts/level/
+├─ Level.VegetableBonus.cs
+├─ VegetableBonusRuntime.cs
+└─ VegetableBonusView.cs
+```
+
+**Current behavior:**
+- the vegetable appears in the central lair when all four enemy slots are active in the maze
+- the vegetable is placed at logical cell `(5, 5)` using the enemy lair anchor and the enemy visual offset, so it appears centered in the lair
+- the vegetable uses a 64x64 spritesheet with 18 frames
+- levels 1 through 18 use frames 0 through 17
+- levels above 18 keep using the final frame
+- eating the vegetable adds the fixed vegetable score immediately
+- no pickup popup is shown for the vegetable
+- the vegetable score is not multiplied by the blue-heart multiplier
+- eating the vegetable freezes enemy movement for a first playable duration of 300 fixed ticks
+- frozen enemies remain collision-active and can still kill the player
+- after a vegetable is eaten, it does not respawn until at least one enemy returns to the lair and all four enemies later leave the lair again
+- the vegetable runtime resets and hides the vegetable during player death, game over, and level-transition states
+
+**Current implementation detail:**
+- the direct-copy implementation installs VegetableBonusRuntime from the partial Level.VegetableBonus.cs file
+- VegetableBonusRuntime has its own fixed-tick accumulator and runs before the normal Level process through a low ProcessPriority
+- to avoid replacing EnemyRuntime.cs in this direct-copy package, VegetableBonusRuntime reads the enemy slot array through reflection
+- collision flags are not changed during freeze; only MovementActive is temporarily disabled and later restored for enemies still in the maze
+
 ## 8. Scoring, Heart Multiplier, Lives, and Word Progress
 
 Current scoring and session-like files:
@@ -728,6 +787,7 @@ scripts/gameplay/scoring/
 └─ CollectibleScoreService.cs
 
 scripts/gameplay/collectibles/
+├─ VegetableBonusCatalog.cs
 └─ WordProgressState.cs
 
 scripts/gameplay/player/
@@ -779,10 +839,13 @@ Blue heart / letter = 100
 Yellow heart / letter = 300
 Red heart / letter = 800
 Skull = 0
+Vegetable = 1000 + 500 × (min(level, 18) - 1)
 ```
 
-**Current rule:**
-- final score delta = base score × active heart multiplier
+**Current rules:**
+- flower, heart and letter score delta = base score × active heart multiplier
+- skulls give no score
+- vegetable score is added directly and is not multiplied by the heart multiplier
 
 ### 8.4 WordProgressState
 
@@ -851,6 +914,9 @@ scripts/level/CollectiblePickupPopupView.cs
 - score label position = Vector2(-4, 4)
 - multiplier label position = Vector2(-8, 26)
 - label line size = Vector2(48, 26)
+
+**Important:**
+- the vegetable bonus currently gives score immediately and does not use this popup system
 
 ## 10. Player Lives and Death Sequence
 
@@ -1087,6 +1153,7 @@ Current implemented behavior:
 - chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
 - enemies can be killed by skulls and return to the lair
+- when a vegetable is eaten, enemy movement is temporarily frozen while collision remains active
 
 ### 13.3 Player death from enemy
 
@@ -1120,7 +1187,7 @@ The following details are still approximate or not implemented yet:
 - exact local door rejection behavior from the arcade routines
 - exact forced reversal semantics around rotating doors
 - full chase activation tables for all levels and DIP settings
-- enemy freeze caused by the future vegetable bonus
+- exact arcade duration and low-level timing of the vegetable freeze
 - exact enemy type rotation / visual reuse rules from level 9 onward
 - exact visual state progression for lair / release transitions
 
@@ -1437,6 +1504,10 @@ The following is already implemented and functional:
 - after player death, consumed collectibles remain consumed and rotating gate states are preserved
 - enemies can be killed by skulls and return to the lair
 - enemy visuals can use level-specific spritesheets for levels 1 through 8
+- central vegetable bonus appears when all four enemies are active in the maze
+- vegetable visuals use the current level frame from assets/sprites/props/vegetables.png
+- vegetable score is added immediately without popup and without heart multiplier
+- eating the vegetable freezes enemy movement while keeping enemy collision fatal
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
 - completing a board starts the next-level transition
@@ -1450,9 +1521,6 @@ The following is already implemented and functional:
 
 The following systems are still not implemented yet:
 
-- bonus vegetables
-- vegetable bonus scoring
-- enemy freeze caused by vegetables
 - exact enemy type rotation from level 9 onward
 - title screen flow
 - gameplay screen / screen transition architecture
@@ -1487,7 +1555,7 @@ Current limitations include:
 - enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
-- vegetable freeze is not implemented yet, so frozen-but-fatal enemy behavior is still pending
+- vegetable freeze is implemented as a first playable high-level behavior with a 300-tick duration, not yet as an exact reproduction of the arcade 61E1 timer cadence
 
 ## 22. Current Development Priority
 
@@ -1498,10 +1566,10 @@ A reasonable current priority is now:
 3) document and protect validated player/enemy movement behavior with regression scenarios
 4) refine enemy fallback behavior and local door/gate decisions using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
-6) implement bonus vegetables and enemy freeze behavior
-7) refine the simplified PART transition screen toward the arcade version
-8) decide the remake behavior for SPECIAL completion
-9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-10) refine later-level enemy visual rotation beyond level 8 if needed
+6) refine the simplified PART transition screen toward the arcade version
+7) decide the remake behavior for SPECIAL completion
+8) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
+9) refine later-level enemy visual rotation beyond level 8 if needed
+10) refine vegetable freeze timing only if additional arcade traces justify it
 11) implement remaining screen-flow and persistence systems
 12) continue refining arcade fidelity only where reverse engineering or testing justifies it

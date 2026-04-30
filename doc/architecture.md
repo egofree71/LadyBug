@@ -69,6 +69,7 @@ The final project architecture is intended to have these major layers:
    - gate runtime
    - collectible field runtime
    - collectible color cycle
+   - central vegetable bonus runtime
    - maze border enemy-release timer
    - pickup popup state and view
    - level-clear / stage-transition temporary state
@@ -114,7 +115,8 @@ assets/
 │  ├─ player/
 │  ├─ enemies/
 │  └─ props/
-│     └─ maze_border_timer_tiles.png
+│     ├─ maze_border_timer_tiles.png
+│     └─ vegetables.png
 ├─ audio/
 │  ├─ music/
 │  └─ sfx/
@@ -177,6 +179,7 @@ scripts/
 │  └─ HighScoreScreen.cs
 ├─ level/
 │  ├─ Level.cs
+│  ├─ Level.VegetableBonus.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
 │  ├─ CollectibleFieldRuntime.cs
@@ -184,7 +187,9 @@ scripts/
 │  ├─ LevelTransitionOverlay.cs
 │  ├─ MazeBorderTimerView.cs
 │  ├─ RotatingGateView.cs
-│  └─ Collectible.cs
+│  ├─ Collectible.cs
+│  ├─ VegetableBonusRuntime.cs
+│  └─ VegetableBonusView.cs
 ├─ actors/
 │  ├─ PlayerController.cs
 │  ├─ PlayerDebugOverlay.cs
@@ -360,8 +365,9 @@ Level (Node2D)
 ├─ Gates (Node2D)
 │  └─ RotatingGate instances
 ├─ Collectibles (Node2D)
-│  ├─ flower / heart / letter / skull instances
-│  └─ future bonus item instances when useful
+│  └─ flower / heart / letter / skull instances
+├─ VegetableBonusRuntime (Node2D, runtime-created)
+│  └─ central vegetable bonus visual
 ├─ Actors (Node2D)
 │  ├─ Player
 │  └─ Enemy instances
@@ -379,7 +385,8 @@ Current implementation note:
 - moving / interactive objects remain separate from the static background
 - gate view instances are pre-placed in Level.tscn and converted into a separate runtime gate system during initialization
 - the current collectible direction is to spawn a base flower layout first, then replace selected cells with special collectibles
-- temporary pickup popups, level transitions and player death are high-level gameplay states, not literal emulation of sprite RAM
+- temporary pickup popups, level transitions, vegetable freeze and player death are high-level gameplay states, not literal emulation of sprite RAM
+- the current vegetable bonus is runtime-created by a partial Level helper and can later be integrated more directly into Level or a board-item runtime
 - the current PART transition overlay is runtime-created by Level and can later become a screen-flow / intermission scene
 
 ### 6.3 Current Level helper classes
@@ -422,6 +429,18 @@ CollectiblePickupPopupState
 
 CollectiblePickupPopupView
 - renders the temporary score / multiplier popup
+
+VegetableBonusCatalog
+- maps the current level to vegetable frame and fixed score
+
+VegetableBonusRuntime
+- owns central vegetable appearance, pickup detection, score award and enemy movement freeze
+
+VegetableBonusView
+- renders the current vegetable frame from assets/sprites/props/vegetables.png
+
+Level.VegetableBonus
+- current direct-copy integration bridge that installs VegetableBonusRuntime and exposes narrow Level support methods
 
 LevelTransitionOverlay
 - renders the temporary between-level PART screen
@@ -576,13 +595,13 @@ Architectural rule:
 Current Level integration:
 - Level configures MazeBorderTimerView from the current level number
 - Level advances MazeBorderTimerView as a normal board-level system
-- completion currently prints a placeholder because enemies are not implemented yet
+- completion calls into EnemyRuntime to release the next waiting enemy
+- EnemyRuntime decides which queued enemy can be released and enforces the maximum active enemy rules
+- the visual border timer resets according to the same high-level timing model after each release cycle
+- pickup popups, player death, and stage transitions pause this timer with the rest of the board simulation
 
-Expected future integration:
-- when enemies exist, MazeBorderTimerView / EnemyReleaseBorderTimer completion should call into an enemy runtime or emit an explicit board event
-- the enemy runtime should decide which queued enemy can be released and enforce maximum active enemy rules
-- the visual border timer should reset according to the same high-level timing model after each release cycle
-- pickup popups, player death, and stage transitions should pause this timer with the rest of the board simulation
+Expected future refinement:
+- additional arcade traces may refine the exact visual phase semantics or release timing edge cases
 
 ## 10. Rotating Gate Architecture
 
@@ -657,9 +676,9 @@ This keeps a useful separation between:
 - multiplier progress
 - life and death consequences
 - visual pickup popup
-- future pickup consequences such as stage clear and bonus vegetable effects
+- pickup consequences such as stage clear and bonus vegetable effects
 
-Expected long-term item families:
+Current item families:
 - flowers
 - hearts
 - letters
@@ -676,7 +695,7 @@ Expected responsibilities:
 - temporary pickup effects
 - level-clear participation
 
-Likely long-term architecture:
+Current / likely long-term architecture:
 - base collectible placement data
 - collectible spawn planning
 - collectible runtime state
@@ -687,8 +706,16 @@ Likely long-term architecture:
 - pickup / death / score visual effects
 - stage transition hooks
 
+Current vegetable architecture:
+- the central vegetable is deliberately separate from CollectibleFieldRuntime
+- it appears only when all four enemies are active in the maze
+- it is positioned at the enemy lair visual anchor, not at the normal player / collectible anchor
+- it gives score immediately, without popup and without heart multiplier
+- it temporarily freezes enemy movement while keeping enemy collisions active
+- it does not participate in level-clear progress
+
 Important:
-The collectible system should remain driven by logical maze cells, not by free-form scene-space placement.
+The collectible and item systems should remain driven by logical maze cells / arcade-pixel anchors, not by free-form scene-space placement.
 
 ## 12. Scoring, Multiplier, Lives, and Word Progression
 
@@ -704,6 +731,10 @@ HeartMultiplierState
 
 CollectibleScoreService
 - base score and final score calculation for flowers, hearts, and letters
+
+VegetableBonusCatalog
+- fixed vegetable score by level, from 1000 to 9500
+- score is not multiplied by the heart multiplier
 
 CollectibleScoreCalculation
 - score calculation result object
@@ -729,6 +760,7 @@ Current implemented rules:
 - EXTRA completion awards one extra life
 - SPECIAL completion currently increments a placeholder free-game award counter
 - skulls give no score and trigger death
+- vegetables give a fixed level-based bonus score without using the heart multiplier
 
 Future session architecture:
 - ScoreState should move from Level to GameSession
@@ -755,7 +787,8 @@ Current remake implementation:
 Long-term direction:
 - this should remain a high-level gameplay state, not a literal reproduction of temporary sprite RAM
 - enemy movement and other future timers should also pause while this state is active
-- death and stage-clear transitions can use a similar board-level temporary state pattern
+- death, vegetable freeze and stage-clear transitions can use a similar board-level temporary state pattern
+- vegetable pickup currently does not use the popup system; it awards score immediately and starts its own enemy-freeze state
 
 ### 13.1 Level completion and stage transition state
 
@@ -948,6 +981,10 @@ The following part of the target architecture is already implemented now:
 - CollectiblePickupResult
 - CollectiblePickupPopupState
 - CollectiblePickupPopupView
+- VegetableBonusCatalog
+- VegetableBonusRuntime
+- VegetableBonusView
+- Level.VegetableBonus integration bridge
 - LevelTransitionOverlay
 - MazeBorderTimerView
 - EnemyReleaseBorderTimer
@@ -972,6 +1009,8 @@ The following part of the target architecture is already implemented now:
 - EXTRA extra-life reward
 - SPECIAL placeholder award
 - skull lethality
+- central vegetable bonus appearance, scoring and enemy movement freeze
+- frozen enemies remain fatal through unchanged collision flags
 - player death sequence and respawn
 - temporary heart / letter score popup with short freeze and player hide/restore
 - board-clear detection when all flowers, hearts and letters are consumed
@@ -1026,8 +1065,7 @@ The largest remaining systems are:
 - final SPECIAL free-credit / free-game behavior or remake equivalent
 - further enemy AI / movement refinements toward arcade accuracy
 - enemy interaction with rotating gates
-- bonus vegetables
-- vegetable-based enemy freeze
+- arcade-exact vegetable timing / freeze cadence if future traces justify it
 - score / lives / word-progress migration to session-level ownership
 - high-score persistence
 - top score / credits / final arcade HUD elements
@@ -1062,13 +1100,14 @@ The next major architectural expansions should happen around:
 - GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
 - refining the maze-border / enemy-release interaction where arcade traces justify it
 - refining enemy movement and AI
-- bonus vegetable behavior
+- refining vegetable timing / arcade details only where testing justifies it
 
 Future refactoring candidates should be driven by new gameplay systems rather than by abstract cleanup alone.
 The major current Level extractions have already been done:
 - coordinate system
 - playfield collision resolver
 - collectible field runtime
+- vegetable bonus runtime
 - gate runtime
 - scoring calculation
 - word progress state
@@ -1096,13 +1135,14 @@ It should ultimately contain:
 - SPECIAL / EXTRA flow
 - HUD and other UI
 
-The project already has a solid movement, maze, rotating-gate, maze-border timer, coordinate, collision, collectible, scoring, HUD, lives, death, word-progress, enemy-runtime, and simplified level-transition foundation.
+The project already has a solid movement, maze, rotating-gate, maze-border timer, coordinate, collision, collectible, vegetable bonus, scoring, HUD, lives, death, word-progress, enemy-runtime, and simplified level-transition foundation.
 
 The most important architectural shift since the previous version of this document is that Level now coordinates more board-level temporary states and prototype session-like state:
 - coordinate conversion is isolated
 - playfield collision is isolated
 - gate runtime is isolated
 - collectible runtime is isolated
+- vegetable bonus runtime is isolated
 - scoring calculation is isolated
 - word progress is isolated
 - life state is isolated
