@@ -14,20 +14,41 @@ using LadyBug.Gameplay.Enemies;
 /// </summary>
 public sealed partial class VegetableBonusRuntime : Node2D
 {
+    // Logical maze cell occupied by the central lair / vegetable pickup.
     private static readonly Vector2I LairLogicalCell = new(5, 5);
 
+    // Reflection handle used to read EnemyRuntime's private monster slots without
+    // replacing EnemyRuntime.cs in this direct-copy package.
     private static readonly FieldInfo? EnemyRuntimeMonstersField =
         typeof(EnemyRuntime).GetField("_monsters", BindingFlags.Instance | BindingFlags.NonPublic);
 
+    // Stores each enemy's original MovementActive flag while the freeze is active.
+    // CollisionActive is never changed, so frozen enemies remain fatal.
     private readonly Dictionary<int, bool> _movementActiveBeforeFreezeBySlot = new();
 
+    // Owning Level. Used through small support methods exposed by Level.VegetableBonus.cs.
     private Level? _level;
+
+    // Runtime visual node that shows/hides the current vegetable sprite.
     private VegetableBonusView? _view;
+
+    // Fixed-tick accumulator, kept separate from Level's private accumulator.
     private double _simulationAccumulator;
+
+    // Remaining freeze duration in fixed simulation ticks.
     private int _freezeTicksRemaining;
+
+    // True once enemy movement has been disabled for the current freeze.
     private bool _freezeMovementApplied;
+
+    // Tracks the transition from "not all enemies are out" to "all enemies are out".
     private bool _wasAllEnemiesInMaze;
+
+    // Prevents the same vegetable from respawning until an enemy returns to the lair
+    // and all four enemies leave the lair again.
     private bool _consumedDuringCurrentAllEnemiesOutCycle;
+
+    // Local visibility flag used for pickup detection without querying the view node.
     private bool _isVisible;
 
     /// <summary>
@@ -234,6 +255,9 @@ public sealed partial class VegetableBonusRuntime : Node2D
             : EnemyRuntimeMonstersField.GetValue(enemyRuntime) as MonsterEntity[];
     }
 
+    /// <summary>
+    /// Shows the correct vegetable for the current level.
+    /// </summary>
     private void ShowForLevel(int levelNumber)
     {
         if (_view == null)
@@ -243,12 +267,18 @@ public sealed partial class VegetableBonusRuntime : Node2D
         _view.ShowForLevel(levelNumber);
     }
 
+    /// <summary>
+    /// Hides the vegetable and marks it as unavailable for pickup.
+    /// </summary>
     private void HideVegetable()
     {
         _isVisible = false;
         _view?.HideVegetable();
     }
 
+    /// <summary>
+    /// Clears vegetable and freeze state during death, transition, or game over pauses.
+    /// </summary>
     private void ResetRuntimeState()
     {
         RestoreFrozenMovementState();

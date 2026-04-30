@@ -6,8 +6,10 @@ using LadyBug.Gameplay.Collectibles;
 /// </summary>
 public sealed partial class VegetableBonusView : Node2D
 {
+    // Spritesheet containing the 18 64x64 vegetable frames.
     private const string VegetablesTexturePath = "res://assets/sprites/props/vegetables.png";
 
+    // Single sprite used to display the current level vegetable.
     private readonly Sprite2D _sprite;
 
     public VegetableBonusView()

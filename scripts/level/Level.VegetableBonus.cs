@@ -35,17 +35,24 @@ public partial class Level
             MoveChild(runtime, playerNode.GetIndex());
     }
 
+    // Current level number used to select the vegetable frame and score.
     internal int VegetableSupport_LevelNumber => _levelNumber;
 
+    // Current enemy runtime, queried by the vegetable system to inspect enemy slots.
     internal EnemyRuntime? VegetableSupport_EnemyRuntime => _enemyRuntime;
 
+    // Pickup popups freeze normal gameplay, so vegetable pickup should pause too.
     internal bool VegetableSupport_IsPickupPopupActive => _pickupPopupState.IsActive;
 
+    // Current player logical cell used to detect pickup at the center lair.
     internal Vector2I VegetableSupport_PlayerLogicalCell =>
         _player == null
             ? new Vector2I(int.MinValue, int.MinValue)
             : _coordinateSystem.ArcadePixelToLogicalCell(_player.ArcadePixelPos);
 
+    /// <summary>
+    /// Gets the scene-space position for the vegetable, aligned with the lair enemy visual anchor.
+    /// </summary>
     internal Vector2 VegetableSupport_GetLairScenePosition()
     {
         Vector2 mazeSceneOrigin = _mazeSprite?.Position ?? Vector2.Zero;
@@ -54,11 +61,17 @@ public partial class Level
             mazeSceneOrigin);
     }
 
+    /// <summary>
+    /// Returns true when the vegetable runtime should clear its local state.
+    /// </summary>
     internal bool VegetableSupport_ShouldResetBonusRuntime()
     {
         return _isGameOver || _isLevelTransitionScreenActive || _isPlayerDeathSequenceActive;
     }
 
+    /// <summary>
+    /// Adds vegetable score immediately, without popup and without heart multiplier.
+    /// </summary>
     internal void VegetableSupport_AddScore(int score)
     {
         if (score <= 0)
