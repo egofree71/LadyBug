@@ -8,7 +8,7 @@ namespace LadyBug.Gameplay.Enemies;
 /// </summary>
 public sealed class EnemyMovementAi
 {
-    // Candidate order used when the preferred direction is rejected at a decision center.
+    // Arcade fallback order used by routine 0x4241-like behavior.
     private static readonly MonsterDir[] FallbackOrder =
     {
         MonsterDir.Left,
@@ -36,9 +36,12 @@ public sealed class EnemyMovementAi
     /// <param name="navigationGrid">Current enemy navigation map.</param>
     /// <returns>A compact debug result describing the movement decision.</returns>
     /// <remarks>
-    /// Direction changes normally occur only at enemy decision centers. Outside a
-    /// decision center, the enemy continues straight unless a gate-related block
-    /// forces an immediate reversal.
+    /// Direction changes normally occur only at enemy decision centers. At centers,
+    /// the preferred direction is validated through the logical navigation grid and
+    /// then through the local playfield/gate layer. A local rejection feeds the same
+    /// rejected-direction mask as a maze rejection, then fallback scans the arcade
+    /// order 01, 02, 04, 08. Outside a decision center, only the gate-related forced
+    /// reversal path is allowed to reverse the enemy immediately.
     /// </remarks>
     public EnemyMovementDebugResult UpdateMonsterOnePixel(
         MonsterEntity monster,
@@ -93,13 +96,24 @@ public sealed class EnemyMovementAi
                 navigationGrid,
                 out rejectedMask,
                 out fallbackUsed,
-                out decisionReason);
+                out decisionReason,
+                out blockKind);
         }
-        else if (ShouldForceReverseBecauseOfDoor(monster, chosenDir))
+        else
         {
-            chosenDir = chosenDir.Opposite();
-            forcedReverse = true;
-            decisionReason = "forced-reverse-by-gate";
+            PlayfieldStepResult currentStep = EvaluateStep(monster, chosenDir);
+            if (currentStep.Kind == PlayfieldStepKind.BlockedByGate)
+            {
+                MonsterDir opposite = chosenDir.Opposite();
+
+                if (opposite != MonsterDir.None)
+                {
+                    chosenDir = opposite;
+                    forcedReverse = true;
+                    decisionReason = "forced-reverse-by-gate";
+                    blockKind = currentStep.Kind.ToString();
+                }
+            }
         }
 
         if (chosenDir == MonsterDir.None)
@@ -129,40 +143,30 @@ public sealed class EnemyMovementAi
 
         if (!step.Allowed)
         {
+            // This should be rare after center validation. Do not silently turn it
+            // into an additional opposite-direction heuristic; log and stop instead.
             stepBlocked = true;
             blockKind = step.Kind.ToString();
-            MonsterDir opposite = chosenDir.Opposite();
 
-            if (opposite != MonsterDir.None && EvaluateStep(monster, opposite).Allowed)
-            {
-                chosenDir = opposite;
-                forcedReverse = true;
-                decisionReason = atDecisionCenter
-                    ? $"{decisionReason}+blocked-opposite"
-                    : "blocked-opposite";
-            }
-            else
-            {
-                return new EnemyMovementDebugResult(
-                    true,
-                    monster.Id,
-                    beforePos,
-                    monster.ArcadePixelPos,
-                    cell,
-                    currentDirBefore,
-                    preferredDir,
-                    bfsDir,
-                    allowedDirections,
-                    rejectedMask,
-                    chosenDir,
-                    atDecisionCenter,
-                    fallbackUsed,
-                    forcedReverse,
-                    true,
-                    false,
-                    decisionReason,
-                    blockKind);
-            }
+            return new EnemyMovementDebugResult(
+                true,
+                monster.Id,
+                beforePos,
+                monster.ArcadePixelPos,
+                cell,
+                currentDirBefore,
+                preferredDir,
+                bfsDir,
+                allowedDirections,
+                rejectedMask,
+                chosenDir,
+                atDecisionCenter,
+                fallbackUsed,
+                forcedReverse,
+                true,
+                false,
+                $"{decisionReason}+validated-step-blocked",
+                blockKind);
         }
 
         monster.Direction = chosenDir;
@@ -198,80 +202,106 @@ public sealed class EnemyMovementAi
         EnemyNavigationGrid navigationGrid,
         out MonsterDir rejectedMask,
         out bool fallbackUsed,
-        out string decisionReason)
+        out string decisionReason,
+        out string blockKind)
     {
         rejectedMask = MonsterDir.None;
         fallbackUsed = false;
-        decisionReason = "preferred-accepted";
+        blockKind = "none";
 
-        if (CanUseDirection(monster, monster.PreferredDirection, navigationGrid))
+        MonsterDirectionValidation preferredValidation = ValidateCandidateDirection(
+            monster,
+            monster.PreferredDirection,
+            navigationGrid);
+
+        if (preferredValidation.Accepted)
+        {
+            decisionReason = "preferred-accepted";
             return monster.PreferredDirection;
+        }
 
-        rejectedMask = monster.PreferredDirection;
-        decisionReason = "preferred-rejected";
+        if (IsSingleDirection(monster.PreferredDirection))
+            rejectedMask |= monster.PreferredDirection;
+
+        decisionReason = $"preferred-rejected-{FormatRejectReason(preferredValidation.RejectReason)}";
+        blockKind = preferredValidation.BlockKind;
 
         foreach (MonsterDir candidate in FallbackOrder)
         {
             if ((rejectedMask & candidate) != 0)
                 continue;
 
-            if (!CanUseDirection(monster, candidate, navigationGrid))
+            MonsterDirectionValidation candidateValidation = ValidateCandidateDirection(
+                monster,
+                candidate,
+                navigationGrid);
+
+            if (candidateValidation.Accepted)
             {
-                rejectedMask |= candidate;
-                continue;
+                fallbackUsed = true;
+                decisionReason = $"fallback-accepted-after-{FormatRejectReason(preferredValidation.RejectReason)}";
+                return candidate;
             }
 
-            fallbackUsed = true;
-            decisionReason = "fallback-accepted";
-            return candidate;
+            rejectedMask |= candidate;
+
+            // Keep the first meaningful block kind for debug output. This usually
+            // corresponds to the rejected preferred direction, which is the most
+            // useful comparison point against MAME traces.
+            if (blockKind == "none" && candidateValidation.BlockKind != "none")
+                blockKind = candidateValidation.BlockKind;
         }
 
-        if (CanUseDirection(monster, monster.Direction, navigationGrid))
-        {
-            decisionReason = "continue-current-after-fallback";
-            return monster.Direction;
-        }
-
-        MonsterDir opposite = monster.Direction.Opposite();
-        if (CanUseDirection(monster, opposite, navigationGrid))
-        {
-            decisionReason = "opposite-after-fallback";
-            return opposite;
-        }
-
-        decisionReason = "no-valid-direction";
+        decisionReason = "no-valid-direction-after-fallback";
         return MonsterDir.None;
     }
 
     /// <summary>
-    /// Validates a candidate direction against both navigation and pixel-step collision.
+    /// Validates a candidate direction against both navigation and local playfield geometry.
     /// </summary>
-    private bool CanUseDirection(
+    private MonsterDirectionValidation ValidateCandidateDirection(
         MonsterEntity monster,
         MonsterDir dir,
         EnemyNavigationGrid navigationGrid)
     {
-        if (dir == MonsterDir.None)
-            return false;
+        if (!IsSingleDirection(dir))
+        {
+            return new MonsterDirectionValidation(
+                false,
+                MonsterDirectionRejectReason.InvalidDirection,
+                PlayfieldStepKind.Allowed,
+                "none");
+        }
 
         Vector2I cell = _level.ArcadePixelToLogicalCell(monster.ArcadePixelPos);
         if (!navigationGrid.IsDirectionAllowed(cell, dir))
-            return false;
-
-        return EvaluateStep(monster, dir).Allowed;
-    }
-
-    /// <summary>
-    /// Returns whether a gate block should cause an immediate reversal between centers.
-    /// </summary>
-    private bool ShouldForceReverseBecauseOfDoor(MonsterEntity monster, MonsterDir dir)
-    {
-        if (dir == MonsterDir.None)
-            return false;
+        {
+            return new MonsterDirectionValidation(
+                false,
+                MonsterDirectionRejectReason.StaticMazeBlocked,
+                PlayfieldStepKind.BlockedByFixedWall,
+                "navigation-grid");
+        }
 
         PlayfieldStepResult step = EvaluateStep(monster, dir);
+        if (!step.Allowed)
+        {
+            MonsterDirectionRejectReason reason = step.Kind == PlayfieldStepKind.BlockedByGate
+                ? MonsterDirectionRejectReason.LocalDoorBlocked
+                : MonsterDirectionRejectReason.LocalPlayfieldBlocked;
 
-        return step.Kind == PlayfieldStepKind.BlockedByGate;
+            return new MonsterDirectionValidation(
+                false,
+                reason,
+                step.Kind,
+                step.Kind.ToString());
+        }
+
+        return new MonsterDirectionValidation(
+            true,
+            MonsterDirectionRejectReason.None,
+            PlayfieldStepKind.Allowed,
+            "none");
     }
 
     /// <summary>
@@ -284,6 +314,105 @@ public sealed class EnemyMovementAi
             dir.ToVector(),
             EnemyMovementTuning.GetCollisionLead(dir));
     }
+
+    /// <summary>
+    /// Returns whether the value is exactly one arcade enemy direction bit.
+    /// </summary>
+    private static bool IsSingleDirection(MonsterDir dir)
+    {
+        return dir == MonsterDir.Left ||
+               dir == MonsterDir.Up ||
+               dir == MonsterDir.Right ||
+               dir == MonsterDir.Down;
+    }
+
+    /// <summary>
+    /// Formats reject reasons as compact debug labels.
+    /// </summary>
+    private static string FormatRejectReason(MonsterDirectionRejectReason reason)
+    {
+        return reason switch
+        {
+            MonsterDirectionRejectReason.None => "none",
+            MonsterDirectionRejectReason.InvalidDirection => "invalid-dir",
+            MonsterDirectionRejectReason.StaticMazeBlocked => "static-maze",
+            MonsterDirectionRejectReason.LocalDoorBlocked => "local-door",
+            MonsterDirectionRejectReason.LocalPlayfieldBlocked => "local-playfield",
+            _ => "unknown"
+        };
+    }
+}
+
+/// <summary>
+/// Reason why one enemy movement candidate was rejected.
+/// </summary>
+public enum MonsterDirectionRejectReason
+{
+    /// <summary>
+    /// The candidate was accepted.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// The candidate was not exactly one arcade enemy direction bit.
+    /// </summary>
+    InvalidDirection,
+
+    /// <summary>
+    /// The logical enemy navigation cell does not allow this direction.
+    /// </summary>
+    StaticMazeBlocked,
+
+    /// <summary>
+    /// The logical cell allows the direction, but a local gate/door blocks the step.
+    /// </summary>
+    LocalDoorBlocked,
+
+    /// <summary>
+    /// The logical cell allows the direction, but the final local playfield probe is blocked.
+    /// </summary>
+    LocalPlayfieldBlocked
+}
+
+/// <summary>
+/// Result of validating one enemy movement candidate.
+/// </summary>
+public readonly struct MonsterDirectionValidation
+{
+    /// <summary>
+    /// Creates one validation result.
+    /// </summary>
+    public MonsterDirectionValidation(
+        bool accepted,
+        MonsterDirectionRejectReason rejectReason,
+        PlayfieldStepKind stepKind,
+        string blockKind)
+    {
+        Accepted = accepted;
+        RejectReason = rejectReason;
+        StepKind = stepKind;
+        BlockKind = blockKind;
+    }
+
+    /// <summary>
+    /// Whether the movement candidate is usable.
+    /// </summary>
+    public bool Accepted { get; }
+
+    /// <summary>
+    /// High-level rejection reason.
+    /// </summary>
+    public MonsterDirectionRejectReason RejectReason { get; }
+
+    /// <summary>
+    /// Underlying playfield step kind when available.
+    /// </summary>
+    public PlayfieldStepKind StepKind { get; }
+
+    /// <summary>
+    /// Compact debug string for the playfield block kind.
+    /// </summary>
+    public string BlockKind { get; }
 }
 
 /// <summary>
