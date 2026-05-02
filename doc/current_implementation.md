@@ -181,6 +181,7 @@ doc/
 - assets/sprites/enemies/enemy_level7.png
 - assets/sprites/enemies/enemy_level8.png
 - assets/sprites/props/collectibles.png
+- assets/sprites/props/vegetables.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
 
@@ -292,8 +293,14 @@ Level (Node2D)
 **Level transition overlay:**
 - runtime-created CanvasLayer named LevelTransitionOverlay
 - script = scripts/level/LevelTransitionOverlay.cs
-- displays a temporary black transition screen between levels
-- currently shows only the upcoming level number as PART 2, PART 3, etc.
+- displays an arcade-style PART transition panel between levels
+- the black panel is drawn only inside the purple maze frame, leaving the upper HUD, lower HUD, maze-border timer tiles, and purple maze frame visible
+- displays the upcoming PART number
+- displays the upcoming level vegetable icon, bonus value, and vegetable name
+- displays the skull icons, letter icons, and heart icons planned for the upcoming level
+- heart icons are rendered as a composite of the heart ring frame and the fixed inner heart overlay frame, matching the runtime Collectible scene model
+- uses assets/sprites/props/vegetables.png for vegetable icons
+- uses assets/sprites/props/collectibles.png for skull, letter, and heart icons
 - is not authored directly in Level.tscn yet; Level creates it at runtime
 - normal board simulation is frozen while the transition overlay is active
 
@@ -602,6 +609,8 @@ Collectibles are implemented as a separate runtime and visual system.
 - four anchors are drawn without replacement in each family
 - letters use draw[0], hearts use draw[1], and skulls use draw[2] then draw[3]
 - the three letters are first selected by family, then permuted across the three family placements
+- the transition overlay can ask CollectibleSpawnPlanner to generate a preview plan for the upcoming level
+- the generated preview plan is cached so the next normal level rebuild consumes the same placements that were shown on the PART screen
 
 Current implementation detail:
 - anchor family coordinates are expressed directly in the Godot logical-cell coordinate system, with origin at the top-left of the maze
@@ -1313,23 +1322,38 @@ Normal board simulation is frozen while the transition screen is active.
 ### 18.3 Transition overlay
 
 The temporary transition screen is implemented by LevelTransitionOverlay.
-It is created by Level at runtime and currently displays only the next level number:
+It is created by Level at runtime and displays an arcade-style PART panel for the upcoming level.
+
+Current displayed information:
 
 ```text
-PART 2
-PART 3
-PART 4
-...
+PART <next level>
+<vegetable icon> = <bonus value>
+<vegetable name>
+<skulls planned for next level>
+<letters planned for next level>
+<hearts planned for next level>
+GOOD LUCK
 ```
+
+Current visual behavior:
+- the black transition panel stays inside the purple maze frame
+- the purple maze frame remains visible
+- the upper HUD and lower HUD remain visible
+- the maze-border timer tiles remain visible
+- sprites are rendered through high-level Godot UI controls rather than arcade VRAM / color RAM writes
+
+Current preview-plan behavior:
+- LevelTransitionOverlay asks CollectibleSpawnPlanner for a preview spawn plan for the upcoming level
+- CollectibleSpawnPlanner caches that plan
+- the next normal CollectibleSpawnPlanner.Generate(...) call for the same level returns the cached plan
+- this makes the skull count, letter icons, and heart icons shown on the PART screen match the collectibles spawned when the board starts
 
 Current duration:
 
 ```text
 120 fixed simulation ticks, roughly two seconds
 ```
-
-The current transition screen is a simplified placeholder for the arcade intermission screen.
-It does not yet display the upcoming collectible / vegetable information shown by the original game.
 
 ### 18.4 State preserved and reset
 
@@ -1459,7 +1483,9 @@ The following is already implemented and functional:
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
 - completing a board starts the next-level transition
-- the transition screen displays the next PART number
+- the transition screen displays the next PART number, vegetable bonus, skull preview, letter preview, heart preview, and GOOD LUCK line
+- the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
+- the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - F1 can be used as a debug shortcut to test the normal next-level transition
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
@@ -1480,7 +1506,6 @@ The following systems are still not implemented yet:
 - persistent session state / GameSession
 - high-score persistence
 - immediate separate next-level transition when SPECIAL or EXTRA is completed
-- arcade-accurate PART screen with upcoming collectible / vegetable information
 - exact free-credit / free-game behavior from SPECIAL
 - credits / coin / arcade-style free-play handling
 - top score display
@@ -1493,7 +1518,7 @@ The enemy system is intentionally a first playable approximation rather than a f
 
 Current limitations include:
 - level transition is implemented as a Level-owned prototype state rather than a future GameplayScreen / GameSession flow
-- the PART screen currently shows only the upcoming level number, not the full arcade item preview
+- the PART screen is implemented with high-level Godot UI controls rather than original tile / color RAM rendering
 - score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
 - HUD is functional but still scene-local rather than part of a full screen-flow architecture
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
@@ -1519,7 +1544,7 @@ A reasonable current priority is now:
 4) refine exact local door/gate probing and outside-center forced-reversal cases using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
 6) implement bonus vegetables and enemy freeze behavior
-7) refine the simplified PART transition screen toward the arcade version
+7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
 8) decide the remake behavior for SPECIAL completion
 9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
 10) refine later-level enemy visual rotation beyond level 8 if needed
