@@ -904,13 +904,16 @@ public partial class Level : Node2D
     /// </remarks>
     private void HandlePlayerDeathFromSkull()
     {
-        // A skull has already been removed by CollectibleFieldRuntime.TryConsume.
-        // It gives no score and immediately starts the player-death path.
+        // The skull touched by the player has already been removed by
+        // CollectibleFieldRuntime.TryConsume. In the arcade, every remaining skull
+        // icon disappears before the red shrink / ghost death animation starts.
         _pickupPopupState.Clear();
         ClearPickupPopupView();
         _isNextLevelQueuedAfterPopup = false;
         _isLevelTransitionScreenActive = false;
         _levelTransitionOverlay?.HideOverlay();
+
+        _collectibleField.ClearSkulls();
 
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);

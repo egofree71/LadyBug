@@ -190,6 +190,37 @@ public sealed class CollectibleFieldRuntime
     }
 
     /// <summary>
+    /// Removes every remaining skull from the current board.
+    /// </summary>
+    /// <remarks>
+    /// The arcade clears all skull icons immediately when Lady Bug dies by touching
+    /// one. This helper is intentionally skull-only: flowers, hearts, and letters
+    /// remain in place so the next life resumes the same board progress.
+    /// </remarks>
+    /// <returns>The number of skulls removed from the board.</returns>
+    public int ClearSkulls()
+    {
+        List<Vector2I> skullCells = new();
+
+        foreach (KeyValuePair<Vector2I, RuntimeCollectible> pair in _collectiblesByCell)
+        {
+            if (pair.Value.Kind == CollectibleKind.Skull)
+                skullCells.Add(pair.Key);
+        }
+
+        foreach (Vector2I cell in skullCells)
+        {
+            RuntimeCollectible runtimeCollectible = _collectiblesByCell[cell];
+            _collectiblesByCell.Remove(cell);
+
+            if (GodotObject.IsInstanceValid(runtimeCollectible.View))
+                runtimeCollectible.View.QueueFree();
+        }
+
+        return skullCells.Count;
+    }
+
+    /// <summary>
     /// Removes all active collectible views and clears the runtime lookup.
     /// </summary>
     public void Clear()
