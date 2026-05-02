@@ -8,15 +8,25 @@ namespace LadyBug.Gameplay.Collectibles;
 /// Generates the start-of-level placement plan for special collectibles.
 /// </summary>
 /// <remarks>
+/// <para>
 /// This planner is responsible only for the initial visual placement of:
 /// - 3 letters
 /// - 3 hearts
 /// - 2 to 6 skulls depending on the level
-///
+/// </para>
+/// <para>
 /// It does not handle scoring, color cycling, or player interaction.
+/// </para>
 /// </remarks>
 public static class CollectibleSpawnPlanner
 {
+    // Used by the transition overlay: the PART screen must preview the same
+    // generated special collectibles that the next rebuilt board will receive.
+    // The overlay generates and caches the plan, then the next Generate(...) call
+    // for that level consumes the cached plan.
+    private static int? _cachedPreviewLevelNumber;
+    private static CollectibleSpawnPlan? _cachedPreviewSpawnPlan;
+
     /// <summary>
     /// Generates the special collectible placement plan for one level start.
     /// </summary>
@@ -33,6 +43,49 @@ public static class CollectibleSpawnPlanner
             throw new ArgumentNullException(nameof(rng));
         }
 
+        int effectiveLevelNumber = Math.Max(1, levelNumber);
+
+        if (_cachedPreviewLevelNumber == effectiveLevelNumber && _cachedPreviewSpawnPlan != null)
+        {
+            CollectibleSpawnPlan cachedPlan = _cachedPreviewSpawnPlan;
+            _cachedPreviewLevelNumber = null;
+            _cachedPreviewSpawnPlan = null;
+            return cachedPlan;
+        }
+
+        return GenerateFresh(effectiveLevelNumber, rng);
+    }
+
+    /// <summary>
+    /// Generates and caches the upcoming level plan for the transition screen.
+    /// </summary>
+    /// <remarks>
+    /// The next normal <see cref="Generate"/> call for the same level will return
+    /// this exact plan. This lets the intermission screen preview the real letters,
+    /// hearts, and skull count that will appear after the transition, without
+    /// requiring additional state in <c>Level</c>.
+    /// </remarks>
+    public static CollectibleSpawnPlan GeneratePreviewForTransition(int levelNumber, RandomNumberGenerator rng)
+    {
+        if (rng == null)
+        {
+            throw new ArgumentNullException(nameof(rng));
+        }
+
+        int effectiveLevelNumber = Math.Max(1, levelNumber);
+        CollectibleSpawnPlan plan = GenerateFresh(effectiveLevelNumber, rng);
+
+        _cachedPreviewLevelNumber = effectiveLevelNumber;
+        _cachedPreviewSpawnPlan = plan;
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Builds a fresh special collectible plan without reading or writing the preview cache.
+    /// </summary>
+    private static CollectibleSpawnPlan GenerateFresh(int levelNumber, RandomNumberGenerator rng)
+    {
         Vector2I[] pickA = DrawFourDistinctAnchors(CollectibleAnchorFamilies.FamilyA, rng);
         Vector2I[] pickB = DrawFourDistinctAnchors(CollectibleAnchorFamilies.FamilyB, rng);
         Vector2I[] pickC = DrawFourDistinctAnchors(CollectibleAnchorFamilies.FamilyC, rng);
@@ -138,9 +191,7 @@ public static class CollectibleSpawnPlanner
     /// </summary>
     /// <param name="candidates">Candidate anchors for one family.</param>
     /// <param name="rng">Random number generator.</param>
-    /// <returns>
-    /// An ordered array of four distinct anchors corresponding to draw[0]..draw[3].
-    /// </returns>
+    /// <returns>An ordered array of four distinct anchors corresponding to draw[0]..draw[3].</returns>
     private static Vector2I[] DrawFourDistinctAnchors(
         IReadOnlyList<Vector2I> candidates,
         RandomNumberGenerator rng)
