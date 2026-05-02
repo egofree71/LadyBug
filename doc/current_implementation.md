@@ -624,6 +624,7 @@ Current implementation detail:
 - expose HasRemainingProgressCollectibles() for level-completion checks
 - expose CountRemainingProgressCollectibles() for debugging / future UI if needed
 - support enemy skull checks through TryConsumeSkullAt(...)
+- support clearing all remaining skulls when the player dies from a skull
 - return a CollectiblePickupResult when something is consumed
 - clear tracked collectible views if needed
 
@@ -689,6 +690,7 @@ Current implementation detail:
 
 **Skull:**
 - consumed with no score when touched by the player
+- removes all remaining skulls from the board before the player death sequence starts
 - starts the player death sequence when touched by the player
 - decrements lives immediately when it kills the player
 - freezes normal gameplay while the player death sequence runs
@@ -865,7 +867,8 @@ scripts/gameplay/player/
 ```
 
 **Current skull-death behavior:**
-- the skull is consumed and removed from the collectible field
+- the touched skull is consumed and removed from the collectible field
+- all remaining skulls are removed before the death sequence starts
 - no score is awarded
 - one life is removed immediately
 - the HUD lives display updates immediately
@@ -1428,6 +1431,7 @@ The following is already implemented and functional:
 - SPECIAL completion records a placeholder free-game award
 - lives are tracked and displayed
 - skull pickup is lethal to the player
+- skull death removes all remaining skulls before the death sequence starts
 - skull death removes one life and starts the player death sequence
 - enemies are implemented as a first playable system
 - one enemy is visible waiting in the central lair before the first release
