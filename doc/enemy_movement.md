@@ -93,7 +93,8 @@ Enemy movement is a hybrid system:
 6. Only if the current direction is also rejected does fallback search another direction in the fixed arcade order `01, 02, 04, 08`.
 7. Outside decision centers, the enemy normally continues straight.
 8. In special door-related cases, the enemy may be forced to reverse direction even outside a decision center.
-9. Movement is pixel-by-pixel, not tile-by-tile.
+9. In the current Godot implementation, any late opposite-direction rescue after a blocked step is deliberately restricted to the same outside-center gate-blocked case.
+10. Movement is pixel-by-pixel, not tile-by-tile.
 
 Implementation consequence:
 
@@ -105,6 +106,7 @@ monster movement = pixel step
                  + rejected mask
                  + fixed-order fallback
                  + outside-center door reversal
+                 + restricted late gate-blocked opposite-direction rescue
                  + temporary BFS pressure
 ```
 
@@ -1039,11 +1041,23 @@ If the enemy is at a decision center and the path is:
 
 ```text
 TryPreferred
--> LocalDoorCheck
+-> TryCurrent
 -> Fallback
 ```
 
 then the 180-degree turn is a fallback result, not a forced reversal.
+
+Current Godot implementation note:
+
+```text
+A late opposite-direction rescue after a blocked final step is allowed only when:
+- the enemy is outside a decision center;
+- the selected step is blocked by a gate;
+- the opposite step is immediately allowed.
+```
+
+This keeps late reversal behavior aligned with the outside-center door/gate path
+instead of using it as a generic rescue for center-decision failures.
 
 Skull death / enemy killed by skull
 -----------------------------------
@@ -1582,6 +1596,35 @@ Then the normal one-pixel movement runs.
 
 This logic is separate from center fallback.
 
+### Late blocked-step safety
+
+The current Godot implementation also has a final step validation after the direction
+has been chosen. This is useful because doors can change the local playfield state
+around the enemy.
+
+The safety rescue must remain narrow:
+
+```csharp
+bool canLateReverse = !atDecisionCenter
+                   && step.Kind == PlayfieldStepKind.BlockedByGate;
+
+if (canLateReverse && EvaluateStep(monster, chosenDir.Opposite()).Allowed)
+{
+	chosenDir = chosenDir.Opposite();
+	forcedReverse = true;
+}
+```
+
+Important:
+
+```text
+At a decision center, do not use a late opposite-direction rescue.
+The center decision should already have gone through preferred -> current -> fallback.
+```
+
+This prevents a generic "blocked -> opposite" safety path from hiding bugs in the
+center-decision algorithm or in local movement validation.
+
 ### One-pixel movement
 
 No change from the original movement model:
@@ -1716,6 +1759,7 @@ Implemented in the current Godot version:
 - 61C1-like local rejected-direction mask at center decisions
 - fixed fallback order 01,02,04,08 after preferred/current rejection
 - outside-center forced reversal when a gate blocks the current path
+- late opposite-direction rescue restricted to gate-blocked movement outside decision centers
 - player/enemy collision
 - enemy views hidden immediately during player death sequence
 - enemy reset after player death without resetting collectibles or gates
@@ -1730,7 +1774,7 @@ Still approximate / to refine:
 - exact enemy release path from the lair into the maze
 - exact pixel-perfect behavior of enemies around rotating doors
 - exact local door/tile probing equivalent to 0x4130
-- exact forced reversal semantics around 0x4189 / 0x4347
+- exact forced reversal semantics around 0x4189 / 0x4347; current Godot behavior is intentionally conservative and does not use late opposite-direction rescue at decision centers
 - full chase activation tables for later levels / DIP settings
 - exact arcade duration and low-level timing of the vegetable freeze
 - enemy type selection / visual reuse rules from level 9 onward
@@ -1789,6 +1833,7 @@ Confirmed enough:
 - fallback order 01,02,04,08
 - apparent center reversals can be fallback results
 - forced reversal can occur outside intersections
+- late opposite-direction rescue is restricted to gate-blocked movement outside decision centers
 - skull tile 63 kills enemies
 - vegetable sets enemy freeze timer 61E1 in the arcade
 - frozen enemies remain fatal
@@ -1823,6 +1868,7 @@ fallback skips directions already present in the 61C1-like rejected mask
 fallback scans directions in order 01,02,04,08 after preferred and current directions both fail
 fallback can legally choose the opposite direction without invoking forced reversal
 forced reversal outside decision center from door/gate change
+late blocked-step rescue only for outside-center BlockedByGate cases
 ```
 
 Timing:
@@ -1873,6 +1919,7 @@ do not choose fallback by player distance
 do not skip the current-direction test before fallback
 do not collapse static maze and local door validation into one opaque check
 do not classify center fallback reversals as outside-center forced reversals
+do not use a generic blocked-step -> opposite-direction rescue at decision centers
 ```
 
 Debugging anchors

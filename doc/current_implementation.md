@@ -1094,13 +1094,13 @@ The current implementation provides enemy visual sheets for levels 1 through 8.
 It stores allowed directions and BFS guidance directions separately.
 
 **EnemyMovementAi** advances one active monster by one arcade pixel.
-It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight movement, and a simple forced reversal when the current path becomes blocked outside a decision center.
+It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight movement, and a deliberately narrow forced-reversal path for gate-blocked movement outside a decision center.
 
 At decision centers, `EnemyMovementAi` now follows the simulator-validated decision order: try the preferred direction first, then keep the current direction if it is still valid, and only then scan fallback directions. Preferred and current candidates are validated through both the enemy navigation grid and the local playfield / gate probe. A rejected preferred or current direction is added to the local rejected mask before fallback scans the arcade order: Left, Up, Right, Down.
 
 Apparent 180-degree turns at centers are therefore modeled as normal fallback results when both the preferred and current directions fail, not as forced reversals.
 
-Outside decision centers, preferred direction and fallback are not consulted. The enemy normally continues straight, except for the separate gate-blocked forced-reversal path.
+Outside decision centers, preferred direction and fallback are not consulted. The enemy normally continues straight, except for the separate gate-blocked forced-reversal path. If a direction chosen earlier is still blocked at the final one-pixel step, the current implementation only allows the late opposite-direction rescue in the same narrow case: outside a decision center and blocked by a gate. At decision centers, a blocked choice should already have been resolved by the preferred -> current -> fallback decision chain.
 
 **EnemyBasePreferenceSystem** prepares the non-chase preferred directions continuously before chase/BFS overrides are applied.
 It implements the currently reverse-engineered two-mode arcade-inspired behavior: a B9-like counter chooses between player-direction-derived preferences and one pseudo-random preferred direction per enemy.
@@ -1129,6 +1129,8 @@ Current implemented behavior:
 - fallback candidates are validated through both the enemy navigation grid and the local playfield / gate probe
 - apparent center reversals can be normal fallback results after rejection, not forced-reversal events
 - outside decision centers, forced reversal remains reserved for gate-blocked straight movement
+- late opposite-direction rescue after a blocked step is also restricted to gate-blocked movement outside decision centers
+- at decision centers, blocked choices are resolved by preferred -> current -> fallback, not by a late forced reversal
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
 - base preferred directions are recalculated continuously before chase/BFS override
@@ -1499,6 +1501,7 @@ The following is already implemented and functional:
 - enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
 - enemy fallback validates candidates through the navigation grid and local playfield / gate probe
 - enemy forced reversal is kept separate from center fallback and is used only for outside-center gate blocks
+- enemy late opposite-direction rescue after a blocked step is restricted to outside-center gate blocks
 - enemies use a navigation grid generated from the static maze and current rotating-gate states
 - enemies can receive temporary BFS chase guidance toward the player
 - enemy chase activation uses a round-robin selector and level-dependent timing thresholds
@@ -1560,7 +1563,7 @@ Current limitations include:
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
 - enemy center decisions now follow the simulator-validated preferred -> current -> fallback order, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
-- outside-center forced-reversal semantics around rotating doors still need refinement
+- outside-center forced-reversal semantics around rotating doors still need refinement; the current implementation intentionally keeps this path conservative by limiting late opposite-direction rescue to gate-blocked movement outside decision centers
 - enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
@@ -1570,7 +1573,7 @@ Current limitations include:
 
 A reasonable current priority is now:
 
-1) keep the current enemy preferred -> current -> fallback refinement as a stable checkpoint
+1) keep the current enemy preferred -> current -> fallback refinement and restricted outside-center gate reversal as a stable checkpoint
 2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, and enemy reset systems stable
 3) document and protect validated player/enemy movement behavior with regression scenarios
 4) refine exact local door/gate probing and outside-center forced-reversal cases using targeted MAME traces

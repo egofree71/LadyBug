@@ -30,12 +30,12 @@ Implemented systems include:
 - level progression placeholder
 - HUD with score, lives, SPECIAL, EXTRA and multipliers
 
-Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. This removed a visible issue where enemies could appear stuck between logical cells.
+Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later refinement keeps forced / opposite-direction rescue separate from normal center decisions: late reversal is allowed only for gate-blocked movement outside decision centers. Together, these changes removed a visible issue where enemies could appear stuck between logical cells while keeping the center-decision logic easier to reason about.
 
 Some systems are still incomplete or approximate, especially:
 
 - exact bonus-vegetable timing and low-level arcade rendering details
-- remaining enemy movement edge cases around rotating gates and later-level behavior
+- remaining pixel-perfect enemy movement edge cases around rotating gates and later-level behavior
 - later-level enemy rotation
 - title screen and full arcade screen flow
 - game over and high-score screens
