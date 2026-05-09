@@ -131,14 +131,18 @@ public sealed class EnemyMovementAi
             stepBlocked = true;
             blockKind = step.Kind.ToString();
 
+            // Stricter arcade-like behavior: a late opposite-direction rescue is
+            // only allowed for the same gate-blocked outside-center case as the
+            // explicit forced-reversal path. At decision centers, direction choice
+            // should already have gone through preferred -> current -> fallback.
+            bool canLateReverse = !atDecisionCenter && step.Kind == PlayfieldStepKind.BlockedByGate;
             MonsterDir opposite = chosenDir.Opposite();
-            if (opposite != MonsterDir.None && EvaluateStep(monster, opposite).Allowed)
+
+            if (canLateReverse && opposite != MonsterDir.None && EvaluateStep(monster, opposite).Allowed)
             {
                 chosenDir = opposite;
                 forcedReverse = true;
-                decisionReason = atDecisionCenter
-                    ? $"{decisionReason}+blocked-opposite"
-                    : "blocked-opposite";
+                decisionReason = "blocked-gate-opposite";
             }
             else
             {
