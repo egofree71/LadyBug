@@ -6,13 +6,18 @@ namespace LadyBug.Actors;
 /// Optional console trace for hard-to-debug player movement cases.
 /// </summary>
 /// <remarks>
-/// The trace is deliberately isolated from <see cref="PlayerMovementMotor"/> so
-/// the gameplay code can stay readable. Leave <see cref="Enabled"/> disabled in
+/// The trace is deliberately isolated from PlayerMovementMotor so
+/// the gameplay code can stay readable. Leave Enabled disabled in
 /// committed code; turn it on only while investigating a movement edge case.
 /// </remarks>
 internal sealed class PlayerMovementDebugTrace
 {
-    private const bool Enabled = false;
+    // Important: do not make this a const bool.
+    // With "private const bool Enabled = false", the C# compiler sees every
+    // "if (!Enabled) return;" as always true and reports CS0162 on the code
+    // that follows the return.
+    private static readonly bool Enabled = false;
+
     private const int MameYMirror = 0xDD;
 
     private int _tickIndex;
@@ -114,12 +119,16 @@ internal sealed class PlayerMovementDebugTrace
     {
         if (direction == Vector2I.Left)
             return "Left";
+
         if (direction == Vector2I.Right)
             return "Right";
+
         if (direction == Vector2I.Up)
             return "Up";
+
         if (direction == Vector2I.Down)
             return "Down";
+
         return "None";
     }
 
