@@ -131,10 +131,11 @@ public sealed class EnemyMovementAi
             stepBlocked = true;
             blockKind = step.Kind.ToString();
 
-            // Stricter arcade-like behavior: a late opposite-direction rescue is
-            // only allowed for the same gate-blocked outside-center case as the
-            // explicit forced-reversal path. At decision centers, direction choice
-            // should already have gone through preferred -> current -> fallback.
+            // Package 03 refinement: keep this late opposite-direction rescue narrow.
+            // It exists only as a safety equivalent of the outside-center gate reversal,
+            // not as another decision-center fallback mechanism. At a decision center,
+            // direction choice should already have been resolved by:
+            // preferred -> current -> fallback.
             bool canLateReverse = !atDecisionCenter && step.Kind == PlayfieldStepKind.BlockedByGate;
             MonsterDir opposite = chosenDir.Opposite();
 
@@ -216,6 +217,9 @@ public sealed class EnemyMovementAi
         if (preferred != MonsterDir.None)
             rejectedMask |= preferred;
 
+        // Simulator refinement: a rejected preferred direction does not send the
+        // enemy directly to the fixed-order fallback. The arcade-like behavior is
+        // to try preserving the direction that was already committed on the enemy.
         MonsterDir current = monster.Direction;
         if (current != MonsterDir.None && (rejectedMask & current) == 0)
         {
@@ -233,11 +237,17 @@ public sealed class EnemyMovementAi
             rejectedMask |= current;
         }
 
+        // Only preferred/current rejections are carried into fallback. The fallback
+        // search then owns a local scan mask so failed fallback candidates do not
+        // become persistent enemy state.
         MonsterDir fallback = FindFallbackDirection(
             monster,
             navigationGrid,
             rejectedMask,
             out MonsterDir debugRejectedMask);
+
+        // Keep the final local scan mask only for the debug snapshot returned by
+        // UpdateMonsterOnePixel; it is not written back to MonsterEntity.
         rejectedMask = debugRejectedMask;
 
         if (fallback != MonsterDir.None)
@@ -263,6 +273,8 @@ public sealed class EnemyMovementAi
         MonsterDir alreadyRejected,
         out MonsterDir debugRejectedMask)
     {
+        // Local mask for this single decision. It starts with preferred/current
+        // rejections, then grows only while scanning the fallback order.
         MonsterDir scanRejected = alreadyRejected;
 
         foreach (MonsterDir candidate in FallbackOrder)
