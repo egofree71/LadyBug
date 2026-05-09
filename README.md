@@ -21,18 +21,21 @@ Implemented systems include:
 - rotating gates
 - flowers, hearts, letters and skulls
 - scoring and score multipliers
+- bonus vegetables with bonus scoring
 - SPECIAL / EXTRA word progress
 - lives and player death sequence
 - enemy release through the animated border timer
-- first playable enemy movement system
+- enemy freeze after collecting the central bonus vegetable, while enemies remain fatal
+- first playable enemy movement system with simulator-refined center decisions
 - level progression placeholder
 - HUD with score, lives, SPECIAL, EXTRA and multipliers
 
+Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. This removed a visible issue where enemies could appear stuck between logical cells.
+
 Some systems are still incomplete or approximate, especially:
 
-- bonus vegetables
-- enemy freeze behavior
-- exact enemy movement and decision logic
+- exact bonus-vegetable timing and low-level arcade rendering details
+- remaining enemy movement edge cases around rotating gates and later-level behavior
 - later-level enemy rotation
 - title screen and full arcade screen flow
 - game over and high-score screens

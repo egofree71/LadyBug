@@ -17,10 +17,15 @@ to reproduce the arcade gameplay feel faithfully in clean Godot/C# code.
 Update note
 -----------
 
-This version folds in the algorithmic delta from the later movement-log analysis:
-local door/tile validation at decision centers is treated as a first-class part
-of the normal decision algorithm, feeding a `61C1`-like rejected-direction mask
-and fixed-order fallback.
+This version folds in the algorithmic delta from the later movement-log analysis
+and the Enemy Trace Simulator validation:
+
+- local door/tile validation at decision centers is treated as a first-class part
+  of the normal decision algorithm;
+- a rejected preferred direction is not enough to force fallback immediately;
+- the enemy first tries to keep its current direction;
+- fallback runs only after both the preferred direction and the current direction
+  are rejected.
 
 Main source material
 --------------------
@@ -84,10 +89,11 @@ Enemy movement is a hybrid system:
    - static/logical maze permissions
    - local door / tile / playfield geometry
 4. If either validation layer rejects the preferred direction, that direction is added to a `61C1`-like rejected-direction mask.
-5. Fallback then searches another direction in the fixed arcade order `01, 02, 04, 08`.
-6. Outside decision centers, the enemy normally continues straight.
-7. In special door-related cases, the enemy may be forced to reverse direction even outside a decision center.
-8. Movement is pixel-by-pixel, not tile-by-tile.
+5. Before fallback, the enemy tries to keep its current direction if that direction is still valid.
+6. Only if the current direction is also rejected does fallback search another direction in the fixed arcade order `01, 02, 04, 08`.
+7. Outside decision centers, the enemy normally continues straight.
+8. In special door-related cases, the enemy may be forced to reverse direction even outside a decision center.
+9. Movement is pixel-by-pixel, not tile-by-tile.
 
 Implementation consequence:
 
@@ -95,6 +101,7 @@ Implementation consequence:
 monster movement = pixel step
                  + center decisions
                  + preferred direction validation
+                 + current-direction preservation
                  + rejected mask
                  + fixed-order fallback
                  + outside-center door reversal
@@ -113,6 +120,7 @@ preferred direction
 -> static maze allowed
 -> local door/tile rejected
 -> rejected direction added to 61C1-like mask
+-> current direction also rejected
 -> fallback chooses the opposite direction
 ```
 
@@ -248,9 +256,9 @@ EnemyNavigationGrid
 
 EnemyMovementAi
 	Applies one-pixel movement, decision-center direction choice, preferred
-	direction validation, a `61C1`-like rejected-direction mask, fixed-order
-	fallback selection, and outside-center forced reversal when a door/gate blocks
-	the current path.
+	direction validation, current-direction preservation before fallback, a
+	`61C1`-like rejected-direction mask, fixed-order fallback selection, and
+	outside-center forced reversal when a door/gate blocks the current path.
 
 EnemyBasePreferenceSystem
 	Prepares the non-chase preferred directions continuously before chase/BFS
@@ -262,11 +270,10 @@ EnemyChaseSystem
 	Owns the arcade-inspired timing divider, B8-like activation counter,
 	round-robin enemy selector and chase duration sequence.
 
-VegetableBonusRuntime
-	Freezes enemy movement after the central vegetable is collected while keeping
-	enemy collision active. The current implementation uses a first playable
-	300-tick duration rather than an exact reproduction of the arcade `61E1`
-	cadence.
+Vegetable bonus / enemy freeze
+	Reverse-engineered behavior is documented below, but this is not part of the
+	current Godot implementation yet. When implemented, frozen enemies should stop
+	moving while their collision remains fatal.
 ```
 
 The current implementation deliberately separates gameplay state from rendering:
@@ -844,8 +851,9 @@ Fallback behavior
 
 Confirmed.
 
-If the preferred direction fails validation, the code searches for a fallback
-direction via `0x4241`.
+If the preferred direction fails validation, the enemy first tries to keep its
+current direction. Fallback via `0x4241` is used only after both the preferred
+direction and the current direction are rejected.
 
 The enemy does not stop merely because the preferred direction is invalid.
 
@@ -897,6 +905,8 @@ At a decision center, an apparent reversal should usually be modeled as:
 ```text
 preferred rejected
 -> rejectedMask updated
+-> current direction tested
+-> current rejected if blocked
 -> fallback order scans directions
 -> fallback may choose the opposite direction
 ```
@@ -930,10 +940,11 @@ private static readonly MonsterDir[] FallbackOrder =
 
 Fallback must:
 
-1. skip any direction already present in the `61C1`-like rejected-direction mask;
-2. validate each candidate against the static/logical maze layer;
-3. validate each candidate against the local door/tile/playfield layer;
-4. return the first candidate accepted by both layers.
+1. start only after the preferred direction and current direction have both failed;
+2. skip any direction already present in the local `61C1`-like rejected-direction mask;
+3. validate each candidate against the static/logical maze layer;
+4. validate each candidate against the local door/tile/playfield layer;
+5. return the first candidate accepted by both layers.
 
 Recommended implementation:
 
@@ -965,8 +976,8 @@ Implementation notes:
 
 ```text
 - Do not choose the "best" fallback direction by distance to the player.
-- Do not prefer continuing straight unless the fixed arcade order reaches that direction first.
-- Do not append a special "try current, then opposite" heuristic at decision centers.
+- Do not skip the current-direction test between preferred rejection and fallback.
+- Do not treat fallback rejections as persistent enemy state beyond the current decision.
 - If the safety fallback is needed, make it visible in debug logs.
 ```
 
@@ -1498,10 +1509,25 @@ void UpdateAtDecisionCenter(MonsterEntity monster)
 	if (preferred != MonsterDir.None)
 		rejectedMask |= preferred;
 
+	MonsterDir current = monster.Direction;
+	MonsterDirectionValidation currentValidation =
+		ValidateCandidateDirection(monster, current, navigationGrid);
+
+	if (currentValidation.Accepted)
+	{
+		monster.Direction = current;
+		return;
+	}
+
+	if (current != MonsterDir.None)
+		rejectedMask |= current;
+
 	MonsterDir fallback =
 		FindFallbackDirection(monster, rejectedMask, navigationGrid);
 
-	monster.Direction = fallback;
+	if (fallback != MonsterDir.None)
+		monster.Direction = fallback;
+	// Otherwise keep current direction as a visible safety fallback.
 }
 ```
 
@@ -1511,8 +1537,9 @@ Important implementation notes:
    the local door/tile layer.
 2. A preferred direction rejected by local door geometry still counts as rejected
    and should be included in the mask.
-3. The fallback routine must not be a modern heuristic.
-4. If fallback chooses the opposite direction, that is still fallback, not forced
+3. The current direction must be tested before fallback.
+4. The fallback routine must not be a modern heuristic.
+5. If fallback chooses the opposite direction, that is still fallback, not forced
    reversal.
 
 ### Fallback algorithm
@@ -1685,15 +1712,14 @@ Implemented in the current Godot version:
 - BFS chase pressure
 - round-robin chase timers
 - preferred-direction validation before movement
-- 61C1-like rejected-direction mask at center decisions
-- fixed fallback order 01,02,04,08
+- current-direction preservation before fallback at center decisions
+- 61C1-like local rejected-direction mask at center decisions
+- fixed fallback order 01,02,04,08 after preferred/current rejection
 - outside-center forced reversal when a gate blocks the current path
 - player/enemy collision
 - enemy views hidden immediately during player death sequence
 - enemy reset after player death without resetting collectibles or gates
 - enemy killed by skull
-- central vegetable bonus with first playable enemy freeze
-- frozen enemies remain fatal
 - level-specific enemy spritesheets for levels 1 through 8
 ```
 
@@ -1759,6 +1785,7 @@ Confirmed enough:
 - doors modify navigation
 - local door validation can reject a direction
 - rejected-direction mask equivalent to 61C1
+- current direction is tried before fallback at decision centers
 - fallback order 01,02,04,08
 - apparent center reversals can be fallback results
 - forced reversal can occur outside intersections
@@ -1790,10 +1817,10 @@ Movement:
 enemy straight movement all directions
 enemy decision at X&0F=08 / Y&0F=06
 preferred direction accepted
-preferred direction rejected by static maze -> fallback
-preferred direction allowed by static maze but rejected by local door/playfield -> fallback
+preferred direction rejected by static maze -> current direction tested -> fallback if current rejected
+preferred direction allowed by static maze but rejected by local door/playfield -> current direction tested -> fallback if current rejected
 fallback skips directions already present in the 61C1-like rejected mask
-fallback scans directions in order 01,02,04,08
+fallback scans directions in order 01,02,04,08 after preferred and current directions both fail
 fallback can legally choose the opposite direction without invoking forced reversal
 forced reversal outside decision center from door/gate change
 ```
@@ -1843,7 +1870,7 @@ Anti-regression:
 ```text
 do not hardcode special coordinate reversal rules
 do not choose fallback by player distance
-do not use pref-current/pref-next heuristics as gameplay logic
+do not skip the current-direction test before fallback
 do not collapse static maze and local door validation into one opaque check
 do not classify center fallback reversals as outside-center forced reversals
 ```
