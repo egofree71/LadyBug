@@ -528,9 +528,6 @@ Level.cs is currently the runtime coordinator for one active board.
 - create EnemyRuntime from the runtime Enemies parent, MazeGrid, GateSystem and coordinate converters
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
-- own the current bonus vegetable runtime state
-- award vegetable bonus score when the central bonus is collected
-- freeze enemy movement after a vegetable bonus pickup while keeping enemy collisions fatal
 - configure the maze-border enemy-release timer for the current level number
 - detect board completion when all progression collectibles are consumed
 - own the current level-transition screen state
@@ -562,7 +559,6 @@ Level.cs is currently the runtime coordinator for one active board.
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
 - enemy state, enemy views, enemy navigation, chase, release and reset: EnemyRuntime
-- bonus vegetable visibility / collection / freeze timing: current Level-owned prototype runtime
 - collectible scoring calculation: CollectibleScoreService
 - SPECIAL / EXTRA word progress: WordProgressState
 - lives: PlayerLifeState
@@ -576,7 +572,6 @@ Level.cs is currently the runtime coordinator for one active board.
 - board-level systems are advanced before the player
 - the maze-border timer is advanced as a normal board-level system
 - the enemy runtime is advanced before the player, then player/enemy collision is checked after player movement
-- while the vegetable freeze timer is active, enemy movement is skipped but player/enemy collision remains active
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
@@ -731,26 +726,6 @@ Level checks this after each non-skull collectible pickup:
 - if the last collectible was a flower, the transition can start immediately
 - if the last collectible was a heart or letter, the normal pickup popup finishes first
 - after the popup finishes, the level-transition screen is shown
-
-### 7.8 Bonus vegetable
-
-The central bonus vegetable system is now implemented as a first playable gameplay feature.
-
-Current behavior:
-- a bonus vegetable can appear in the central area after the enemy-release conditions are met
-- collecting the vegetable awards the level-dependent vegetable bonus value
-- after the vegetable is collected, enemy movement is frozen for a short runtime period
-- frozen enemies remain collision-active and still kill the player on contact
-- the freeze affects enemy movement / AI updates only; it does not disable player movement or enemy hitboxes
-- the implementation follows the reverse-engineered gameplay rule, but the exact low-level arcade timing / visual rendering may still need refinement
-
-Current arcade-facing rule:
-```text
-vegetable collected
--> award vegetable score
--> freeze enemy movement temporarily
--> keep enemy collision fatal
-```
 
 ## 8. Scoring, Heart Multiplier, Lives, and Word Progress
 
@@ -1072,8 +1047,6 @@ scripts/gameplay/enemies/
 **EnemyRuntime** is the top-level enemy coordinator owned by Level.
 It creates the runtime Enemies parent if needed, instantiates four enemy views, owns the four logical enemy slots, advances enemy navigation / chase / movement, checks skull deaths for enemies, exposes collision-active monsters to Level, handles release from the lair, and resets enemy state after player death.
 
-When the vegetable-freeze state is active, Level skips enemy movement updates but still checks collision-active monsters after player movement, preserving the arcade rule that frozen enemies remain fatal.
-
 **MonsterEntity** stores the gameplay state of one enemy slot:
 - slot id
 - arcade-pixel position
@@ -1094,13 +1067,11 @@ The current implementation provides enemy visual sheets for levels 1 through 8.
 It stores allowed directions and BFS guidance directions separately.
 
 **EnemyMovementAi** advances one active monster by one arcade pixel.
-It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight outside-center movement, and simulator-derived local movement probe offsets. Broad outside-center gate / boundary reversal has been disabled because simulator comparison showed that it was too coarse.
+It handles decision-center checks, preferred-direction validation, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight movement, local directional probe offsets, and a small anti-ping-pong refinement used to reduce repeated oscillation in cul-de-sacs.
 
-At decision centers, `EnemyMovementAi` now follows the simulator-validated decision order: try the preferred direction first, then keep the current direction if it is still valid, and only then scan fallback directions. Preferred and current candidates are validated through both the enemy navigation grid and the local playfield / gate probe. A rejected preferred or current direction is added to the local rejected mask before fallback scans the arcade order: Left, Up, Right, Down.
+At decision centers, `EnemyMovementAi` now follows the validated order: try the preferred direction, then the current direction, then fallback in arcade order Left, Up, Right, Down. Local door / playfield validation is treated as part of the normal direction-selection algorithm. A preferred direction can be allowed by the enemy navigation grid and still be rejected by the local playfield / gate probe. In that case, the direction is added to the rejected mask and the current direction or fallback search is used instead. The current Godot implementation also includes a pragmatic anti-ping-pong refinement: if the preferred direction is the exact opposite of the current direction, it can be deferred until other options have been tried first.
 
-Apparent 180-degree turns at centers are therefore modeled as normal fallback results when both the preferred and current directions fail, not as forced reversals.
-
-Outside decision centers, preferred direction and fallback are not consulted. The enemy keeps its current direction and advances one pixel. The previous broad rule that reversed an enemy when the high-level resolver reported a gate / boundary block has been removed. A future arcade-accurate forced reversal should be reintroduced only from a precise local door/tile probe.
+Outside decision centers, preferred direction and fallback are not consulted. The enemy normally keeps its current direction and advances one pixel. A broader gate/boundary-based forced reversal was disabled after simulator comparisons because it produced too much oscillation; a narrower arcade-like outside-center reversal may still be reintroduced later once it is validated more precisely.
 
 **EnemyBasePreferenceSystem** prepares the non-chase preferred directions continuously before chase/BFS overrides are applied.
 It implements the currently reverse-engineered two-mode arcade-inspired behavior: a B9-like counter chooses between player-direction-derived preferences and one pseudo-random preferred direction per enemy.
@@ -1122,25 +1093,23 @@ Current implemented behavior:
 - after one enemy leaves the lair, another waiting enemy becomes visible if a slot is available
 - active enemies move one arcade pixel per fixed simulation tick
 - enemies make direction choices at decision centers
-- at decision centers, the preferred direction is validated before movement
-- if the preferred direction is rejected, the current direction is tested before fallback
-- preferred/current-direction rejection feeds a local `61C1`-like rejected-direction mask
-- fallback scans the arcade direction order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
+- at decision centers, direction choice follows the validated order preferred -> current -> fallback before movement
+- preferred-direction rejection feeds a `61C1`-like rejected-direction mask
+- fallback scans the arcade direction order Left, Up, Right, Down / 01, 02, 04, 08
 - fallback candidates are validated through both the enemy navigation grid and the local playfield / gate probe
+- local enemy movement probes now use the simulator-driven offsets Left=X-1,Y / Up=X,Y-7 / Right=X+8,Y / Down=X,Y+2
 - apparent center reversals can be normal fallback results after rejection, not forced-reversal events
-- outside decision centers, preferred direction and fallback are ignored and the enemy keeps its current direction
-- broad outside-center reversal from high-level gate / boundary blocks is intentionally disabled
-- local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2
+- outside decision centers, enemies normally keep their current direction and advance one pixel; the broader gate/boundary reversal rule has been disabled
+- a pragmatic anti-ping-pong refinement defers immediate preferred opposite-direction turns when other valid options exist
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
 - base preferred directions are recalculated continuously before chase/BFS override
 - the base preference system alternates between a B9-like player-direction-derived mode and a pseudo-random mode
 - the deterministic mode rotates the player's current/effective direction through the four enemy direction bits
-- enemy collision / local movement probes use the enemy anchor directly, with simulator-derived directional lead offsets, so enemies can reach their X&0x0F=0x08 / Y&0x0F=0x06 decision centers
+- enemy collision probes use the enemy anchor directly, so enemies can reach their X&0x0F=0x08 / Y&0x0F=0x06 decision centers
 - a BFS guidance map can temporarily override preferred directions during chase phases
 - chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
-- enemies can be frozen by the central vegetable bonus; while frozen, movement is skipped but collision remains fatal
 - enemies can be killed by skulls and return to the lair
 
 ### 13.3 Player death from enemy
@@ -1173,8 +1142,9 @@ The following details are still approximate or not implemented yet:
 - exact pseudo-random source behavior compared with the Z80 R register
 - exact enemy path while leaving the lair
 - exact local door rejection behavior from the arcade routines
-- exact forced reversal semantics around rotating doors
+- exact outside-center forced-reversal semantics around rotating doors
 - full chase activation tables for all levels and DIP settings
+- exact interaction between chase pressure and the current anti-ping-pong refinement
 - exact enemy type rotation / visual reuse rules from level 9 onward
 - exact visual state progression for lair / release transitions
 
@@ -1495,13 +1465,13 @@ The following is already implemented and functional:
 - enemy movement is fixed-tick and pixel-based
 - enemies use a separate direction enum from player movement
 - enemies use decision-center movement at X&0x0F=0x08 and Y&0x0F=0x06
-- enemy center decisions use preferred-direction validation before movement
-- enemy center decisions test the current direction before falling back when the preferred direction is rejected
-- enemy center decisions use a local `61C1`-like rejected-direction mask
-- enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
+- enemy center decisions use the validated order preferred -> current -> fallback before movement
+- enemy center decisions use a `61C1`-like rejected-direction mask
+- enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08
 - enemy fallback validates candidates through the navigation grid and local playfield / gate probe
-- outside-center broad gate / boundary reversal is disabled; outside centers, enemies keep their current direction
-- enemy local movement probes use simulator-derived directional offsets instead of player-style body probes
+- enemy local movement probes use the current simulator-driven offsets Left=X-1,Y / Up=X,Y-7 / Right=X+8,Y / Down=X,Y+2
+- enemies normally keep their direction outside decision centers instead of using a broad gate-triggered reversal rule
+- a pragmatic anti-ping-pong refinement reduces repeated immediate reversals in cul-de-sacs
 - enemies use a navigation grid generated from the static maze and current rotating-gate states
 - enemies can receive temporary BFS chase guidance toward the player
 - enemy chase activation uses a round-robin selector and level-dependent timing thresholds
@@ -1513,10 +1483,6 @@ The following is already implemented and functional:
 - after player death, the maze-border timer is reset
 - after player death, consumed collectibles remain consumed and rotating gate states are preserved
 - enemies can be killed by skulls and return to the lair
-- bonus vegetables can appear in the central area
-- collecting a bonus vegetable awards the current level vegetable bonus score
-- collecting a bonus vegetable freezes enemy movement temporarily
-- frozen enemies remain fatal on contact
 - enemy visuals can use level-specific spritesheets for levels 1 through 8
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
@@ -1533,6 +1499,9 @@ The following is already implemented and functional:
 
 The following systems are still not implemented yet:
 
+- bonus vegetables
+- vegetable bonus scoring
+- enemy freeze caused by vegetables
 - exact enemy type rotation from level 9 onward
 - title screen flow
 - gameplay screen / screen transition architecture
@@ -1548,7 +1517,7 @@ The following systems are still not implemented yet:
 
 ## 21. Current Limitations
 
-The movement, gate, collectible, scoring, HUD, death-sequence, bonus-vegetable, and first enemy systems are functional enough to continue development from this point.
+The movement, gate, collectible, scoring, HUD, death-sequence, and first enemy systems are functional enough to continue development from this point.
 The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
 
 Current limitations include:
@@ -1562,23 +1531,24 @@ Current limitations include:
 - game over is only a placeholder state
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
-- enemy center decisions now follow the simulator-validated preferred -> current -> fallback order, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
-- outside-center broad gate / boundary reversal is intentionally disabled; exact arcade forced-reversal semantics around rotating doors should be reintroduced only after precise local probes are validated
+- enemy center fallback now follows the preferred/current/fixed-order arcade model, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
+- broad outside-center forced reversal has been disabled; the exact arcade-specific reversal semantics around rotating doors still need refinement
+- the current anti-ping-pong refinement is a pragmatic gameplay fix and is not yet confirmed as an exact arcade rule
 - enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
-- vegetable bonus / freeze is implemented as a first playable feature, but exact arcade duration, central-area state transitions, and low-level visual timing may need more traces
+- vegetable freeze is not implemented yet, so frozen-but-fatal enemy behavior is still pending
 
 ## 22. Current Development Priority
 
 A reasonable current priority is now:
 
-1) keep the current enemy preferred -> current -> fallback refinement, disabled broad outside-center reversal, and simulator-derived local probe offsets as a stable checkpoint
+1) commit the current enemy fallback / rejected-mask refinement as a stable checkpoint
 2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, and enemy reset systems stable
 3) document and protect validated player/enemy movement behavior with regression scenarios
-4) refine exact local door/gate tile probing and decide whether a precise outside-center forced-reversal path should be reintroduced using targeted MAME traces
+4) refine exact local door/gate probing and outside-center forced-reversal cases using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
-6) refine exact bonus vegetable timing, scoring presentation, and freeze duration if new arcade evidence justifies it
+6) implement bonus vegetables and enemy freeze behavior
 7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
 8) decide the remake behavior for SPECIAL completion
 9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
