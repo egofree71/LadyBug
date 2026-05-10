@@ -10,7 +10,7 @@
 This document is intentionally concrete.
 It does not describe systems that are only planned.
 
-**Latest documented update:** special-letter selection now uses arcade-like weighted probabilities, and the PART transition preview displays letters in arcade-visible `EXTRA / SPECIAL / A-E` order.
+**Latest documented update:** gameplay sound effects are now implemented through a runtime audio helper, including an independent audible cadence for the maze-border timer.
 
 ## 1. Project Entry Point
 
@@ -63,6 +63,8 @@ scenes/
 ```text
 scripts/
 ├─ Main.cs
+├─ audio/
+│  └─ PickupSoundPlayer.cs
 ├─ debug/
 │  └─ LevelDebugShortcuts.cs
 ├─ actors/
@@ -95,6 +97,7 @@ scripts/
 │  │  ├─ CollectibleSpawnPlan.cs
 │  │  ├─ CollectibleSpawnPlanner.cs
 │  │  ├─ LetterKind.cs
+│  │  ├─ VegetableBonusCatalog.cs
 │  │  └─ WordProgressState.cs
 │  ├─ enemies/
 │  │  ├─ EnemyBasePreferenceSystem.cs
@@ -144,13 +147,16 @@ scripts/
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
 │  ├─ Level.cs
+│  ├─ Level.VegetableBonus.cs
 │  ├─ LevelGameOverOverlay.cs
 │  ├─ LevelInitialTransition.cs
 │  ├─ LevelTransitionOverlay.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
 │  ├─ MazeBorderTimerView.cs
-│  └─ RotatingGateView.cs
+│  ├─ RotatingGateView.cs
+│  ├─ VegetableBonusRuntime.cs
+│  └─ VegetableBonusView.cs
 └─ ui/
    ├─ Hud.cs
    └─ TitleScreen.cs
@@ -169,17 +175,18 @@ data/
 ```text
 doc/
 ├─ architecture.md
-├─ current_implementation.md
 ├─ collectibles_reverse_engineering.md
+├─ current_implementation.md
 ├─ enemy_movement.md
-├─ player_movement.md
-└─ reverse_engineering.txt
+├─ gameplay_timers_reverse_engineering.md
+├─ maze_reverse_engineering.md
+└─ player_movement.md
 ```
 
 **Important currently used visual assets:**
 - assets/images/maze_background.png
 - assets/images/title_lady_bug_logo.png
-- assets/sprites/player/lady_bug_spritesheet.png
+- assets/sprites/player/ladybug_spritesheet.png
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
 - assets/sprites/enemies/enemy_level1.png
@@ -194,6 +201,14 @@ doc/
 - assets/sprites/props/vegetables.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
+
+**Important currently used audio assets:**
+- assets/audio/flower_pickup.wav
+- assets/audio/collectible_pickup.wav
+- assets/audio/gate_rotated.wav
+- assets/audio/timer.wav
+- assets/audio/death_sequence.wav
+- assets/audio/death_enemy.wav
 
 ## 3. Current Scene Structure
 
@@ -262,6 +277,12 @@ Level (Node2D)
 	  └─ LivesLabel (Label)
 ```
 
+**Runtime-only helper nodes created by Level:**
+- PickupSoundPlayer: non-positional short gameplay sound effects
+- LevelTransitionOverlay: PART transition screen
+- LevelGameOverOverlay: GAME OVER screen
+
+
 **Current main script:**
 - scripts/level/Level.cs
 
@@ -286,6 +307,7 @@ Level (Node2D)
 - uses scripts/gameplay/enemies/EnemyReleaseBorderTimer.cs for the arcade-style countdown / reload timing
 - starts the visual cycle near the middle of the top border and advances clockwise
 - emits a completion condition used by Level to release the next waiting enemy
+- exposes a VisualChanged event when a visible border tile advances
 - is reset after player death so the next life begins a fresh enemy-release cadence
 
 **Collectibles node:**
@@ -442,6 +464,9 @@ RotatingGate (Node2D)
 - slash
 - backslash
 
+**Current audio behavior:**
+- gate_rotated.wav is played only after LevelGateRuntime confirms that a gate was successfully pushed
+
 ### 3.5 Player scene
 
 **Scene:**
@@ -458,7 +483,7 @@ Player (Node2D)
 - scripts/actors/PlayerController.cs
 
 **Current living-player visual setup:**
-- AnimatedSprite2D uses assets/sprites/player/lady_bug_spritesheet.png
+- AnimatedSprite2D uses assets/sprites/player/ladybug_spritesheet.png
 - two animations are currently defined:
   - move_right
   - move_up
@@ -624,12 +649,14 @@ Level.cs is currently the runtime coordinator for one active board.
 - create CollectibleFieldRuntime from Level/Collectibles
 - create PlayfieldCollisionResolver from MazeGrid and GateSystem
 - create EnemyRuntime from the runtime Enemies parent, MazeGrid, GateSystem and coordinate converters
+- create PickupSoundPlayer as a runtime-only sound-effect helper
 - generate the start-of-level special collectible plan
 - initialize collectible color cycling for hearts and letters
 - own the current bonus vegetable runtime state
 - award vegetable bonus score when the central bonus is collected
 - freeze enemy movement after a vegetable bonus pickup while keeping enemy collisions fatal
 - configure the maze-border enemy-release timer for the current level number
+- advance the independent audible maze-border timer cadence during normal board simulation
 - detect board completion when all progression collectibles are consumed
 - own the current level-transition screen state
 - expose the initial level-transition entry point through a partial Level helper
@@ -647,6 +674,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - expose coordinate conversion wrapper methods
 - expose TryConsumeCollectible(...) for the player pickup path
 - expose TryPushGate(...) for movement / gate interactions
+- play confirmed gameplay sound effects for pickups, gates, timer ticks, death, and enemy-skull deaths
 - check player/enemy collision after enemy and player movement have both advanced
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - preserve prototype session-like state while advancing to the next level
@@ -660,6 +688,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - gate view/runtime management: LevelGateRuntime
 - maze-border timer rendering and visual state: MazeBorderTimerView
 - maze-border countdown / reload timing: EnemyReleaseBorderTimer
+- gameplay sound effect playback: PickupSoundPlayer
 - collectible field management: CollectibleFieldRuntime
 - maze + gate collision evaluation: PlayfieldCollisionResolver
 - enemy state, enemy views, enemy navigation, chase, release and reset: EnemyRuntime
@@ -678,6 +707,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - Level owns the fixed gameplay simulation tick
 - board-level systems are advanced before the player
 - the maze-border timer is advanced as a normal board-level system
+- the independent timer-audio cadence is advanced only during normal board simulation
 - the enemy runtime is advanced before the player, then player/enemy collision is checked after player movement
 - while the vegetable freeze timer is active, enemy movement is skipped but player/enemy collision remains active
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
@@ -780,12 +810,14 @@ Current implementation detail:
 
 **Flower:**
 - consumed immediately
+- plays flower_pickup.wav
 - adds 10 points multiplied by the active heart multiplier
 - no popup is shown
 - if it was the final remaining progression collectible, the next-level transition can start immediately
 
 **Heart:**
 - consumed and scored according to the current color
+- plays collectible_pickup.wav
 - blue = base 100 points
 - yellow = base 300 points
 - red = base 800 points
@@ -797,6 +829,7 @@ Current implementation detail:
 
 **Letter:**
 - consumed and scored according to the current color
+- plays collectible_pickup.wav
 - blue = base 100 points
 - yellow = base 300 points
 - red = base 800 points
@@ -815,11 +848,12 @@ Current implementation detail:
 - consumed with no score when touched by the player
 - removes all remaining skulls from the board before the player death sequence starts
 - starts the player death sequence when touched by the player
+- plays death_sequence.wav through the normal player-death path
 - decrements lives immediately when it kills the player
 - freezes normal gameplay while the player death sequence runs
 - respawns the player at PlayerStartCell if lives remain
 - enters a minimal game-over placeholder if no lives remain
-- can also kill an enemy through EnemyRuntime / TryConsumeSkullAt(...), in which case the enemy returns to the lair and the skull is removed
+- can also kill an enemy through EnemyRuntime / TryConsumeSkullAt(...), in which case the enemy returns to the lair, the skull is removed, and death_enemy.wav is played
 
 ### 7.7 Level completion participation
 
@@ -1017,6 +1051,7 @@ scripts/gameplay/player/
 - one life is removed immediately
 - the HUD lives display updates immediately
 - normal gameplay freezes
+- death_sequence.wav is played when the sequence starts
 - the player plays the arcade-style death sequence
 - when the death sequence completes:
   - if lives remain, the player respawns at PlayerStartCell
@@ -1026,6 +1061,7 @@ scripts/gameplay/player/
 - touching an active enemy immediately hides all enemy views before the player death sequence starts
 - no collectible is consumed and no score is awarded
 - one life is removed immediately
+- death_sequence.wav is played when the sequence starts
 - normal gameplay freezes during the death sequence
 - when the death sequence completes and lives remain:
   - the player respawns at PlayerStartCell
@@ -1089,6 +1125,33 @@ Level
 - visual placement is controlled by Level.tscn
 - credits, top score, and full arcade attract / high-score screen flow are not implemented yet
 
+## 11.1 Gameplay Sound Effects
+
+Current audio helper:
+- scripts/audio/PickupSoundPlayer.cs
+
+Note:
+- the helper keeps its original PickupSoundPlayer name for historical reasons, but it now owns all short board-level gameplay sound effects
+
+Current audio assets:
+- assets/audio/flower_pickup.wav
+- assets/audio/collectible_pickup.wav
+- assets/audio/gate_rotated.wav
+- assets/audio/timer.wav
+- assets/audio/death_sequence.wav
+- assets/audio/death_enemy.wav
+
+Current audio model:
+- Level creates PickupSoundPlayer at runtime; no authored audio nodes are required in Level.tscn
+- all current gameplay effects use non-positional AudioStreamPlayer nodes on the Master bus
+- flower pickup uses a dedicated flower sound
+- heart and letter pickups share the collectible pickup sound
+- skull pickup does not use the normal pickup sound because it is treated as a lethal event
+- confirmed gate rotation plays a gate sound only after the push succeeds
+- player death from either skull or enemy plays the player death sequence sound
+- enemy death from skull plays a separate enemy death sound
+- the maze-border timer sound uses a cadence owned by PickupSoundPlayer instead of being directly tied to every visible border step
+
 
 ## 12. Maze Border Enemy Release Timer
 
@@ -1137,6 +1200,7 @@ Level 5+      = 3 simulation ticks per border step
 - Level finds the optional MazeBorderTimer node at startup
 - Level configures it from the current _levelNumber
 - Level advances it from AdvanceBoardSimulationOneTick()
+- Level also advances the separate audible timer cadence from AdvanceBoardSimulationOneTick()
 - the timer is frozen during heart / letter popup pauses
 - the timer is frozen during the player death sequence
 - the timer is frozen during the level-transition screen
@@ -1147,6 +1211,26 @@ Level 5+      = 3 simulation ticks per border step
 - the border clock is now connected to enemy release
 - every completed release cycle should provide a release opportunity; the current implementation avoids creating an extra visual cycle that releases no enemy
 - the remake uses high-level Sprite2D rendering rather than reproducing the original VRAM / color RAM writes literally
+
+### 12.1 Maze-border timer audio
+
+The maze-border sound is intentionally owned by PickupSoundPlayer rather than MazeBorderTimerView.
+This keeps the timer's gameplay / visual state separate from the audible compromise used by the remake.
+
+Current audible cadence:
+
+```text
+Level 1       = every 9 fixed simulation ticks, about 150 ms
+Levels 2 to 4 = every 6 fixed simulation ticks, about 100 ms
+Level 5+      = every 4 fixed simulation ticks, about 67 ms
+```
+
+Important:
+- the visual and enemy-release timer still uses the reverse-engineered 9 / 6 / 3 tick periods
+- only the audible level 5+ cadence is softened to a regular 4-tick period
+- this avoids the uneven rhythm caused by playing 2 sounds over 3 visible timer steps
+- the timer sound is frozen with normal board simulation because it is advanced from AdvanceBoardSimulationOneTick()
+- the timer sound uses a single-voice AudioStreamPlayer and restarts the short timer.wav effect when fired
 
 
 ## 13. Enemy System
@@ -1250,6 +1334,7 @@ Current implemented behavior:
 - chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
 - enemies can be killed by skulls and return to the lair
+- death_enemy.wav is played when an enemy is killed by a skull
 
 ### 13.3 Player death from enemy
 
@@ -1596,6 +1681,7 @@ The following is already implemented and functional:
 - maze-border timer tiles are displayed around the maze
 - maze-border timer animation starts near the middle of the top border and advances clockwise
 - maze-border timer speed follows the reverse-engineered level periods: 9 ticks at level 1, 6 ticks at levels 2-4, and 3 ticks at level 5+
+- maze-border timer sound uses a separate regular audio cadence: 9 ticks at level 1, 6 ticks at levels 2-4, and 4 ticks at level 5+
 - maze-border timer completion is connected to enemy release
 - player is displayed
 - player start position is defined through Level.PlayerStartCell
@@ -1609,6 +1695,7 @@ The following is already implemented and functional:
 - movement outside the maze bounds is blocked
 - rotating gates influence movement legality
 - rotating gates can be pushed
+- successfully pushed rotating gates play gate_rotated.wav
 - gate runtime state is managed through LevelGateRuntime
 - maze-border timer is driven by the Level-owned fixed simulation tick
 - maze-border timer is frozen during pickup popups and the player death sequence
@@ -1638,6 +1725,7 @@ The following is already implemented and functional:
 - heart and letter colors use the arcade-style measured RGB values
 - collectible letter sprite mapping matches the current spritesheet
 - flowers add score immediately
+- flowers, hearts, and letters play their current pickup sound effects
 - hearts and letters add score according to current color and multiplier
 - blue hearts advance the heart multiplier after their own score is computed
 - the upper HUD highlights x2 / x3 / x5 as blue hearts unlock multiplier steps
@@ -1674,6 +1762,7 @@ The following is already implemented and functional:
 - after player death, the maze-border timer is reset
 - after player death, consumed collectibles remain consumed and rotating gate states are preserved
 - enemies can be killed by skulls and return to the lair
+- enemy skull deaths play death_enemy.wav
 - enemy visuals can use level-specific spritesheets for levels 1 through 8
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
@@ -1687,6 +1776,7 @@ The following is already implemented and functional:
 - F1 and F12 gameplay debug shortcuts are disabled by default
 - when EnableFunctionKeyDebugShortcuts is enabled on Level, F1 starts the normal next-level transition and F12 saves a screenshot
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
+- player death plays death_sequence.wav
 - the player respawns at PlayerStartCell when lives remain
 - no-lives GAME OVER overlay is displayed in the maze-inner panel
 - GAME OVER remains visible for 128 arcade frames, about 2.13 seconds, and then returns to the title screen
@@ -1730,13 +1820,15 @@ Current limitations include:
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
 - vegetable freeze is implemented at a high level; exact arcade timing and low-level visual behavior may still need refinement
+- gameplay sound effects use high-level WAV playback rather than emulating the original PSG / sound-chip register writes
+- level 5+ timer audio intentionally uses a regular 4-tick audible cadence while the visual / release timer keeps the reverse-engineered 3-tick cadence
 
 ## 22. Current Development Priority
 
 A reasonable current priority is now:
 
-1) commit the current enemy fallback / rejected-mask refinement as a stable checkpoint
-2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, and enemy reset systems stable
+1) commit the current gameplay audio and documentation checkpoint as a stable baseline
+2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, sound, and enemy reset systems stable
 3) document and protect validated player/enemy movement behavior with regression scenarios
 4) refine exact local door/gate probing and outside-center forced-reversal cases using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it

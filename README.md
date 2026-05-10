@@ -32,10 +32,13 @@ Implemented systems include:
 - first playable enemy movement system with simulator-refined center decisions
 - level progression through arcade-style PART transition screens
 - HUD with score, lives, SPECIAL, EXTRA and multipliers
+- gameplay sound effects for pickups, rotating gates, timer ticks, player death, and enemy skull deaths
 
 Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later refinement keeps forced / opposite-direction rescue separate from normal center decisions: late reversal is allowed only for gate-blocked movement outside decision centers. Together, these changes removed a visible issue where enemies could appear stuck between logical cells while keeping the center-decision logic easier to reason about.
 
 Recent screen-flow work adds a title screen, routes a new game through the same PART transition system used between later levels, and displays a GAME OVER panel before returning to the title screen. The PART transition duration now uses the measured 0xB4-frame arcade timing, while GAME OVER uses the measured 0x80-frame delay.
+
+Recent audio work adds a small runtime sound-effect helper. It plays separate sounds for flowers, hearts / letters, rotating gates, player death, enemies killed by skulls, and the maze-border timer. The maze-border timer keeps its reverse-engineered visual / release cadence, while the audible timer cadence is handled separately so level 5+ remains faster than levels 2-4 without producing an irregular skip pattern.
 
 Some systems are still incomplete or approximate, especially:
 
@@ -74,7 +77,7 @@ The goal is not to reproduce the original hardware literally. Instead, the proje
 ## Project structure
 
 ```text
-assets/   Visual assets used by the remake
+assets/   Visual and audio assets used by the remake
 data/     JSON data for the maze and collectibles
 doc/      Notes, reverse-engineering documents and implementation details
 scenes/   Godot scenes

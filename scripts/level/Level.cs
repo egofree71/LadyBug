@@ -407,6 +407,12 @@ public partial class Level : Node2D
         };
 
         AddChild(_soundPlayer);
+
+        if (_mazeBorderTimer != null)
+        {
+            _mazeBorderTimer.EnemyExitWarningReached -= HandleEnemyExitWarningReached;
+            _mazeBorderTimer.EnemyExitWarningReached += HandleEnemyExitWarningReached;
+        }
     }
 
     /// <summary>
@@ -671,6 +677,19 @@ public partial class Level : Node2D
     }
 
     // --- Collectibles -------------------------------------------------------
+
+    /// <summary>
+    /// Plays the lair-exit warning sound when the border timer reaches the warning point.
+    /// </summary>
+    /// <remarks>
+    /// The warning is suppressed if every enemy slot is already active, because no
+    /// upcoming release can happen in that case.
+    /// </remarks>
+    private void HandleEnemyExitWarningReached()
+    {
+        if (_enemyRuntime?.HasReleaseCandidate == true)
+            _soundPlayer?.PlayEnemyExitWarning();
+    }
 
     /// <summary>
     /// Plays the short sound used when an active enemy touches a skull.

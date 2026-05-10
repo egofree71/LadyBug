@@ -23,6 +23,10 @@ namespace LadyBug.Gameplay.Enemies;
 /// </remarks>
 public sealed class EnemyReleaseBorderTimer
 {
+    // Reverse-engineered delay between the enemy-exit warning sound and the actual
+    // enemy-release state change: side 0 position 1 -> side 0 position 0x0C.
+    private const int EnemyExitWarningStepsBeforeRelease = 11;
+
     // Number of visible border tiles in the complete clockwise loop.
     private int _tileCount;
 
@@ -127,12 +131,12 @@ public sealed class EnemyReleaseBorderTimer
     public EnemyReleaseBorderTimerStepResult AdvanceOneTick()
     {
         if (_tileCount <= 0)
-            return CurrentStepResult(visualChanged: false, shouldReleaseEnemy: false);
+            return CurrentStepResult(visualChanged: false, shouldReleaseEnemy: false, shouldPlayEnemyExitWarning: false);
 
         _ticksRemaining--;
 
         if (_ticksRemaining > 0)
-            return CurrentStepResult(visualChanged: false, shouldReleaseEnemy: false);
+            return CurrentStepResult(visualChanged: false, shouldReleaseEnemy: false, shouldPlayEnemyExitWarning: false);
 
         _ticksRemaining = TicksPerTile;
         return AdvanceOneBorderTile();
@@ -162,7 +166,7 @@ public sealed class EnemyReleaseBorderTimer
         _progress++;
 
         if (_progress < _tileCount)
-            return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: false);
+            return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: false, shouldPlayEnemyExitWarning: ShouldPlayEnemyExitWarningAtCurrentProgress());
 
         if (Phase == EnemyReleaseBorderTimerPhase.FillingGreen)
         {
@@ -170,7 +174,7 @@ public sealed class EnemyReleaseBorderTimer
             _progress = 0;
 
             // The green pass has completed a full lap. Release one enemy now.
-            return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true);
+            return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true, shouldPlayEnemyExitWarning: false);
         }
 
         Phase = EnemyReleaseBorderTimerPhase.FillingGreen;
@@ -179,7 +183,7 @@ public sealed class EnemyReleaseBorderTimer
         // The white pass has also completed a full lap. This is still a real
         // border-cycle completion, so it must release the next waiting enemy too.
         // Otherwise the game wastes every second visible cycle.
-        return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true);
+        return CurrentStepResult(visualChanged: true, shouldReleaseEnemy: true, shouldPlayEnemyExitWarning: false);
     }
 
     /// <summary>
@@ -187,7 +191,8 @@ public sealed class EnemyReleaseBorderTimer
     /// </summary>
     private EnemyReleaseBorderTimerStepResult CurrentStepResult(
         bool visualChanged,
-        bool shouldReleaseEnemy)
+        bool shouldReleaseEnemy,
+        bool shouldPlayEnemyExitWarning)
     {
         return new EnemyReleaseBorderTimerStepResult(
             Phase,
@@ -196,7 +201,24 @@ public sealed class EnemyReleaseBorderTimer
             TicksPerTile,
             _ticksRemaining,
             visualChanged,
-            shouldReleaseEnemy);
+            shouldReleaseEnemy,
+            shouldPlayEnemyExitWarning);
+    }
+
+    /// <summary>
+    /// Returns true when the current visible step is the warning point before the
+    /// release point used by this timer model.
+    /// </summary>
+    /// <remarks>
+    /// The arcade routine raises the sound flag 11 border steps before the enemy
+    /// state is changed to leave the lair. The current remake releases an enemy
+    /// when a visible border pass completes, so the warning is scheduled 11 visible
+    /// border steps before that existing release event.
+    /// </remarks>
+    private bool ShouldPlayEnemyExitWarningAtCurrentProgress()
+    {
+        return _tileCount > EnemyExitWarningStepsBeforeRelease &&
+               _progress == _tileCount - EnemyExitWarningStepsBeforeRelease;
     }
 }
 
@@ -231,7 +253,8 @@ public readonly struct EnemyReleaseBorderTimerStepResult
         int ticksPerTile,
         int ticksRemaining,
         bool visualChanged,
-        bool shouldReleaseEnemy)
+        bool shouldReleaseEnemy,
+        bool shouldPlayEnemyExitWarning)
     {
         Phase = phase;
         Progress = progress;
@@ -240,6 +263,7 @@ public readonly struct EnemyReleaseBorderTimerStepResult
         TicksRemaining = ticksRemaining;
         VisualChanged = visualChanged;
         ShouldReleaseEnemy = shouldReleaseEnemy;
+        ShouldPlayEnemyExitWarning = shouldPlayEnemyExitWarning;
     }
 
     /// <summary>
@@ -276,4 +300,9 @@ public readonly struct EnemyReleaseBorderTimerStepResult
     /// True when a full visible border pass completed and the next enemy should be released.
     /// </summary>
     public bool ShouldReleaseEnemy { get; }
+
+    /// <summary>
+    /// True when the warning sound should play before the upcoming enemy release.
+    /// </summary>
+    public bool ShouldPlayEnemyExitWarning { get; }
 }

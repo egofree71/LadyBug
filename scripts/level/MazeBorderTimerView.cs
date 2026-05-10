@@ -26,6 +26,11 @@ public partial class MazeBorderTimerView : Node2D
     /// </summary>
     public event Action? VisualChanged;
 
+    /// <summary>
+    /// Fired when the border timer reaches the warning point before an enemy release.
+    /// </summary>
+    public event Action? EnemyExitWarningReached;
+
     private const int TileFrameCount = 6;
 
     // Generated Sprite2D instances, ordered clockwise in the same order as the timer loop.
@@ -403,6 +408,9 @@ public partial class MazeBorderTimerView : Node2D
         {
             ApplyTimerVisualState();
             VisualChanged?.Invoke();
+
+            if (stepResult.ShouldPlayEnemyExitWarning)
+                EnemyExitWarningReached?.Invoke();
         }
 
         return stepResult.ShouldReleaseEnemy;

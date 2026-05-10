@@ -106,6 +106,15 @@ public sealed class EnemyRuntime
     }
 
     /// <summary>
+    /// Gets whether a later border-release event would be able to release an enemy.
+    /// </summary>
+    /// <remarks>
+    /// This is used by the audio warning hook so the warning does not play once all
+    /// enemy slots are already active in the maze.
+    /// </remarks>
+    public bool HasReleaseCandidate => FindReleaseCandidate() != null;
+
+    /// <summary>
     /// Advances all enemy systems for one fixed simulation tick.
     /// </summary>
     /// <param name="playerArcadePixelPos">Current player position in arcade pixels.</param>
@@ -189,21 +198,7 @@ public sealed class EnemyRuntime
     /// <returns><see langword="true"/> when one enemy was released into the maze.</returns>
     public bool TryReleaseNextEnemy()
     {
-        MonsterEntity? candidate = null;
-
-        foreach (MonsterEntity monster in _monsters)
-        {
-            if (monster.MovementActive || monster.CollisionActive)
-                continue;
-
-            if (monster.VisibleInLair)
-            {
-                candidate = monster;
-                break;
-            }
-
-            candidate ??= monster;
-        }
+        MonsterEntity? candidate = FindReleaseCandidate();
 
         if (candidate == null)
             return false;
@@ -212,6 +207,27 @@ public sealed class EnemyRuntime
         UpdateWaitingLairVisibility();
         SynchronizeViewsFromEntities();
         return true;
+    }
+
+    /// <summary>
+    /// Finds the enemy slot that would be released by the next border-release event.
+    /// </summary>
+    private MonsterEntity? FindReleaseCandidate()
+    {
+        MonsterEntity? candidate = null;
+
+        foreach (MonsterEntity monster in _monsters)
+        {
+            if (monster.MovementActive || monster.CollisionActive)
+                continue;
+
+            if (monster.VisibleInLair)
+                return monster;
+
+            candidate ??= monster;
+        }
+
+        return candidate;
     }
 
     /// <summary>

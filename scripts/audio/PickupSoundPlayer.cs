@@ -19,6 +19,7 @@ public sealed partial class PickupSoundPlayer : Node
     private const string TimerStepSoundPath = "res://assets/audio/timer.wav";
     private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
     private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
+    private const string EnemyExitWarningSoundPath = "res://assets/audio/enemy_exit.wav";
 
     private const string DefaultAudioBus = "Master";
 
@@ -35,12 +36,16 @@ public sealed partial class PickupSoundPlayer : Node
     // Several enemies can theoretically hit skulls close together.
     private const int EnemyDeathEffectMaxPolyphony = 2;
 
+    // The lair-exit warning is a single global alert effect.
+    private const int EnemyExitWarningEffectMaxPolyphony = 1;
+
     private AudioStreamPlayer? _flowerPickupPlayer;
     private AudioStreamPlayer? _collectiblePickupPlayer;
     private AudioStreamPlayer? _gateRotatedPlayer;
     private AudioStreamPlayer? _timerStepPlayer;
     private AudioStreamPlayer? _deathSequencePlayer;
     private AudioStreamPlayer? _enemyDeathPlayer;
+    private AudioStreamPlayer? _enemyExitWarningPlayer;
 
     // Countdown for the audible border-timer cadence. It is intentionally allowed
     // to differ from the visual cadence on level 5+ so the sound stays regular
@@ -159,6 +164,15 @@ public sealed partial class PickupSoundPlayer : Node
     }
 
     /// <summary>
+    /// Plays the warning sound shortly before a waiting enemy leaves the lair.
+    /// </summary>
+    public void PlayEnemyExitWarning()
+    {
+        EnsurePlayers();
+        Restart(_enemyExitWarningPlayer);
+    }
+
+    /// <summary>
     /// Creates all effect players if they do not already exist.
     /// </summary>
     private void EnsurePlayers()
@@ -195,6 +209,11 @@ public sealed partial class PickupSoundPlayer : Node
             "EnemyDeathAudio",
             EnemyDeathSoundPath,
             EnemyDeathEffectMaxPolyphony);
+
+        _enemyExitWarningPlayer = CreatePlayer(
+            "EnemyExitWarningAudio",
+            EnemyExitWarningSoundPath,
+            EnemyExitWarningEffectMaxPolyphony);
     }
 
     /// <summary>
