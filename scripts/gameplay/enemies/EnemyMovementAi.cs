@@ -202,43 +202,24 @@ public sealed class EnemyMovementAi
         fallbackUsed = false;
 
         MonsterDir preferred = monster.PreferredDirection;
-        MonsterDir current = monster.Direction;
-
-        bool preferredIsImmediateReverse = preferred != MonsterDir.None
-            && current != MonsterDir.None
-            && preferred == current.Opposite();
-
-        // Normal case: the preferred direction is accepted first, as long as it
-        // does not immediately reverse the direction committed on the previous
-        // ticks. Immediate preferred reversals are deferred below to avoid a
-        // two-cell ping-pong in cul-de-sacs.
-        if (!preferredIsImmediateReverse && CanUseDirection(monster, preferred, navigationGrid))
+        if (CanUseDirection(monster, preferred, navigationGrid))
         {
             decisionReason = "preferred-accepted";
             return preferred;
         }
 
-        // A preferred direction that immediately reverses the current direction
-        // remains valid, but it is not accepted as the first choice. This lets an
-        // enemy keep leaving a cul-de-sac instead of turning back into it at the
-        // next decision center. If no non-reversing direction works, the reverse
-        // is still accepted as a last resort so real dead ends remain escapable.
-        bool deferredPreferredReverse = preferredIsImmediateReverse
-            && CanUseDirection(monster, preferred, navigationGrid);
-
-        if (preferred != MonsterDir.None && !deferredPreferredReverse)
+        if (preferred != MonsterDir.None)
             rejectedMask |= preferred;
 
         // Simulator refinement: a rejected preferred direction does not send the
         // enemy directly to the fixed-order fallback. The arcade-like behavior is
         // to try preserving the direction that was already committed on the enemy.
+        MonsterDir current = monster.Direction;
         if (current != MonsterDir.None && (rejectedMask & current) == 0)
         {
             if (CanUseDirection(monster, current, navigationGrid))
             {
-                decisionReason = deferredPreferredReverse
-                    ? "preferred-reverse-deferred-current-kept"
-                    : "preferred-rejected-current-kept";
+                decisionReason = "preferred-rejected-current-kept";
                 return current;
             }
 
@@ -253,18 +234,10 @@ public sealed class EnemyMovementAi
         // Only preferred/current rejections are carried into fallback. The fallback
         // search then owns a local scan mask so failed fallback candidates do not
         // become persistent enemy state.
-        MonsterDir fallbackRejectedMask = rejectedMask;
-        if (deferredPreferredReverse)
-        {
-            // First scan for a non-reversing fallback. The deferred reverse is
-            // allowed afterwards only if this center has no other usable exit.
-            fallbackRejectedMask |= preferred;
-        }
-
         MonsterDir fallback = FindFallbackDirection(
             monster,
             navigationGrid,
-            fallbackRejectedMask,
+            rejectedMask,
             out MonsterDir debugRejectedMask);
 
         // Keep the final local scan mask only for the debug snapshot returned by
@@ -274,16 +247,8 @@ public sealed class EnemyMovementAi
         if (fallback != MonsterDir.None)
         {
             fallbackUsed = true;
-            decisionReason = deferredPreferredReverse
-                ? "preferred-reverse-deferred-fallback-accepted"
-                : "fallback-accepted";
+            decisionReason = "fallback-accepted";
             return fallback;
-        }
-
-        if (deferredPreferredReverse)
-        {
-            decisionReason = "preferred-reverse-last-resort";
-            return preferred;
         }
 
         // Safety path only: a valid maze cell should almost always have at least
