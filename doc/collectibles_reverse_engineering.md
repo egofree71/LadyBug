@@ -39,8 +39,15 @@ The resulting draws are used as follows:
 - **hearts** use the 2nd draw of each family
 - **skulls** use the 3rd draw, then the 4th draw if more are needed
 
-The visual order of the 3 letters is a **random permutation** of their 3 logical
-families.
+The 3 selected letters have two separate orders:
+
+- the **PART transition preview** displays them in fixed arcade-visible order:
+  `EXTRA`, `SPECIAL`, `A/E`
+- the **maze placement** still permutes the 3 selected letters across the
+  3 `draw[0]` family anchors
+
+This distinction matters because the arcade memory/logical order is not the same
+as the visible order shown on the transition screen.
 
 ## Godot Coordinate System
 
@@ -61,7 +68,7 @@ Important:
 
 | Type | Count | Placement Rule |
 |---|---:|---|
-| Letters | 3 | 1st draw of each family, then random permutation across the 3 family anchors |
+| Letters | 3 | 1st draw of each family, then random permutation across the 3 family anchors for maze placement. The PART transition preview displays the selected letters as `EXTRA`, `SPECIAL`, `A/E`. |
 | Hearts | 3 | 2nd draw of each family |
 | Skulls | 2 to 6 | 3rd draw of families A/B/C, then 4th draw if more are needed |
 
@@ -138,15 +145,26 @@ In each family, the game draws **4 distinct anchors without replacement**.
 
 1. In each family A, B, and C, draw 4 distinct anchors without replacement.
    - notation: `draw[0]`, `draw[1]`, `draw[2]`, `draw[3]`
-2. Place the 3 letters on the `draw[0]` anchors of the 3 families.
-3. Randomly permute which chosen letter goes to which of the 3 family anchors.
-4. Place the 3 hearts on the `draw[1]` anchors of the 3 families.
-5. Place skulls on `draw[2]` of A/B/C, then on `draw[3]` of A/B/C if more are needed.
+2. Select the 3 logical letters:
+   - one `A/E` letter
+   - one `SPECIAL` letter
+   - one `EXTRA` letter
+3. For the PART transition preview, display the selected letters in fixed
+   arcade-visible order: `EXTRA`, `SPECIAL`, `A/E`.
+4. For maze placement, place the 3 letters on the `draw[0]` anchors of the
+   3 families using a random permutation.
+5. Place the 3 hearts on the `draw[1]` anchors of the 3 families.
+6. Place skulls on `draw[2]` of A/B/C, then on `draw[3]` of A/B/C if more are needed.
 
 Important:
 
-- the memory order of the 3 selected letters is **not** their final visual order
-- the game first chooses the 3 letters, then chooses a permutation for placement
+- the arcade-selected memory/logical order is `A/E`, `SPECIAL`, `EXTRA`
+- MAME tests observed examples such as RAM `6070..6072 = 0,5,8` showing as
+  `TIA` on the PART screen
+- the PART screen therefore displays the selected letters in reverse logical-family
+  order: `6072`, `6071`, `6070`
+- the game first chooses the 3 letters, then chooses a permutation for their maze
+  placement
 
 ## Letter Table
 
@@ -168,6 +186,46 @@ The game always chooses exactly 3 letters per level:
 | 07 | X | EXTRA |
 | 08 | T | EXTRA |
 | 09 | R | EXTRA |
+
+## Letter Selection Distribution and PART Preview Order
+
+Reverse-engineering notes around the arcade letter-selection routine indicate that
+selected letters are stored in RAM as:
+
+```text
+6070 = A/E letter
+6071 = SPECIAL letter
+6072 = EXTRA letter
+```
+
+The PART transition preview displays those selected letters visually as:
+
+```text
+6072, 6071, 6070
+=> EXTRA, SPECIAL, A/E
+```
+
+Observed MAME examples for level 1:
+
+| PART screen | RAM `6070..6072` | Decoded RAM order |
+|---|---|---|
+| `TIA` | `0,5,8` | `A,I,T` |
+| `TPA` | `0,3,8` | `A,P,T` |
+| `TCE` | `1,4,8` | `E,C,T` |
+| `TIA` | `0,5,8` | `A,I,T` |
+
+For the current Godot remake, the exact Z80 refresh-register behavior is **not**
+simulated. Instead, `CollectibleSpawnPlanner` uses a short-term arcade-like
+weighted approximation derived from the structure of the selection code:
+
+| Family | Current Godot approximation |
+|---|---|
+| A/E | `A` 50%, `E` 50% |
+| SPECIAL | `S` 12.5%, `P` 25%, `C` 25%, `I` 25%, `L` 12.5% |
+| EXTRA | `X` 25%, `T` 50%, `R` 25% |
+
+This is intentionally more arcade-like than a uniform `X/T/R` and `S/P/C/I/L`
+selection, while avoiding full CPU / hardware-state simulation.
 
 ## Current Godot Letter Spritesheet Mapping
 
@@ -203,7 +261,15 @@ pickA = sample_without_replacement(families.A, 4)
 pickB = sample_without_replacement(families.B, 4)
 pickC = sample_without_replacement(families.C, 4)
 
-letters = [ random(A_or_E), random(SPECIAL), random(EXTRA) ]
+commonLetter = weighted_random(A=50%, E=50%)
+specialLetter = weighted_random(S=12.5%, P=25%, C=25%, I=25%, L=12.5%)
+extraLetter = weighted_random(X=25%, T=50%, R=25%)
+
+// PART transition preview order:
+preview_letters = [extraLetter, specialLetter, commonLetter]
+
+// Maze placement order:
+letters = [commonLetter, specialLetter, extraLetter]
 perm = random_permutation([0, 1, 2])
 
 place_letter(letters[perm[0]], pickA[0])
@@ -566,7 +632,9 @@ For the current remake, the practical implementation guideline is:
   - anchor families
   - four draws per family
   - skull count by level
-  - random permutation of letters
+  - arcade-like weighted letter selection
+  - PART transition preview order: `EXTRA`, `SPECIAL`, `A/E`
+  - random permutation of letters for maze placement
   - global color mode for hearts and letters
   - color-based scoring and letter progression
   - blue-heart multiplier
@@ -691,6 +759,8 @@ Useful routines / labels:
 Implemented:
 
 - start-of-level letter / heart / skull placement
+- arcade-like weighted special-letter selection
+- PART transition preview letter order: `EXTRA`, `SPECIAL`, `A/E`
 - corrected Godot logical-cell anchor families
 - 2 to 6 skull count by level
 - global heart / letter color cycle
@@ -716,3 +786,4 @@ Not implemented yet:
 - exact visual score-popup tile mapping for all score/multiplier cases
 - exact visual color RAM writes for all letter/heart tiles
 - whether the first visible color at level start should always be blue or depends on game state
+- exact Z80 refresh-register behavior for special-letter selection

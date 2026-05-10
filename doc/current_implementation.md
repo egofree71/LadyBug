@@ -10,7 +10,7 @@
 This document is intentionally concrete.
 It does not describe systems that are only planned.
 
-**Latest documented update:** gameplay function-key debug shortcuts are now centralized in LevelDebugShortcuts and can be enabled from the Level scene inspector; they are disabled by default.
+**Latest documented update:** special-letter selection now uses arcade-like weighted probabilities, and the PART transition preview displays letters in arcade-visible `EXTRA / SPECIAL / A-E` order.
 
 ## 1. Project Entry Point
 
@@ -328,6 +328,7 @@ Level (Node2D)
 - displays the upcoming PART number
 - displays the upcoming level vegetable icon, bonus value, and vegetable name
 - displays the skull icons, letter icons, and heart icons planned for the upcoming level
+- displays the letter preview in arcade-visible order: `EXTRA`, `SPECIAL`, `A/E`
 - heart icons are rendered as a composite of the heart ring frame and the fixed inner heart overlay frame, matching the runtime Collectible scene model
 - uses assets/sprites/props/vegetables.png for vegetable icons
 - uses assets/sprites/props/collectibles.png for skull, letter, and heart icons
@@ -716,7 +717,12 @@ Collectibles are implemented as a separate runtime and visual system.
 - the planner uses three anchor families named A, B, and C
 - four anchors are drawn without replacement in each family
 - letters use draw[0], hearts use draw[1], and skulls use draw[2] then draw[3]
-- the three letters are first selected by family, then permuted across the three family placements
+- the three letters are first selected by family, using an arcade-like weighted approximation:
+  - `A/E`: `A` 50%, `E` 50%
+  - `SPECIAL`: `S` 12.5%, `P` 25%, `C` 25%, `I` 25%, `L` 12.5%
+  - `EXTRA`: `X` 25%, `T` 50%, `R` 25%
+- the selected letters are still permuted across the three family placements in the maze
+- the transition overlay displays the selected letters in arcade-visible order: `EXTRA`, `SPECIAL`, `A/E`
 - the transition overlay can ask CollectibleSpawnPlanner to generate a preview plan for the upcoming level
 - the generated preview plan is cached so the next normal level rebuild consumes the same placements that were shown on the PART screen
 
@@ -1623,6 +1629,7 @@ The following is already implemented and functional:
 - collectible runtime state is managed through CollectibleFieldRuntime
 - flowers are displayed at the correct logical cells of the maze
 - start-of-level letters, hearts, and skulls are generated and displayed
+- special letters use arcade-like weighted probabilities instead of uniform family selection
 - special collectible placement uses corrected Godot logical-cell anchors
 - hearts use an overlay-based visual setup
 - hearts and letters use a global visual color cycle
@@ -1673,6 +1680,7 @@ The following is already implemented and functional:
 - completing a board starts the next-level transition
 - starting a new game from the title screen shows the PART 1 transition before gameplay begins
 - the transition screen displays the next PART number, vegetable bonus, skull preview, letter preview, heart preview, and GOOD LUCK line
+- the transition screen displays letters in arcade-visible `EXTRA`, `SPECIAL`, `A/E` order
 - the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - gameplay function-key debug shortcuts are centralized in LevelDebugShortcuts
@@ -1714,6 +1722,7 @@ Current limitations include:
 - SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition
 - GAME OVER is implemented as a high-level overlay and return-to-title flow rather than exact arcade tile / color RAM rendering
 - exact low-level tile / color RAM behavior is not reproduced literally
+- special-letter selection uses a weighted arcade-like approximation rather than exact Z80 refresh-register behavior
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
 - enemy center fallback now follows the rejected-mask / fixed-order arcade model, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
 - outside-center forced-reversal semantics around rotating doors still need refinement
