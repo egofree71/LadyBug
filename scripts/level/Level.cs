@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using LadyBug.Actors;
+using LadyBug.Audio;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
@@ -126,6 +127,9 @@ public partial class Level : Node2D
     // Runtime popup view displayed when collecting hearts and letters.
     private CollectiblePickupPopupView? _pickupPopupView;
 
+    // Runtime pickup sound effects. Created in code so Level.tscn does not need to be edited.
+    private PickupSoundPlayer? _pickupSoundPlayer;
+
     // Runtime-only between-level overlay shown before starting the next part.
     private LevelTransitionOverlay? _levelTransitionOverlay;
 
@@ -234,6 +238,7 @@ public partial class Level : Node2D
 
         InitializeRuntimeSystems();
         InitializeHud();
+        InitializePickupSoundPlayer();
         InitializePlayer();
         EnsureLevelTransitionOverlay();
     }
@@ -385,6 +390,26 @@ public partial class Level : Node2D
         _hud?.SetLives(_lifeState.Lives);
         _hud?.SetWordProgress(_wordProgressState);
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
+    }
+
+    /// <summary>
+    /// Creates the runtime node that owns short pickup sound effects.
+    /// </summary>
+    /// <remarks>
+    /// The sound node is intentionally created from code instead of being authored in
+    /// <c>Level.tscn</c>. This keeps the package small and avoids scene merge noise.
+    /// </remarks>
+    private void InitializePickupSoundPlayer()
+    {
+        if (_pickupSoundPlayer != null && GodotObject.IsInstanceValid(_pickupSoundPlayer))
+            return;
+
+        _pickupSoundPlayer = new PickupSoundPlayer
+        {
+            Name = "PickupSoundPlayer"
+        };
+
+        AddChild(_pickupSoundPlayer);
     }
 
     /// <summary>
@@ -698,6 +723,8 @@ public partial class Level : Node2D
             HandlePlayerDeathFromSkull();
             return;
         }
+
+        _pickupSoundPlayer?.PlayForCollectible(pickupResult.Kind);
 
         CollectibleScoreCalculation scoreCalculation =
             CollectibleScoreService.Calculate(
