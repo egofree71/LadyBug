@@ -10,7 +10,7 @@
 This document is intentionally concrete.
 It does not describe systems that are only planned.
 
-**Latest documented update:** title screen, initial PART 1 transition, and visible GAME OVER return-to-title flow are now implemented.
+**Latest documented update:** title screen, initial PART 1 transition, visible GAME OVER return-to-title flow, and reverse-timed screen durations are now implemented.
 
 ## 1. Project Entry Point
 
@@ -230,7 +230,7 @@ Main
          -> initial PART 1 transition
          -> gameplay
          -> GAME OVER when lives reach 0
-         -> return to TitleScreen after 2 seconds
+         -> return to TitleScreen after 128 arcade frames, about 2.13 seconds
 ```
 
 **Current Level placement:**
@@ -338,6 +338,7 @@ Level (Node2D)
 - reuses the normal PART transition path for level 1 before gameplay begins
 - clears any pending pickup popup state before starting the initial transition
 - uses the existing transition-preview cache so the first playable board matches the PART 1 preview
+- the PART screen duration is owned directly by Level.cs and uses the measured arcade value: 0xB4 frames / 180 fixed simulation ticks
 
 **Game-over overlay:**
 - runtime-created CanvasLayer named LevelGameOverOverlay
@@ -346,7 +347,7 @@ Level (Node2D)
 - keeps the HUD, maze-border timer tiles, and purple maze frame visible
 - displays GAME OVER in red, centered in the maze-inner panel
 - shown by a small runtime driver in LevelInitialTransition.cs when Level's existing game-over flag becomes active
-- after two seconds, Level emits GameOverFinished so Main can return to the title screen
+- after 128 arcade frames, about 2.13 seconds, Level emits GameOverFinished so Main can return to the title screen
 
 ### 3.3 Collectible scene
 
@@ -666,7 +667,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
-- while the GAME OVER overlay is active, gameplay remains stopped and the overlay driver waits two seconds before returning to the title screen
+- while the GAME OVER overlay is active, gameplay remains stopped and the overlay driver waits about 2.13 seconds before returning to the title screen
 - when the death sequence completes, the player either respawns at PlayerStartCell or enters the visible GAME OVER flow
 - when the transition timer completes, Level rebuilds the board for the next level and respawns the player at PlayerStartCell
 
@@ -1024,7 +1025,7 @@ scripts/gameplay/player/
 **Current GAME OVER behavior:**
 - when the last life is lost, the normal death sequence still finishes first
 - after the no-lives state is reached, LevelGameOverOverlay displays GAME OVER in the maze-inner panel
-- the GAME OVER overlay remains visible for two seconds
+- the GAME OVER overlay remains visible for 128 arcade frames, about 2.13 seconds
 - after the delay, Level emits GameOverFinished and Main returns to the title screen
 
 **Current limitations:**
@@ -1473,8 +1474,10 @@ Current preview-plan behavior:
 Current duration:
 
 ```text
-120 fixed simulation ticks, roughly two seconds
+0xB4 frames = 180 fixed simulation ticks, roughly 3 seconds at the measured arcade refresh rate
 ```
+
+This value is stored directly in Level.cs as LevelTransitionDurationTicks and replaces the older prototype value of 120 ticks.
 
 ### 18.4 Title to first-level flow
 
@@ -1501,7 +1504,7 @@ last life lost
 -> normal player death sequence finishes
 -> Level enters game-over state
 -> LevelGameOverOverlay displays GAME OVER in the maze-inner panel
--> overlay remains visible for 2 seconds
+-> overlay remains visible for 128 arcade frames, about 2.13 seconds
 -> Level emits GameOverFinished
 -> Main frees the Level scene
 -> TitleScreen is shown again
@@ -1652,7 +1655,7 @@ The following is already implemented and functional:
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
 - no-lives GAME OVER overlay is displayed in the maze-inner panel
-- GAME OVER remains visible for two seconds and then returns to the title screen
+- GAME OVER remains visible for 128 arcade frames, about 2.13 seconds, and then returns to the title screen
 
 ## 20. What Is Not Implemented Yet
 

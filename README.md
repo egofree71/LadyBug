@@ -35,7 +35,7 @@ Implemented systems include:
 
 Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later refinement keeps forced / opposite-direction rescue separate from normal center decisions: late reversal is allowed only for gate-blocked movement outside decision centers. Together, these changes removed a visible issue where enemies could appear stuck between logical cells while keeping the center-decision logic easier to reason about.
 
-Recent screen-flow work adds a title screen, routes a new game through the same PART transition system used between later levels, and displays a GAME OVER panel before returning to the title screen.
+Recent screen-flow work adds a title screen, routes a new game through the same PART transition system used between later levels, and displays a GAME OVER panel before returning to the title screen. The PART transition duration now uses the measured 0xB4-frame arcade timing, while GAME OVER uses the measured 0x80-frame delay.
 
 Some systems are still incomplete or approximate, especially:
 

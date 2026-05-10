@@ -9,7 +9,11 @@ public partial class Level
     [Signal]
     public delegate void GameOverFinishedEventHandler();
 
-    private const double GameOverReturnDelaySeconds = 2.0;
+    // Reverse-engineered GAME OVER timing:
+    // 0x80 frames = 128 frames, about 2.13 seconds at ~60.1145 Hz.
+    private const int GameOverArcadeDurationFrames = 0x80;
+    private const double ArcadeRefreshRateHz = 60.1145;
+    private const double GameOverReturnDelaySeconds = GameOverArcadeDurationFrames / ArcadeRefreshRateHz;
 
     private LevelGameOverOverlay? _gameOverOverlay;
     private GameOverOverlayDriver? _gameOverOverlayDriver;
@@ -76,7 +80,8 @@ public partial class Level
     ///
     /// The base Level.cs already owns the actual life/death logic and sets
     /// _isGameOver when the last life is lost. This driver only turns that
-    /// existing state into a visible overlay, without changing death timing.
+    /// existing state into a visible overlay and requests the return to the title
+    /// screen after the measured arcade delay.
     /// </summary>
     private void EnsureGameOverOverlayDriver()
     {

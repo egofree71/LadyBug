@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Godot;
 using LadyBug.Actors;
 using LadyBug.Gameplay;
@@ -76,8 +76,9 @@ public partial class Level : Node2D
     // Remaining fixed ticks while the transition screen stays visible.
     private int _levelTransitionTicksRemaining;
 
-    // Duration of the temporary between-level part screen, roughly two seconds.
-    private const int LevelTransitionDurationTicks = 120;
+    // Duration of the temporary between-level PART screen.
+    // Arcade reverse: 0xB4 frames = 180 frames, about 3 seconds at ~60.1145 Hz.
+    private const int LevelTransitionDurationTicks = 0xB4;
 
     // Prototype counter for completed SPECIAL awards. Proper free-game / credit flow is not implemented yet.
     private int _specialAwardCount;
