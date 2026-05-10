@@ -10,6 +10,8 @@
 This document is intentionally concrete.
 It does not describe systems that are only planned.
 
+**Latest documented update:** title screen, initial PART 1 transition, and visible GAME OVER return-to-title flow are now implemented.
+
 ## 1. Project Entry Point
 
 **The Godot project currently starts from:**
@@ -50,8 +52,10 @@ scenes/
 │  ├─ Level.tscn
 │  ├─ MazeBorderTimer.tscn
 │  └─ RotatingGate.tscn
-└─ player/
-   └─ Player.tscn
+├─ player/
+│  └─ Player.tscn
+└─ ui/
+   └─ TitleScreen.tscn
 ```
 
 **Important currently used scripts:**
@@ -59,6 +63,8 @@ scenes/
 ```text
 scripts/
 ├─ Main.cs
+├─ debug/
+│  └─ LevelDebugShortcuts.cs
 ├─ actors/
 │  ├─ EnemyController.cs
 │  ├─ PlayerController.cs
@@ -138,13 +144,16 @@ scripts/
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
 │  ├─ Level.cs
+│  ├─ LevelGameOverOverlay.cs
+│  ├─ LevelInitialTransition.cs
 │  ├─ LevelTransitionOverlay.cs
 │  ├─ LevelCoordinateSystem.cs
 │  ├─ LevelGateRuntime.cs
 │  ├─ MazeBorderTimerView.cs
 │  └─ RotatingGateView.cs
 └─ ui/
-   └─ Hud.cs
+   ├─ Hud.cs
+   └─ TitleScreen.cs
 ```
 
 **Important current data files:**
@@ -169,6 +178,7 @@ doc/
 
 **Important currently used visual assets:**
 - assets/images/maze_background.png
+- assets/images/title_lady_bug_logo.png
 - assets/sprites/player/lady_bug_spritesheet.png
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
@@ -196,7 +206,6 @@ doc/
 
 ```text
 Main (Node)
-└─ Level (instance of scenes/level/Level.tscn)
 ```
 
 **Current script:**
@@ -204,9 +213,28 @@ Main (Node)
 
 **Current role:**
 - application entry point
-- currently still minimal
-- instantiates the Level scene directly
-- does not yet manage screen flow or gameplay states
+- owns the current coarse screen flow
+- starts by showing scenes/ui/TitleScreen.tscn
+- starts a fresh scenes/level/Level.tscn when the title screen emits StartRequested
+- asks Level to show the initial PART transition before the first playable board starts
+- listens for Level.GameOverFinished and returns to the title screen after the GAME OVER delay
+- attaches LevelDebugShortcuts under the Level instance so gameplay-only shortcuts are active only while playing
+
+**Current runtime screen flow:**
+
+```text
+Main
+└─ TitleScreen
+   └─ press any normal key
+      -> Level
+         -> initial PART 1 transition
+         -> gameplay
+         -> GAME OVER when lives reach 0
+         -> return to TitleScreen after 2 seconds
+```
+
+**Current Level placement:**
+- the Level instance is positioned at Vector2(27, -1), preserving the previous Main.tscn layout
 
 ### 3.2 Level scene
 
@@ -303,6 +331,22 @@ Level (Node2D)
 - uses assets/sprites/props/collectibles.png for skull, letter, and heart icons
 - is not authored directly in Level.tscn yet; Level creates it at runtime
 - normal board simulation is frozen while the transition overlay is active
+
+**Initial level transition helper:**
+- implemented in scripts/level/LevelInitialTransition.cs as a partial Level class
+- exposes StartInitialLevelTransition(), called by Main after a fresh Level instance is ready
+- reuses the normal PART transition path for level 1 before gameplay begins
+- clears any pending pickup popup state before starting the initial transition
+- uses the existing transition-preview cache so the first playable board matches the PART 1 preview
+
+**Game-over overlay:**
+- runtime-created CanvasLayer named LevelGameOverOverlay
+- script = scripts/level/LevelGameOverOverlay.cs
+- uses the same black inner-maze panel format as LevelTransitionOverlay
+- keeps the HUD, maze-border timer tiles, and purple maze frame visible
+- displays GAME OVER in red, centered in the maze-inner panel
+- shown by a small runtime driver in LevelInitialTransition.cs when Level's existing game-over flag becomes active
+- after two seconds, Level emits GameOverFinished so Main can return to the title screen
 
 ### 3.3 Collectible scene
 
@@ -455,6 +499,44 @@ Enemy (Node2D)
 - down is handled by vertical flip
 - a small visual offset is applied so the sprite lines up with the maze while preserving the enemy decision-center anchor
 
+### 3.7 Title screen
+
+**Scene:**
+- scenes/ui/TitleScreen.tscn
+
+**Current script:**
+- scripts/ui/TitleScreen.cs
+
+**Current role:**
+- first screen shown by Main when the project starts
+- visual-only arcade-style title screen
+- shows the provided Lady Bug logo from assets/images/title_lady_bug_logo.png
+- shows four animated enemy sprites above the logo
+- shows an animated ladybug prompt marker below the logo
+- displays PRESS ANY KEY as the only start prompt
+- emits StartRequested when the player presses any normal key or joypad button
+- ignores F1 and F12 as start inputs so debug shortcuts do not accidentally launch a game
+
+**Current title-screen enemy layout:**
+- the four enemies are placed as a group whose bounding rectangle is centered in the area above the logo
+- the displayed enemies correspond visually to levels 5, 1, 2, and 3
+- enemy level 1 is flipped horizontally so it faces left
+- enemy sprites are visual-only AnimatedSprite2D nodes and do not use gameplay enemy runtime state
+
+**Current title-screen note:**
+- no INSERT COIN text is displayed because the remake currently starts with a normal key press rather than a coin / credit system
+
+### 3.8 Gameplay debug shortcuts
+
+**File:**
+- scripts/debug/LevelDebugShortcuts.cs
+
+**Current role:**
+- runtime child added under the Level instance by Main
+- keeps gameplay-only debug shortcuts out of the title screen
+- preserves the screenshot shortcut while a playable Level is active
+- does not handle title-screen start input
+
 ## 4. Logical Maze System
 
 The project already includes a logical maze system separated from the visual maze.
@@ -534,6 +616,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - configure the maze-border enemy-release timer for the current level number
 - detect board completion when all progression collectibles are consumed
 - own the current level-transition screen state
+- expose the initial level-transition entry point through a partial Level helper
+- expose a GameOverFinished signal used by Main to return to the title screen
 - rebuild board-local runtime state when advancing to the next level
 - own the current prototype score state
 - own the current prototype heart multiplier state
@@ -541,7 +625,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - own the current prototype life state
 - own the short heart / letter pickup popup state
 - own the player death sequence state at board-coordinator level
-- own the minimal game-over guard
+- own the minimal game-over guard that is turned into a visible GAME OVER screen by LevelGameOverOverlay
 - own the fixed gameplay tick for board-level systems, the maze-border timer, enemies, and the player
 - expose runtime MazeGrid and GateSystem
 - expose coordinate conversion wrapper methods
@@ -570,6 +654,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - HUD rendering: Hud
 - pickup popup rendering: CollectiblePickupPopupView
 - transition overlay rendering: LevelTransitionOverlay
+- game-over overlay rendering: LevelGameOverOverlay
+- initial PART 1 transition and GAME OVER return signal bridge: LevelInitialTransition
 
 **Fixed tick ownership:**
 - Level owns the fixed gameplay simulation tick
@@ -580,7 +666,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
-- when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
+- while the GAME OVER overlay is active, gameplay remains stopped and the overlay driver waits two seconds before returning to the title screen
+- when the death sequence completes, the player either respawns at PlayerStartCell or enters the visible GAME OVER flow
 - when the transition timer completes, Level rebuilds the board for the next level and respawns the player at PlayerStartCell
 
 ## 7. Collectible System
@@ -745,6 +832,7 @@ Current behavior:
 - the implementation follows the reverse-engineered gameplay rule, but the exact low-level arcade timing / visual rendering may still need refinement
 
 Current arcade-facing rule:
+
 ```text
 vegetable collected
 -> award vegetable score
@@ -910,7 +998,7 @@ scripts/gameplay/player/
 - the player plays the arcade-style death sequence
 - when the death sequence completes:
   - if lives remain, the player respawns at PlayerStartCell
-  - if no lives remain, the player remains hidden and a game-over placeholder is entered
+  - if no lives remain, the player remains hidden and the visible GAME OVER flow starts
 
 **Current enemy-death behavior:**
 - touching an active enemy immediately hides all enemy views before the player death sequence starts
@@ -933,9 +1021,15 @@ scripts/gameplay/player/
 - the movement motor is not advanced during death
 - the normal player sprite is hidden while the runtime death sprite is visible
 
+**Current GAME OVER behavior:**
+- when the last life is lost, the normal death sequence still finishes first
+- after the no-lives state is reached, LevelGameOverOverlay displays GAME OVER in the maze-inner panel
+- the GAME OVER overlay remains visible for two seconds
+- after the delay, Level emits GameOverFinished and Main returns to the title screen
+
 **Current limitations:**
-- proper game-over screen flow is not implemented yet
 - player death still uses the current high-level red shrink / ghost sequence rather than exact tile-level arcade rendering
+- GAME OVER uses high-level Godot UI controls rather than original tile / color RAM rendering
 
 ## 11. HUD
 
@@ -971,7 +1065,7 @@ Level
 - Hud.cs does not hardcode label positions, anchors, sizes, or editor layout
 - Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
 - visual placement is controlled by Level.tscn
-- credits, top score, title screen HUD, and full arcade screen flow are not implemented yet
+- credits, top score, and full arcade attract / high-score screen flow are not implemented yet
 
 
 ## 12. Maze Border Enemy Release Timer
@@ -1072,8 +1166,6 @@ scripts/gameplay/enemies/
 **EnemyRuntime** is the top-level enemy coordinator owned by Level.
 It creates the runtime Enemies parent if needed, instantiates four enemy views, owns the four logical enemy slots, advances enemy navigation / chase / movement, checks skull deaths for enemies, exposes collision-active monsters to Level, handles release from the lair, and resets enemy state after player death.
 
-When the vegetable-freeze state is active, Level skips enemy movement updates but still checks collision-active monsters after player movement, preserving the arcade rule that frozen enemies remain fatal.
-
 **MonsterEntity** stores the gameplay state of one enemy slot:
 - slot id
 - arcade-pixel position
@@ -1094,13 +1186,11 @@ The current implementation provides enemy visual sheets for levels 1 through 8.
 It stores allowed directions and BFS guidance directions separately.
 
 **EnemyMovementAi** advances one active monster by one arcade pixel.
-It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight movement, and a deliberately narrow forced-reversal path for gate-blocked movement outside a decision center.
+It handles decision-center checks, preferred-direction validation, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight movement, and a simple forced reversal when the current path becomes blocked outside a decision center.
 
-At decision centers, `EnemyMovementAi` now follows the simulator-validated decision order: try the preferred direction first, then keep the current direction if it is still valid, and only then scan fallback directions. Preferred and current candidates are validated through both the enemy navigation grid and the local playfield / gate probe. A rejected preferred or current direction is added to the local rejected mask before fallback scans the arcade order: Left, Up, Right, Down.
+At decision centers, `EnemyMovementAi` now treats local door / playfield validation as part of the normal direction-selection algorithm. A preferred direction can be allowed by the enemy navigation grid and still be rejected by the local playfield / gate probe. In that case, the direction is added to the rejected mask and fallback scans directions in arcade order: Left, Up, Right, Down. Apparent 180-degree turns at centers are therefore modeled as fallback results, not as forced reversals.
 
-Apparent 180-degree turns at centers are therefore modeled as normal fallback results when both the preferred and current directions fail, not as forced reversals.
-
-Outside decision centers, preferred direction and fallback are not consulted. The enemy normally continues straight, except for the separate gate-blocked forced-reversal path. If a direction chosen earlier is still blocked at the final one-pixel step, the current implementation only allows the late opposite-direction rescue in the same narrow case: outside a decision center and blocked by a gate. At decision centers, a blocked choice should already have been resolved by the preferred -> current -> fallback decision chain.
+Outside decision centers, preferred direction and fallback are not consulted. The enemy normally continues straight, except for the separate gate-blocked forced-reversal path.
 
 **EnemyBasePreferenceSystem** prepares the non-chase preferred directions continuously before chase/BFS overrides are applied.
 It implements the currently reverse-engineered two-mode arcade-inspired behavior: a B9-like counter chooses between player-direction-derived preferences and one pseudo-random preferred direction per enemy.
@@ -1123,14 +1213,11 @@ Current implemented behavior:
 - active enemies move one arcade pixel per fixed simulation tick
 - enemies make direction choices at decision centers
 - at decision centers, the preferred direction is validated before movement
-- if the preferred direction is rejected, the current direction is tested before fallback
-- preferred/current-direction rejection feeds a local `61C1`-like rejected-direction mask
-- fallback scans the arcade direction order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
+- preferred-direction rejection feeds a `61C1`-like rejected-direction mask
+- fallback scans the arcade direction order Left, Up, Right, Down / 01, 02, 04, 08
 - fallback candidates are validated through both the enemy navigation grid and the local playfield / gate probe
 - apparent center reversals can be normal fallback results after rejection, not forced-reversal events
 - outside decision centers, forced reversal remains reserved for gate-blocked straight movement
-- late opposite-direction rescue after a blocked step is also restricted to gate-blocked movement outside decision centers
-- at decision centers, blocked choices are resolved by preferred -> current -> fallback, not by a late forced reversal
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
 - base preferred directions are recalculated continuously before chase/BFS override
@@ -1140,7 +1227,6 @@ Current implemented behavior:
 - a BFS guidance map can temporarily override preferred directions during chase phases
 - chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
-- enemies can be frozen by the central vegetable bonus; while frozen, movement is skipped but collision remains fatal
 - enemies can be killed by skulls and return to the lair
 
 ### 13.3 Player death from enemy
@@ -1175,6 +1261,7 @@ The following details are still approximate or not implemented yet:
 - exact local door rejection behavior from the arcade routines
 - exact forced reversal semantics around rotating doors
 - full chase activation tables for all levels and DIP settings
+- exact enemy-freeze timing and visual behavior around the vegetable bonus
 - exact enemy type rotation / visual reuse rules from level 9 onward
 - exact visual state progression for lair / release transitions
 
@@ -1321,9 +1408,9 @@ The current player movement model includes:
 - pause of normal player movement while the player death sequence is active
 - respawn reset to PlayerStartCell after a completed death sequence when lives remain
 
-## 18. Level Progression and Transition Screen
+## 18. Level Progression, Transition Screen, and Screen Flow
 
-The game now supports automatic progression from one level to the next.
+The game now supports automatic progression from one level to the next, and the same PART transition format is also used before level 1 starts from the title screen.
 
 ### 18.1 Completion rule
 
@@ -1350,6 +1437,8 @@ last heart / letter consumed
 ```
 
 Normal board simulation is frozen while the transition screen is active.
+
+At the start of a new game, Main calls Level.StartInitialLevelTransition() after the Level scene has finished its own initialization. This displays the normal PART 1 panel before the first playable board begins.
 
 ### 18.3 Transition overlay
 
@@ -1387,7 +1476,40 @@ Current duration:
 120 fixed simulation ticks, roughly two seconds
 ```
 
-### 18.4 State preserved and reset
+### 18.4 Title to first-level flow
+
+Current title-to-game behavior:
+
+```text
+TitleScreen
+-> press any normal key
+-> Main instantiates Level
+-> Main calls Level.StartInitialLevelTransition() deferred
+-> PART 1 transition is shown
+-> Level rebuilds the board using the previewed collectible plan
+-> gameplay starts
+```
+
+This keeps the first level consistent with later level transitions instead of starting gameplay immediately after the title screen.
+
+### 18.5 GAME OVER flow
+
+Current no-lives flow:
+
+```text
+last life lost
+-> normal player death sequence finishes
+-> Level enters game-over state
+-> LevelGameOverOverlay displays GAME OVER in the maze-inner panel
+-> overlay remains visible for 2 seconds
+-> Level emits GameOverFinished
+-> Main frees the Level scene
+-> TitleScreen is shown again
+```
+
+The GAME OVER overlay uses the same inner-maze panel format as the PART transition overlay and keeps the HUD / frame visible.
+
+### 18.6 State preserved and reset
 
 The current prototype still owns session-like state inside Level.
 When moving to the next level, the following state is preserved:
@@ -1412,7 +1534,7 @@ maze-border enemy-release timer
 player gameplay position
 ```
 
-### 18.5 Debug shortcut
+### 18.7 Debug shortcut
 
 A temporary debug shortcut is implemented to test level transitions:
 
@@ -1427,7 +1549,12 @@ This shortcut is development-only and should later either be removed or guarded 
 The following is already implemented and functional:
 
 - Main scene launches correctly
-- Level scene is instantiated from Main
+- Main starts on the title screen
+- title screen displays the Lady Bug logo, four animated enemies, an animated ladybug prompt marker, and PRESS ANY KEY
+- pressing a normal key or joypad button on the title screen starts a new game
+- F1 and F12 are ignored by title-screen start input
+- Level scene is instantiated from Main after the title screen requests a start
+- Main calls the initial PART transition before level 1 gameplay begins
 - maze background is displayed
 - upper HUD strip has room above the maze
 - lower HUD displays lives and score below the maze
@@ -1472,6 +1599,8 @@ The following is already implemented and functional:
 - special collectible placement uses corrected Godot logical-cell anchors
 - hearts use an overlay-based visual setup
 - hearts and letters use a global visual color cycle
+- bonus vegetables are implemented with level-dependent score awards
+- collecting a bonus vegetable freezes enemy movement temporarily while enemies remain fatal
 - heart and letter colors use the arcade-style measured RGB values
 - collectible letter sprite mapping matches the current spritesheet
 - flowers add score immediately
@@ -1496,12 +1625,10 @@ The following is already implemented and functional:
 - enemies use a separate direction enum from player movement
 - enemies use decision-center movement at X&0x0F=0x08 and Y&0x0F=0x06
 - enemy center decisions use preferred-direction validation before movement
-- enemy center decisions test the current direction before falling back when the preferred direction is rejected
-- enemy center decisions use a local `61C1`-like rejected-direction mask
-- enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
+- enemy center decisions use a `61C1`-like rejected-direction mask
+- enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08
 - enemy fallback validates candidates through the navigation grid and local playfield / gate probe
 - enemy forced reversal is kept separate from center fallback and is used only for outside-center gate blocks
-- enemy late opposite-direction rescue after a blocked step is restricted to outside-center gate blocks
 - enemies use a navigation grid generated from the static maze and current rotating-gate states
 - enemies can receive temporary BFS chase guidance toward the player
 - enemy chase activation uses a round-robin selector and level-dependent timing thresholds
@@ -1513,30 +1640,27 @@ The following is already implemented and functional:
 - after player death, the maze-border timer is reset
 - after player death, consumed collectibles remain consumed and rotating gate states are preserved
 - enemies can be killed by skulls and return to the lair
-- bonus vegetables can appear in the central area
-- collecting a bonus vegetable awards the current level vegetable bonus score
-- collecting a bonus vegetable freezes enemy movement temporarily
-- frozen enemies remain fatal on contact
 - enemy visuals can use level-specific spritesheets for levels 1 through 8
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
 - completing a board starts the next-level transition
+- starting a new game from the title screen shows the PART 1 transition before gameplay begins
 - the transition screen displays the next PART number, vegetable bonus, skull preview, letter preview, heart preview, and GOOD LUCK line
 - the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - F1 can be used as a debug shortcut to test the normal next-level transition
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
-- no-lives game over placeholder exists
+- no-lives GAME OVER overlay is displayed in the maze-inner panel
+- GAME OVER remains visible for two seconds and then returns to the title screen
 
 ## 20. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
+- exact bonus-vegetable timing and low-level arcade rendering details
 - exact enemy type rotation from level 9 onward
-- title screen flow
-- gameplay screen / screen transition architecture
-- proper game-over screen flow
+- full gameplay screen / screen transition architecture
 - high score screen flow
 - persistent session state / GameSession
 - high-score persistence
@@ -1548,7 +1672,7 @@ The following systems are still not implemented yet:
 
 ## 21. Current Limitations
 
-The movement, gate, collectible, scoring, HUD, death-sequence, bonus-vegetable, and first enemy systems are functional enough to continue development from this point.
+The movement, gate, collectible, scoring, HUD, death-sequence, and first enemy systems are functional enough to continue development from this point.
 The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
 
 Current limitations include:
@@ -1559,29 +1683,28 @@ Current limitations include:
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
 - SPECIAL completion is only a placeholder award and does not implement credits/free games yet
 - SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition
-- game over is only a placeholder state
+- GAME OVER is implemented as a high-level overlay and return-to-title flow rather than exact arcade tile / color RAM rendering
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
-- enemy center decisions now follow the simulator-validated preferred -> current -> fallback order, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
-- outside-center forced-reversal semantics around rotating doors still need refinement; the current implementation intentionally keeps this path conservative by limiting late opposite-direction rescue to gate-blocked movement outside decision centers
+- enemy center fallback now follows the rejected-mask / fixed-order arcade model, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
+- outside-center forced-reversal semantics around rotating doors still need refinement
 - enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
 - chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
-- vegetable bonus / freeze is implemented as a first playable feature, but exact arcade duration, central-area state transitions, and low-level visual timing may need more traces
+- vegetable freeze is implemented at a high level; exact arcade timing and low-level visual behavior may still need refinement
 
 ## 22. Current Development Priority
 
 A reasonable current priority is now:
 
-1) keep the current enemy preferred -> current -> fallback refinement and restricted outside-center gate reversal as a stable checkpoint
+1) commit the current enemy fallback / rejected-mask refinement as a stable checkpoint
 2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, and enemy reset systems stable
 3) document and protect validated player/enemy movement behavior with regression scenarios
 4) refine exact local door/gate probing and outside-center forced-reversal cases using targeted MAME traces
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
-6) refine exact bonus vegetable timing, scoring presentation, and freeze duration if new arcade evidence justifies it
-7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
-8) decide the remake behavior for SPECIAL completion
-9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-10) refine later-level enemy visual rotation beyond level 8 if needed
-11) implement remaining screen-flow and persistence systems
-12) continue refining arcade fidelity only where reverse engineering or testing justifies it
+6) continue fine-tuning the PART / GAME OVER screens only if new arcade evidence justifies it
+7) decide the remake behavior for SPECIAL completion
+8) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
+9) refine later-level enemy visual rotation beyond level 8 if needed
+10) implement remaining high-score / persistence / credit-flow systems
+11) continue refining arcade fidelity only where reverse engineering or testing justifies it
