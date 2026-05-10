@@ -91,6 +91,7 @@ public static class CollectibleSpawnPlanner
         Vector2I[] pickC = DrawFourDistinctAnchors(CollectibleAnchorFamilies.FamilyC, rng);
 
         LetterKind[] letters = DrawLevelLetters(rng);
+        LetterKind[] transitionPreviewLetters = BuildTransitionPreviewLetters(letters);
         int[] permutation = DrawLetterPermutation(rng);
         int skullCount = ComputeSkullCount(levelNumber);
 
@@ -154,7 +155,7 @@ public static class CollectibleSpawnPlanner
                 CollectibleColor.White));
         }
 
-        return new CollectibleSpawnPlan(placements);
+        return new CollectibleSpawnPlan(placements, transitionPreviewLetters);
     }
 
     /// <summary>
@@ -226,9 +227,20 @@ public static class CollectibleSpawnPlanner
     }
 
     /// <summary>
-    /// Chooses the three letters used at the start of the level:
-    /// one from A/E, one from SPECIAL, and one from EXTRA.
+    /// Chooses the three letters used at the start of the level.
     /// </summary>
+    /// <remarks>
+    /// The arcade routine around 0x0485 stores the logical choices as:
+    /// <c>6070 = A/E</c>, <c>6071 = SPECIAL</c>, <c>6072 = EXTRA</c>.
+    ///
+    /// This short-term remake approximation intentionally does not emulate the
+    /// Z80 refresh register or every state-dependent adjustment. It preserves the
+    /// base distribution produced by the observed bit manipulation:
+    ///
+    /// - A/E: A 50%, E 50%
+    /// - SPECIAL: S 12.5%, P 25%, C 25%, I 25%, L 12.5%
+    /// - EXTRA: X 25%, T 50%, R 25%
+    /// </remarks>
     private static LetterKind[] DrawLevelLetters(RandomNumberGenerator rng)
     {
         if (rng == null)
@@ -236,31 +248,83 @@ public static class CollectibleSpawnPlanner
             throw new ArgumentNullException(nameof(rng));
         }
 
-        LetterKind aeLetter = rng.RandiRange(0, 1) == 0
-            ? LetterKind.A
-            : LetterKind.E;
-
-        LetterKind specialLetter = rng.RandiRange(0, 4) switch
-        {
-            0 => LetterKind.S,
-            1 => LetterKind.P,
-            2 => LetterKind.C,
-            3 => LetterKind.I,
-            _ => LetterKind.L
-        };
-
-        LetterKind extraLetter = rng.RandiRange(0, 2) switch
-        {
-            0 => LetterKind.X,
-            1 => LetterKind.T,
-            _ => LetterKind.R
-        };
+        LetterKind aeLetter = DrawCommonLetter(rng);
+        LetterKind specialLetter = DrawSpecialLetter(rng);
+        LetterKind extraLetter = DrawExtraLetter(rng);
 
         return new[]
         {
             aeLetter,
             specialLetter,
             extraLetter
+        };
+    }
+
+    /// <summary>
+    /// Builds the letter order used by the arcade-style PART transition screen.
+    /// </summary>
+    /// <remarks>
+    /// MAME checks show examples such as RAM <c>6070..6072 = 0,5,8</c> while the
+    /// screen displays <c>TIA</c>. Therefore the preview order is reverse logical
+    /// family order: EXTRA, SPECIAL, A/E.
+    /// </remarks>
+    private static LetterKind[] BuildTransitionPreviewLetters(IReadOnlyList<LetterKind> letters)
+    {
+        if (letters == null)
+        {
+            throw new ArgumentNullException(nameof(letters));
+        }
+
+        if (letters.Count < 3)
+        {
+            throw new ArgumentException(
+                "The letter list must contain A/E, SPECIAL, and EXTRA letters.",
+                nameof(letters));
+        }
+
+        return new[]
+        {
+            letters[2],
+            letters[1],
+            letters[0]
+        };
+    }
+
+    /// <summary>
+    /// Draws the shared A/E letter with an even split.
+    /// </summary>
+    private static LetterKind DrawCommonLetter(RandomNumberGenerator rng)
+    {
+        return rng.RandiRange(0, 1) == 0
+            ? LetterKind.A
+            : LetterKind.E;
+    }
+
+    /// <summary>
+    /// Draws the SPECIAL-family letter using the base arcade-weighted distribution.
+    /// </summary>
+    private static LetterKind DrawSpecialLetter(RandomNumberGenerator rng)
+    {
+        return rng.RandiRange(0, 7) switch
+        {
+            0 => LetterKind.S,
+            1 or 2 => LetterKind.P,
+            3 or 4 => LetterKind.C,
+            5 or 6 => LetterKind.I,
+            _ => LetterKind.L
+        };
+    }
+
+    /// <summary>
+    /// Draws the EXTRA-family letter using the base arcade-weighted distribution.
+    /// </summary>
+    private static LetterKind DrawExtraLetter(RandomNumberGenerator rng)
+    {
+        return rng.RandiRange(0, 3) switch
+        {
+            0 => LetterKind.X,
+            1 or 2 => LetterKind.T,
+            _ => LetterKind.R
         };
     }
 
@@ -273,6 +337,10 @@ public static class CollectibleSpawnPlanner
     /// - 0 = A/E
     /// - 1 = SPECIAL
     /// - 2 = EXTRA
+    ///
+    /// This permutation is used only for the in-maze letter placement. The PART
+    /// transition screen uses <see cref="CollectibleSpawnPlan.TransitionPreviewLetters"/>
+    /// instead, because MAME shows the preview order as EXTRA, SPECIAL, A/E.
     /// </remarks>
     private static int[] DrawLetterPermutation(RandomNumberGenerator rng)
     {

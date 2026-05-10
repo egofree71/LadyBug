@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using LadyBug.Gameplay.Collectibles;
 
@@ -354,31 +355,61 @@ public partial class LevelTransitionOverlay : CanvasLayer
         }
 
         int shownCount = 0;
-        foreach (CollectiblePlacement placement in previewSpawnPlan.Placements)
+        IReadOnlyList<LetterKind> previewLetters = previewSpawnPlan.TransitionPreviewLetters;
+
+        if (previewLetters.Count > 0)
         {
-            if (placement.Kind != CollectibleKind.Letter || placement.Letter == LetterKind.None)
+            foreach (LetterKind letter in previewLetters)
             {
-                continue;
-            }
+                if (!TryAddLetterIcon(collectiblesSheet, letter, shownCount))
+                    continue;
 
-            int frameIndex = GetLetterFrameIndex(placement.Letter);
-            if (frameIndex < 0)
+                shownCount++;
+            }
+        }
+        else
+        {
+            // Compatibility fallback for spawn plans created before the explicit
+            // transition-preview order existed. New plans should always use
+            // TransitionPreviewLetters so the screen shows EXTRA, SPECIAL, A/E.
+            foreach (CollectiblePlacement placement in previewSpawnPlan.Placements)
             {
-                continue;
+                if (placement.Kind != CollectibleKind.Letter || placement.Letter == LetterKind.None)
+                {
+                    continue;
+                }
+
+                if (!TryAddLetterIcon(collectiblesSheet, placement.Letter, shownCount))
+                    continue;
+
+                shownCount++;
             }
-
-            TextureRect icon = CreateCollectibleIcon(
-                collectiblesSheet,
-                frameIndex,
-                LetterIconDisplaySize,
-                ArcadeBlue,
-                $"LetterIcon{shownCount}");
-
-            _letterRow.AddChild(icon);
-            shownCount++;
         }
 
         _letterRow.Visible = shownCount > 0;
+    }
+
+    /// <summary>
+    /// Adds one transition-screen letter icon when the logical letter is displayable.
+    /// </summary>
+    private bool TryAddLetterIcon(Texture2D collectiblesSheet, LetterKind letter, int shownCount)
+    {
+        if (_letterRow == null || letter == LetterKind.None)
+            return false;
+
+        int frameIndex = GetLetterFrameIndex(letter);
+        if (frameIndex < 0)
+            return false;
+
+        TextureRect icon = CreateCollectibleIcon(
+            collectiblesSheet,
+            frameIndex,
+            LetterIconDisplaySize,
+            ArcadeBlue,
+            $"LetterIcon{shownCount}");
+
+        _letterRow.AddChild(icon);
+        return true;
     }
 
 
