@@ -127,7 +127,7 @@ public partial class Level : Node2D
     // Runtime popup view displayed when collecting hearts and letters.
     private CollectiblePickupPopupView? _pickupPopupView;
 
-    // Runtime gameplay sound effects. Created in code so Level.tscn does not need to be edited.
+    // Runtime short gameplay sound effects. Created in code so Level.tscn does not need to be edited.
     private PickupSoundPlayer? _pickupSoundPlayer;
 
     // Runtime-only between-level overlay shown before starting the next part.
@@ -392,6 +392,7 @@ public partial class Level : Node2D
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
     }
 
+
     /// <summary>
     /// Creates the runtime node that owns short gameplay sound effects.
     /// </summary>
@@ -501,8 +502,7 @@ public partial class Level : Node2D
             _enemyRuntime?.AdvanceOneSimulationTick(
                 _player.ArcadePixelPos,
                 _player.CurrentDirectionForEnemies,
-                _collectibleField.TryConsumeSkullAt,
-                HandleEnemyDeathFromSkull);
+                _collectibleField.TryConsumeSkullAt);
         }
 
         if (_collectibleColorCycle.AdvanceOneTick())
@@ -669,18 +669,6 @@ public partial class Level : Node2D
                 return;
             }
         }
-    }
-
-    /// <summary>
-    /// Plays the short sound used when an active enemy touches a skull.
-    /// </summary>
-    /// <remarks>
-    /// The enemy runtime owns the actual slot reset. Level only owns the board audio
-    /// node, so this callback keeps enemy movement logic independent from sound nodes.
-    /// </remarks>
-    private void HandleEnemyDeathFromSkull()
-    {
-        _pickupSoundPlayer?.PlayEnemyDeathFromSkull();
     }
 
     // --- Collectibles -------------------------------------------------------
@@ -923,8 +911,6 @@ public partial class Level : Node2D
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
 
-        _pickupSoundPlayer?.PlayDeathSequenceStart();
-
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();
     }
@@ -953,8 +939,6 @@ public partial class Level : Node2D
 
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
-
-        _pickupSoundPlayer?.PlayDeathSequenceStart();
 
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();
@@ -1022,7 +1006,11 @@ public partial class Level : Node2D
     /// <returns><see langword="true"/> if the push is accepted; otherwise, <see langword="false"/>.</returns>
     public bool TryPushGate(int gateId, Vector2I moveDir, GateContactHalf contactHalf)
     {
-        return _gateRuntime.TryPushGate(gateId, moveDir, contactHalf);
+        bool pushed = _gateRuntime.TryPushGate(gateId, moveDir, contactHalf);
+        if (pushed)
+            _pickupSoundPlayer?.PlayGateRotated();
+
+        return pushed;
     }
 
     // --- Playfield Step Evaluation -----------------------------------------
