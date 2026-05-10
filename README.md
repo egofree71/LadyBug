@@ -12,12 +12,10 @@ The project is also heavily **AI-assisted**. I use AI as a coding and reverse-en
 
 ## Current status
 
-The project is currently a playable prototype with a first version of the arcade-style screen flow.
+The project is currently a playable prototype.
 
 Implemented systems include:
 
-- title screen with the Lady Bug logo, animated enemy sprites, animated ladybug prompt marker, and `PRESS ANY KEY` start prompt
-- initial `PART 1` transition screen before the first playable board starts
 - maze rendering
 - player movement with arcade-style assisted turns
 - rotating gates
@@ -26,29 +24,22 @@ Implemented systems include:
 - bonus vegetables with bonus scoring
 - SPECIAL / EXTRA word progress
 - lives and player death sequence
-- visible `GAME OVER` screen with automatic return to the title screen
 - enemy release through the animated border timer
 - enemy freeze after collecting the central bonus vegetable, while enemies remain fatal
 - first playable enemy movement system with simulator-refined center decisions
-- level progression through arcade-style PART transition screens
+- level progression placeholder
 - HUD with score, lives, SPECIAL, EXTRA and multipliers
-- gameplay sound effects for pickups, rotating gates, timer ticks, player death, and enemy skull deaths
 
-Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later refinement keeps forced / opposite-direction rescue separate from normal center decisions: late reversal is allowed only for gate-blocked movement outside decision centers. Together, these changes removed a visible issue where enemies could appear stuck between logical cells while keeping the center-decision logic easier to reason about.
-
-Recent screen-flow work adds a title screen, routes a new game through the same PART transition system used between later levels, and displays a GAME OVER panel before returning to the title screen. The PART transition duration now uses the measured 0xB4-frame arcade timing, while GAME OVER uses the measured 0x80-frame delay.
-
-Recent audio work adds a small runtime sound-effect helper. It plays separate sounds for flowers, hearts / letters, rotating gates, player death, enemies killed by skulls, and the maze-border timer. The maze-border timer keeps its reverse-engineered visual / release cadence, while the audible timer cadence is handled separately so level 5+ remains faster than levels 2-4 without producing an irregular skip pattern.
+Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later simulator comparison showed that broad gate / boundary checks were too aggressive outside decision centers, so enemies now keep their current direction outside centers instead of reversing from a high-level gate block. Local movement probes now use simulator-derived directional offsets, while exact tile-shape filtering around rotating gates remains a future refinement.
 
 Some systems are still incomplete or approximate, especially:
 
 - exact bonus-vegetable timing and low-level arcade rendering details
 - remaining pixel-perfect enemy movement edge cases around rotating gates and later-level behavior
 - later-level enemy rotation
-- high-score screen flow and persistence
-- persistent session / GameSession architecture
-- exact coin, credit, free-game and top-score behavior
-- arcade-accurate tile / color RAM rendering for transition and overlay screens
+- title screen and full arcade screen flow
+- game over and high-score screens
+- arcade-accurate transition screens
 
 ## Technology
 
@@ -77,7 +68,7 @@ The goal is not to reproduce the original hardware literally. Instead, the proje
 ## Project structure
 
 ```text
-assets/   Visual and audio assets used by the remake
+assets/   Visual assets used by the remake
 data/     JSON data for the maze and collectibles
 doc/      Notes, reverse-engineering documents and implementation details
 scenes/   Godot scenes

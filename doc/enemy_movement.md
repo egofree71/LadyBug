@@ -92,8 +92,8 @@ Enemy movement is a hybrid system:
 5. Before fallback, the enemy tries to keep its current direction if that direction is still valid.
 6. Only if the current direction is also rejected does fallback search another direction in the fixed arcade order `01, 02, 04, 08`.
 7. Outside decision centers, the enemy normally continues straight.
-8. In special door-related cases, the enemy may be forced to reverse direction even outside a decision center.
-9. In the current Godot implementation, any late opposite-direction rescue after a blocked step is deliberately restricted to the same outside-center gate-blocked case.
+8. The arcade has special door/local-tile cases that can force reversal outside a decision center, but the current Godot implementation intentionally does not trigger reversal from broad gate / boundary validation.
+9. Current Godot local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2. Exact tile-shape filtering around rotating gates remains a future refinement.
 10. Movement is pixel-by-pixel, not tile-by-tile.
 
 Implementation consequence:
@@ -105,8 +105,9 @@ monster movement = pixel step
                  + current-direction preservation
                  + rejected mask
                  + fixed-order fallback
-                 + outside-center door reversal
-                 + restricted late gate-blocked opposite-direction rescue
+                 + straight outside-center movement
+                 + simulator-derived local probe offsets
+                 + no broad outside-center gate/boundary reversal in current Godot
                  + temporary BFS pressure
 ```
 
@@ -259,8 +260,10 @@ EnemyNavigationGrid
 EnemyMovementAi
 	Applies one-pixel movement, decision-center direction choice, preferred
 	direction validation, current-direction preservation before fallback, a
-	`61C1`-like rejected-direction mask, fixed-order fallback selection, and
-	outside-center forced reversal when a door/gate blocks the current path.
+	`61C1`-like rejected-direction mask, fixed-order fallback selection,
+	straight outside-center movement, and simulator-derived local probe offsets.
+	Broad outside-center gate/boundary reversal is intentionally disabled until
+	a precise local tile/gate reversal rule is validated.
 
 EnemyBasePreferenceSystem
 	Prepares the non-chase preferred directions continuously before chase/BFS
@@ -325,7 +328,7 @@ Y & 0x0F == 0x06
 ```
 
 At any other pixel position, the enemy normally continues in its current direction,
-except for the door-related forced reversal case described below.
+except for a future precise door-related forced reversal case; broad gate/boundary reversal is intentionally disabled in current Godot.
 
 Implementation helper:
 
@@ -988,14 +991,11 @@ The fixed order is likely closer to the arcade than a clever modern heuristic.
 Forced reversal outside intersections
 -------------------------------------
 
-Confirmed.
+Confirmed in arcade traces, but intentionally conservative in the current Godot implementation.
 
-Outside decision centers, the enemy normally keeps moving in the same direction.
+Outside decision centers, the normal behavior is to keep moving in the current direction. The arcade can still trigger a special door/local-tile forced reversal through the `0x4189 -> 0x4347` path, but simulator comparison showed that using a broad high-level gate / boundary block as the trigger is too aggressive.
 
-However, `0x4189` can detect a special door/local-tile situation and trigger a
-forced reversal through `0x4347`.
-
-Runtime validated case:
+Runtime validated arcade case:
 
 ```text
 FORCED REVERSAL HIT
@@ -1011,7 +1011,7 @@ Observation:
 - a pivoting door changed the local path state
 - the enemy reversed direction immediately
 
-Implementation distinction:
+Current Godot rule:
 
 ```csharp
 if (IsMonsterDecisionCenter(monster.X, monster.Y))
@@ -1020,21 +1020,26 @@ if (IsMonsterDecisionCenter(monster.X, monster.Y))
 }
 else
 {
-	if (ShouldForceReverseBecauseOfDoor(monster))
-		monster.Direction = Opposite(monster.Direction);
-
+	// Do not reverse from a broad gate/boundary resolver result.
+	// Keep current direction and move one pixel.
 	MoveOnePixel(monster);
 }
 ```
 
-Opposite mapping:
+Important distinction:
+
+```text
+arcade evidence: precise outside-center forced reversals exist
+current Godot rule: broad outside-center gate/boundary reversal is disabled
+future refinement: reintroduce forced reversal only from a precise local tile/gate probe
+```
+
+Opposite mapping, if the precise arcade rule is reintroduced later:
 
 ```text
 01 <-> 04
 02 <-> 08
 ```
-
-Do not restrict door handling to intersections only.
 
 Do not classify every visible opposite-direction choice as a forced reversal.
 If the enemy is at a decision center and the path is:
@@ -1046,18 +1051,6 @@ TryPreferred
 ```
 
 then the 180-degree turn is a fallback result, not a forced reversal.
-
-Current Godot implementation note:
-
-```text
-A late opposite-direction rescue after a blocked final step is allowed only when:
-- the enemy is outside a decision center;
-- the selected step is blocked by a gate;
-- the opposite step is immediately allowed.
-```
-
-This keeps late reversal behavior aligned with the outside-center door/gate path
-instead of using it as a generic rescue for center-decision failures.
 
 Skull death / enemy killed by skull
 -----------------------------------
@@ -1584,11 +1577,13 @@ MonsterDir FindFallbackDirection(
 
 ### Outside-center algorithm
 
+Current Godot behavior after simulator comparison:
+
 ```csharp
 void UpdateOutsideDecisionCenter(MonsterEntity monster)
 {
-	if (ShouldForceReverseBecauseOfDoor(monster, monster.Direction))
-		monster.Direction = monster.Direction.Opposite();
+	// Outside a decision center, do not consult preferred direction, fallback,
+	// or broad gate/boundary reversal. Keep the current direction.
 }
 ```
 
@@ -1596,34 +1591,24 @@ Then the normal one-pixel movement runs.
 
 This logic is separate from center fallback.
 
-### Late blocked-step safety
+### Local enemy probe offsets
 
-The current Godot implementation also has a final step validation after the direction
-has been chosen. This is useful because doors can change the local playfield state
-around the enemy.
-
-The safety rescue must remain narrow:
-
-```csharp
-bool canLateReverse = !atDecisionCenter
-                   && step.Kind == PlayfieldStepKind.BlockedByGate;
-
-if (canLateReverse && EvaluateStep(monster, chosenDir.Opposite()).Allowed)
-{
-	chosenDir = chosenDir.Opposite();
-	forcedReverse = true;
-}
-```
-
-Important:
+The current Godot implementation uses simulator-derived directional lead offsets for local enemy movement validation:
 
 ```text
-At a decision center, do not use a late opposite-direction rescue.
-The center decision should already have gone through preferred -> current -> fallback.
+left  -> sample X - 1, Y
+up    -> sample X, Y - 7
+right -> sample X + 8, Y
+down  -> sample X, Y + 2
 ```
 
-This prevents a generic "blocked -> opposite" safety path from hiding bugs in the
-center-decision algorithm or in local movement validation.
+In code, these offsets are centralized in `EnemyMovementTuning` and applied before calling the playfield step resolver. This is closer to the enemy traces than using player-style body probes.
+
+Important limitation:
+
+```text
+The offsets are now in place, but the current Godot implementation still delegates the final local validation to the high-level PlayfieldCollisionResolver. A future refinement should replace this with a more semantic tile/gate probe that blocks only the local forms confirmed by arcade traces.
+```
 
 ### One-pixel movement
 
@@ -1758,8 +1743,8 @@ Implemented in the current Godot version:
 - current-direction preservation before fallback at center decisions
 - 61C1-like local rejected-direction mask at center decisions
 - fixed fallback order 01,02,04,08 after preferred/current rejection
-- outside-center forced reversal when a gate blocks the current path
-- late opposite-direction rescue restricted to gate-blocked movement outside decision centers
+- no broad outside-center gate / boundary reversal; outside centers keep the current direction
+- simulator-derived local movement probe offsets for enemy validation
 - player/enemy collision
 - enemy views hidden immediately during player death sequence
 - enemy reset after player death without resetting collectibles or gates
@@ -1774,7 +1759,7 @@ Still approximate / to refine:
 - exact enemy release path from the lair into the maze
 - exact pixel-perfect behavior of enemies around rotating doors
 - exact local door/tile probing equivalent to 0x4130
-- exact forced reversal semantics around 0x4189 / 0x4347; current Godot behavior is intentionally conservative and does not use late opposite-direction rescue at decision centers
+- exact forced reversal semantics around 0x4189 / 0x4347; current Godot behavior is intentionally conservative and does not use broad outside-center gate / boundary reversal
 - full chase activation tables for later levels / DIP settings
 - exact arcade duration and low-level timing of the vegetable freeze
 - enemy type selection / visual reuse rules from level 9 onward
@@ -1800,7 +1785,7 @@ Recommended order for the next refinement passes:
 8. Fallback routine equivalent to `0x4241` with order `01,02,04,08`.
 9. Preferred direction preparation equivalent to `61C4..61C7`.
 10. BFS/chase override of preferred directions.
-11. Outside-center forced reversal equivalent to `0x4189/0x4347`.
+11. Simulator-derived enemy local probe offsets, followed later by a precise outside-center forced reversal equivalent to `0x4189/0x4347` only if targeted traces justify it.
 12. Enemy release/lair state.
 13. Freeze/skull/death edge cases.
 14. Later-level preference/chase timing refinements.
@@ -1832,8 +1817,8 @@ Confirmed enough:
 - current direction is tried before fallback at decision centers
 - fallback order 01,02,04,08
 - apparent center reversals can be fallback results
-- forced reversal can occur outside intersections
-- late opposite-direction rescue is restricted to gate-blocked movement outside decision centers
+- arcade forced reversal can occur outside intersections, but broad Godot gate/boundary reversal is currently disabled
+- local enemy movement probes use simulator-derived offsets: left X-1,Y; up X,Y-7; right X+8,Y; down X,Y+2
 - skull tile 63 kills enemies
 - vegetable sets enemy freeze timer 61E1 in the arcade
 - frozen enemies remain fatal
@@ -1867,8 +1852,9 @@ preferred direction allowed by static maze but rejected by local door/playfield 
 fallback skips directions already present in the 61C1-like rejected mask
 fallback scans directions in order 01,02,04,08 after preferred and current directions both fail
 fallback can legally choose the opposite direction without invoking forced reversal
-forced reversal outside decision center from door/gate change
-late blocked-step rescue only for outside-center BlockedByGate cases
+outside center, enemy keeps current direction and moves one pixel
+broad gate/boundary detection must not trigger immediate reversal
+local probe offsets match simulator-derived samples: left X-1,Y; up X,Y-7; right X+8,Y; down X,Y+2
 ```
 
 Timing:
@@ -1963,7 +1949,7 @@ BFS guidance toward Lady Bug
 temporary chase timers
 round-robin activation
 local door/tile rejection
-door-forced reversal outside centers
+no broad outside-center gate/boundary reversal in current Godot; future precise door-forced reversal only if validated
 stateful lair/release behavior
 frozen but still fatal enemies
 ```
