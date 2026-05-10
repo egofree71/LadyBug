@@ -111,10 +111,12 @@ public sealed class EnemyRuntime
     /// <param name="playerArcadePixelPos">Current player position in arcade pixels.</param>
     /// <param name="playerCurrentDirection">Player effective direction, preserved while input is idle.</param>
     /// <param name="tryConsumeSkullAt">Callback used when an enemy reaches a skull cell.</param>
+    /// <param name="onEnemyKilledBySkull">Optional callback fired after a skull really killed an enemy.</param>
     public void AdvanceOneSimulationTick(
         Vector2I playerArcadePixelPos,
         Vector2I playerCurrentDirection,
-        Func<Vector2I, bool> tryConsumeSkullAt)
+        Func<Vector2I, bool> tryConsumeSkullAt,
+        Action? onEnemyKilledBySkull = null)
     {
         _navigationGrid.RebuildAllowedDirections(MazeGrid, GateSystem);
         _navigationGrid.BuildBfsGuidanceFromPlayer(_level.ArcadePixelToLogicalCell(playerArcadePixelPos));
@@ -133,7 +135,7 @@ public sealed class EnemyRuntime
                 continue;
 
             _movementAi.UpdateMonsterOnePixel(monster, _navigationGrid);
-            TryHandleSkullCollision(monster, tryConsumeSkullAt);
+            TryHandleSkullCollision(monster, tryConsumeSkullAt, onEnemyKilledBySkull);
         }
 
         UpdateWaitingLairVisibility();
@@ -304,7 +306,8 @@ public sealed class EnemyRuntime
     /// </summary>
     private void TryHandleSkullCollision(
         MonsterEntity monster,
-        Func<Vector2I, bool> tryConsumeSkullAt)
+        Func<Vector2I, bool> tryConsumeSkullAt,
+        Action? onEnemyKilledBySkull)
     {
         if (!EnemyMovementTuning.IsDecisionCenter(monster.ArcadePixelPos))
             return;
@@ -314,6 +317,7 @@ public sealed class EnemyRuntime
         if (!tryConsumeSkullAt(cell))
             return;
 
+        onEnemyKilledBySkull?.Invoke();
         PrepareMonsterInLair(monster);
         UpdateWaitingLairVisibility();
     }

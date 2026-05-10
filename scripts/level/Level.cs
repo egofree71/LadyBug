@@ -501,7 +501,8 @@ public partial class Level : Node2D
             _enemyRuntime?.AdvanceOneSimulationTick(
                 _player.ArcadePixelPos,
                 _player.CurrentDirectionForEnemies,
-                _collectibleField.TryConsumeSkullAt);
+                _collectibleField.TryConsumeSkullAt,
+                HandleEnemyDeathFromSkull);
         }
 
         if (_collectibleColorCycle.AdvanceOneTick())
@@ -668,6 +669,18 @@ public partial class Level : Node2D
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Plays the short sound used when an active enemy touches a skull.
+    /// </summary>
+    /// <remarks>
+    /// The enemy runtime owns the actual slot reset. Level only owns the board audio
+    /// node, so this callback keeps enemy movement logic independent from sound nodes.
+    /// </remarks>
+    private void HandleEnemyDeathFromSkull()
+    {
+        _pickupSoundPlayer?.PlayEnemyDeathFromSkull();
     }
 
     // --- Collectibles -------------------------------------------------------

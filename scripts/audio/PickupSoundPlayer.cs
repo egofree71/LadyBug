@@ -23,6 +23,9 @@ public sealed partial class PickupSoundPlayer : Node
     // Sound played once when the player death sequence starts.
     private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
 
+    // Sound played when an enemy touches a skull and returns to the lair.
+    private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
+
     // Output bus used by the simple gameplay effects. The default Master bus exists in Godot projects.
     private const string DefaultAudioBus = "Master";
 
@@ -32,6 +35,9 @@ public sealed partial class PickupSoundPlayer : Node
     // Death is not expected to overlap with itself, so one voice is enough.
     private const int DeathSoundMaxPolyphony = 1;
 
+    // Enemy skull deaths can theoretically happen close together, so keep a small voice budget.
+    private const int EnemyDeathSoundMaxPolyphony = 2;
+
     // Runtime player dedicated to the flower pickup stream.
     private AudioStreamPlayer? _flowerPickupPlayer;
 
@@ -40,6 +46,9 @@ public sealed partial class PickupSoundPlayer : Node
 
     // Runtime player dedicated to the death-sequence start stream.
     private AudioStreamPlayer? _deathSequencePlayer;
+
+    // Runtime player dedicated to the enemy death-on-skull stream.
+    private AudioStreamPlayer? _enemyDeathPlayer;
 
     /// <summary>
     /// Loads the pickup sound streams and creates the runtime audio players.
@@ -60,6 +69,11 @@ public sealed partial class PickupSoundPlayer : Node
             "DeathSequenceAudioPlayer",
             DeathSequenceSoundPath,
             DeathSoundMaxPolyphony);
+
+        _enemyDeathPlayer = CreateGameplayAudioPlayer(
+            "EnemyDeathAudioPlayer",
+            EnemyDeathSoundPath,
+            EnemyDeathSoundMaxPolyphony);
     }
 
     /// <summary>
@@ -91,6 +105,14 @@ public sealed partial class PickupSoundPlayer : Node
     public void PlayDeathSequenceStart()
     {
         PlayIfAvailable(_deathSequencePlayer);
+    }
+
+    /// <summary>
+    /// Plays the sound used when an enemy touches a skull.
+    /// </summary>
+    public void PlayEnemyDeathFromSkull()
+    {
+        PlayIfAvailable(_enemyDeathPlayer);
     }
 
     /// <summary>
