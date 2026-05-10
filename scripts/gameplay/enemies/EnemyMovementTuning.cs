@@ -68,36 +68,40 @@ public static class EnemyMovementTuning
         };
     }
 
-    // Enemy movement uses the anchor pixel itself as the movement probe.
-    // Player-style forward probes (8/7 px) made enemies reverse one pixel before
-    // their own decision centers, especially near the upper border.
+    // Simulator-derived directional probe offsets for enemy local movement tests.
+    // These are not player-style body probes. They reproduce the asymmetric local
+    // samples used by the enemy traces:
+    // left  -> X - 1, Y
+    // up    -> X, Y - 7
+    // right -> X + 8, Y
+    // down  -> X, Y + 2
     /// <summary>
     /// Forward probe distance used when an enemy moves left.
     /// </summary>
-    public const int CollisionLeadLeft = 0;
+    public const int CollisionLeadLeft = 1;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves right.
     /// </summary>
-    public const int CollisionLeadRight = 0;
+    public const int CollisionLeadRight = 8;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves up.
     /// </summary>
-    public const int CollisionLeadUp = 0;
+    public const int CollisionLeadUp = 7;
 
     /// <summary>
     /// Forward probe distance used when an enemy moves down.
     /// </summary>
-    public const int CollisionLeadDown = 0;
+    public const int CollisionLeadDown = 2;
 
     /// <summary>
     /// Returns whether an arcade-pixel position is an enemy decision center.
     /// </summary>
     public static bool IsDecisionCenter(Vector2I arcadePixelPos)
     {
-        return (arcadePixelPos.X & 0x0F) == DecisionCenterXLowNibble &&
-               (arcadePixelPos.Y & 0x0F) == DecisionCenterYLowNibble;
+        return (arcadePixelPos.X & 0x0F) == DecisionCenterXLowNibble
+            && (arcadePixelPos.Y & 0x0F) == DecisionCenterYLowNibble;
     }
 
     /// <summary>

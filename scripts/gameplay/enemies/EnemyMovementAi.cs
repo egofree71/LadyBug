@@ -37,8 +37,7 @@ public sealed class EnemyMovementAi
     /// <returns>A compact debug result describing the movement decision.</returns>
     /// <remarks>
     /// Direction changes normally occur only at enemy decision centers. Outside a
-    /// decision center, the enemy continues straight unless a gate-related block
-    /// forces an immediate reversal.
+    /// decision center, the enemy keeps its current direction and advances one pixel.
     /// </remarks>
     public EnemyMovementDebugResult UpdateMonsterOnePixel(
         MonsterEntity monster,
@@ -95,11 +94,16 @@ public sealed class EnemyMovementAi
                 out fallbackUsed,
                 out decisionReason);
         }
-        else if (ShouldForceReverseBecauseOfDoor(monster, chosenDir))
+        else
         {
-            chosenDir = chosenDir.Opposite();
-            forcedReverse = true;
-            decisionReason = "forced-reverse-by-gate";
+            // Simulator comparison refinement: outside a decision center, the
+            // arcade-like default is to preserve the current direction and keep
+            // moving one pixel. Do not reverse merely because the high-level
+            // playfield resolver reports a nearby gate or gate boundary.
+            //
+            // A future arcade-accurate door reversal should be reintroduced only
+            // from a precise local tile/gate probe, not from the broad resolver.
+            decisionReason = "outside-center-keep-current";
         }
 
         if (chosenDir == MonsterDir.None)
@@ -125,28 +129,18 @@ public sealed class EnemyMovementAi
                 blockKind);
         }
 
-        PlayfieldStepResult step = EvaluateStep(monster, chosenDir);
-        if (!step.Allowed)
+        // At a decision center, the selected direction has to pass the normal
+        // candidate validation. Outside a center, the simulator comparison says
+        // the enemy should not ask the broad gate/boundary resolver whether it
+        // may keep moving; it simply keeps its current direction and advances.
+        if (atDecisionCenter)
         {
-            stepBlocked = true;
-            blockKind = step.Kind.ToString();
-
-            // Package 03 refinement: keep this late opposite-direction rescue narrow.
-            // It exists only as a safety equivalent of the outside-center gate reversal,
-            // not as another decision-center fallback mechanism. At a decision center,
-            // direction choice should already have been resolved by:
-            // preferred -> current -> fallback.
-            bool canLateReverse = !atDecisionCenter && step.Kind == PlayfieldStepKind.BlockedByGate;
-            MonsterDir opposite = chosenDir.Opposite();
-
-            if (canLateReverse && opposite != MonsterDir.None && EvaluateStep(monster, opposite).Allowed)
+            PlayfieldStepResult step = EvaluateStep(monster, chosenDir);
+            if (!step.Allowed)
             {
-                chosenDir = opposite;
-                forcedReverse = true;
-                decisionReason = "blocked-gate-opposite";
-            }
-            else
-            {
+                stepBlocked = true;
+                blockKind = step.Kind.ToString();
+
                 return new EnemyMovementDebugResult(
                     true,
                     monster.Id,
@@ -314,17 +308,10 @@ public sealed class EnemyMovementAi
         return EvaluateStep(monster, dir).Allowed;
     }
 
-    /// <summary>
-    /// Returns whether a gate block should cause an immediate reversal between centers.
-    /// </summary>
-    private bool ShouldForceReverseBecauseOfDoor(MonsterEntity monster, MonsterDir dir)
-    {
-        if (dir == MonsterDir.None)
-            return false;
-
-        PlayfieldStepResult step = EvaluateStep(monster, dir);
-        return step.Kind == PlayfieldStepKind.BlockedByGate;
-    }
+    // Intentionally no broad outside-center gate reversal here. Earlier versions
+    // used EvaluateStep(...).Kind == BlockedByGate as a reversal trigger, but the
+    // simulator comparison showed that this is too coarse: gate proximity and
+    // boundary probes can look blocked even when the arcade keeps moving.
 
     /// <summary>
     /// Evaluates a one-pixel enemy step through the current level collision resolver.
