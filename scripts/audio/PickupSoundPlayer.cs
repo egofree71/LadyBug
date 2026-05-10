@@ -4,102 +4,211 @@ using LadyBug.Gameplay.Collectibles;
 namespace LadyBug.Audio;
 
 /// <summary>
-/// Owns the short non-positional gameplay sound effects used by the current board.
+/// Runtime helper for the short global gameplay sound effects used by one board.
 /// </summary>
 /// <remarks>
-/// The node is created by <c>Level</c> at runtime so the package can be dropped into
-/// the project without editing <c>Level.tscn</c>. These effects are treated as global
-/// arcade sounds rather than spatialized world sounds.
+/// The node is created by <c>Level</c> at runtime, so audio-only changes do not
+/// require editing Godot scene files. All effects use non-positional audio because
+/// they behave like classic arcade board sounds rather than spatialized world audio.
 /// </remarks>
 public sealed partial class PickupSoundPlayer : Node
 {
-    // Sound played when the player consumes a normal flower.
     private const string FlowerPickupSoundPath = "res://assets/audio/flower_pickup.wav";
-
-    // Sound played when the player consumes a heart or letter collectible.
     private const string CollectiblePickupSoundPath = "res://assets/audio/collectible_pickup.wav";
-
-    // Sound played when the player successfully pivots a rotating gate.
     private const string GateRotatedSoundPath = "res://assets/audio/gate_rotated.wav";
+    private const string TimerStepSoundPath = "res://assets/audio/timer.wav";
+    private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
+    private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
 
-    // Output bus used by the simple gameplay effects. The default Master bus exists in Godot projects.
     private const string DefaultAudioBus = "Master";
 
-    // Small polyphony budget to avoid cutting off rapid pickup or gate sounds.
-    private const int GameplaySoundMaxPolyphony = 4;
+    // Pickups and gate pushes can happen close together, so keep a small overlap budget.
+    private const int NormalEffectMaxPolyphony = 4;
 
-    // Runtime player dedicated to the flower pickup stream.
+    // The timer sound is deliberately single-voice because level 5+ advances faster
+    // than timer.wav finishes. Restarting or throttling stays cleaner than stacking.
+    private const int TimerEffectMaxPolyphony = 1;
+
+    // Player death should not overlap with itself.
+    private const int DeathEffectMaxPolyphony = 1;
+
+    // Several enemies can theoretically hit skulls close together.
+    private const int EnemyDeathEffectMaxPolyphony = 2;
+
     private AudioStreamPlayer? _flowerPickupPlayer;
-
-    // Runtime player dedicated to the heart / letter pickup stream.
     private AudioStreamPlayer? _collectiblePickupPlayer;
-
-    // Runtime player dedicated to the rotating-gate stream.
     private AudioStreamPlayer? _gateRotatedPlayer;
+    private AudioStreamPlayer? _timerStepPlayer;
+    private AudioStreamPlayer? _deathSequencePlayer;
+    private AudioStreamPlayer? _enemyDeathPlayer;
+
+    // Countdown for the audible border-timer cadence. It is intentionally allowed
+    // to differ from the visual cadence on level 5+ so the sound stays regular
+    // without changing the reverse-engineered border timer logic.
+    private int _timerAudioCountdown;
 
     /// <summary>
-    /// Loads the gameplay sound streams and creates the runtime audio players.
+    /// Creates the dedicated audio players once this helper enters the scene tree.
     /// </summary>
     public override void _Ready()
     {
-        _flowerPickupPlayer = CreateGameplayAudioPlayer(
-            "FlowerPickupAudioPlayer",
-            FlowerPickupSoundPath);
-
-        _collectiblePickupPlayer = CreateGameplayAudioPlayer(
-            "CollectiblePickupAudioPlayer",
-            CollectiblePickupSoundPath);
-
-        _gateRotatedPlayer = CreateGameplayAudioPlayer(
-            "GateRotatedAudioPlayer",
-            GateRotatedSoundPath);
+        EnsurePlayers();
     }
 
     /// <summary>
     /// Plays the pickup sound associated with the consumed collectible kind.
     /// </summary>
     /// <remarks>
-    /// Skulls deliberately do not use these pickup sounds because touching a skull is
-    /// handled as a lethal event rather than a normal collectible reward.
+    /// Skulls deliberately do not use normal pickup sounds because touching a skull is
+    /// handled as a lethal event rather than a score reward.
     /// </remarks>
-    /// <param name="kind">Semantic kind returned by the collectible runtime.</param>
     public void PlayForCollectible(CollectibleKind kind)
     {
         switch (kind)
         {
             case CollectibleKind.Flower:
-                PlayIfAvailable(_flowerPickupPlayer);
+                PlayFlowerPickup();
                 break;
 
             case CollectibleKind.Heart:
             case CollectibleKind.Letter:
-                PlayIfAvailable(_collectiblePickupPlayer);
+                PlayCollectiblePickup();
                 break;
         }
     }
 
     /// <summary>
-    /// Plays the sound used when the player successfully rotates one gate.
+    /// Plays the short sound used when the player consumes a flower.
     /// </summary>
-    public void PlayGateRotated()
+    public void PlayFlowerPickup()
     {
-        PlayIfAvailable(_gateRotatedPlayer);
+        EnsurePlayers();
+        Play(_flowerPickupPlayer);
     }
 
     /// <summary>
-    /// Creates one configured <see cref="AudioStreamPlayer"/> for a short gameplay effect.
+    /// Plays the short sound used when the player consumes a heart or a letter.
     /// </summary>
-    /// <param name="nodeName">Runtime child node name used for debugging.</param>
-    /// <param name="streamPath">Resource path of the WAV file to play.</param>
-    /// <returns>The configured audio player, or <see langword="null"/> if the stream could not be loaded.</returns>
-    private AudioStreamPlayer? CreateGameplayAudioPlayer(string nodeName, string streamPath)
+    public void PlayCollectiblePickup()
+    {
+        EnsurePlayers();
+        Play(_collectiblePickupPlayer);
+    }
+
+    /// <summary>
+    /// Plays the short sound used when the player successfully rotates a gate.
+    /// </summary>
+    public void PlayGateRotated()
+    {
+        EnsurePlayers();
+        Play(_gateRotatedPlayer);
+    }
+
+    /// <summary>
+    /// Resets the audible border-timer cadence, usually when a level or attempt starts.
+    /// </summary>
+    public void ResetTimerStepCadence(int levelNumber)
+    {
+        _timerAudioCountdown = GetTimerAudioPeriod(levelNumber);
+    }
+
+    /// <summary>
+    /// Advances the independent audible border-timer cadence by one simulation tick.
+    /// </summary>
+    /// <remarks>
+    /// The visual timer still advances at the reverse-engineered cadence. For levels 1-4,
+    /// the sound cadence intentionally matches the visible border cadence. For level 5+,
+    /// the sound uses a regular 4-tick cadence instead of following every 3-tick visual
+    /// step. This keeps level 5+ clearly faster than levels 2-4, while avoiding the
+    /// irregular rhythm produced by skipping selected visible steps.
+    /// </remarks>
+    public void AdvanceTimerSoundOneTick(int levelNumber)
+    {
+        EnsurePlayers();
+
+        int period = GetTimerAudioPeriod(levelNumber);
+
+        if (_timerAudioCountdown <= 0)
+            _timerAudioCountdown = period;
+
+        _timerAudioCountdown--;
+
+        if (_timerAudioCountdown != 0)
+            return;
+
+        Restart(_timerStepPlayer);
+        _timerAudioCountdown = period;
+    }
+
+    /// <summary>
+    /// Plays the sound used when the player death sequence starts.
+    /// </summary>
+    public void PlayDeathSequenceStart()
+    {
+        EnsurePlayers();
+        Restart(_deathSequencePlayer);
+    }
+
+    /// <summary>
+    /// Plays the sound used when an enemy touches a skull and returns to the lair.
+    /// </summary>
+    public void PlayEnemyDeathFromSkull()
+    {
+        EnsurePlayers();
+        Play(_enemyDeathPlayer);
+    }
+
+    /// <summary>
+    /// Creates all effect players if they do not already exist.
+    /// </summary>
+    private void EnsurePlayers()
+    {
+        if (_flowerPickupPlayer != null && GodotObject.IsInstanceValid(_flowerPickupPlayer))
+            return;
+
+        _flowerPickupPlayer = CreatePlayer(
+            "FlowerPickupAudio",
+            FlowerPickupSoundPath,
+            NormalEffectMaxPolyphony);
+
+        _collectiblePickupPlayer = CreatePlayer(
+            "CollectiblePickupAudio",
+            CollectiblePickupSoundPath,
+            NormalEffectMaxPolyphony);
+
+        _gateRotatedPlayer = CreatePlayer(
+            "GateRotatedAudio",
+            GateRotatedSoundPath,
+            NormalEffectMaxPolyphony);
+
+        _timerStepPlayer = CreatePlayer(
+            "TimerStepAudio",
+            TimerStepSoundPath,
+            TimerEffectMaxPolyphony);
+
+        _deathSequencePlayer = CreatePlayer(
+            "DeathSequenceAudio",
+            DeathSequenceSoundPath,
+            DeathEffectMaxPolyphony);
+
+        _enemyDeathPlayer = CreatePlayer(
+            "EnemyDeathAudio",
+            EnemyDeathSoundPath,
+            EnemyDeathEffectMaxPolyphony);
+    }
+
+    /// <summary>
+    /// Creates one audio player for a short effect stream.
+    /// </summary>
+    private AudioStreamPlayer CreatePlayer(
+        string nodeName,
+        string streamPath,
+        int maxPolyphony)
     {
         AudioStream? stream = ResourceLoader.Load<AudioStream>(streamPath);
+
         if (stream == null)
-        {
-            GD.PushWarning($"Gameplay sound stream could not be loaded: {streamPath}");
-            return null;
-        }
+            GD.PushWarning($"Could not load gameplay sound: {streamPath}");
 
         AudioStreamPlayer player = new()
         {
@@ -108,20 +217,61 @@ public sealed partial class PickupSoundPlayer : Node
             Bus = DefaultAudioBus
         };
 
-        // The C# wrapper follows Godot's snake_case property internally; Set keeps
-        // this compatible with Godot 4.x even if generated property names change.
-        player.Set("max_polyphony", GameplaySoundMaxPolyphony);
+        // Keep this compatible with Godot 4.x generated C# bindings.
+        player.Set("max_polyphony", maxPolyphony);
 
         AddChild(player);
         return player;
     }
 
     /// <summary>
-    /// Starts playback on the given player when the sound stream was loaded correctly.
+    /// Starts an effect player when its stream has loaded successfully.
     /// </summary>
-    /// <param name="player">Runtime audio player to trigger.</param>
-    private static void PlayIfAvailable(AudioStreamPlayer? player)
+    private static void Play(AudioStreamPlayer? player)
     {
-        player?.Play();
+        if (player == null || player.Stream == null)
+            return;
+
+        player.Play();
+    }
+
+    /// <summary>
+    /// Restarts an effect player from the beginning without stacking voices.
+    /// </summary>
+    private static void Restart(AudioStreamPlayer? player)
+    {
+        if (player == null || player.Stream == null)
+            return;
+
+        player.Stop();
+        player.Play();
+    }
+
+    /// <summary>
+    /// Returns the audible timer period in fixed simulation ticks.
+    /// </summary>
+    private static int GetTimerAudioPeriod(int levelNumber)
+    {
+        // Visual / logical border cadence from the arcade:
+        // level 1:      visible step every 9 simulation ticks
+        // levels 2-4:   visible step every 6 simulation ticks
+        // level 5+:     visible step every 3 simulation ticks
+        //
+        // Audible policy:
+        // level 1:      match the visual cadence: 9 ticks
+        // levels 2-4:   match the visual cadence: 6 ticks
+        // level 5+:     use a regular 4-tick sound cadence.
+        //
+        // At 60.1145 Hz this gives roughly:
+        // level 1:      150 ms
+        // levels 2-4:   100 ms
+        // level 5+:      67 ms
+        if (levelNumber <= 1)
+            return 9;
+
+        if (levelNumber < 5)
+            return 6;
+
+        return 4;
     }
 }

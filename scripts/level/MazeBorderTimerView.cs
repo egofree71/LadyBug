@@ -21,6 +21,11 @@ using LadyBug.Gameplay.Enemies;
 [Tool]
 public partial class MazeBorderTimerView : Node2D
 {
+    /// <summary>
+    /// Fired whenever the visible border-timer state advances by one step.
+    /// </summary>
+    public event Action? VisualChanged;
+
     private const int TileFrameCount = 6;
 
     // Generated Sprite2D instances, ordered clockwise in the same order as the timer loop.
@@ -395,7 +400,10 @@ public partial class MazeBorderTimerView : Node2D
         EnemyReleaseBorderTimerStepResult stepResult = _timer.AdvanceOneTick();
 
         if (stepResult.VisualChanged)
+        {
             ApplyTimerVisualState();
+            VisualChanged?.Invoke();
+        }
 
         return stepResult.ShouldReleaseEnemy;
     }

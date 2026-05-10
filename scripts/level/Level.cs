@@ -1,7 +1,7 @@
 using System;
 using Godot;
-using LadyBug.Actors;
 using LadyBug.Audio;
+using LadyBug.Actors;
 using LadyBug.Gameplay;
 using LadyBug.Gameplay.Collectibles;
 using LadyBug.Gameplay.Gates;
@@ -118,6 +118,9 @@ public partial class Level : Node2D
     // Level-owned fixed gameplay tick, never from its own _Process callback.
     private MazeBorderTimerView? _mazeBorderTimer;
 
+    // Runtime helper that owns the short global gameplay sound effects.
+    private PickupSoundPlayer? _soundPlayer;
+
     // Runtime player controller owned by this level.
     private PlayerController? _player;
 
@@ -126,9 +129,6 @@ public partial class Level : Node2D
 
     // Runtime popup view displayed when collecting hearts and letters.
     private CollectiblePickupPopupView? _pickupPopupView;
-
-    // Runtime short gameplay sound effects. Created in code so Level.tscn does not need to be edited.
-    private PickupSoundPlayer? _pickupSoundPlayer;
 
     // Runtime-only between-level overlay shown before starting the next part.
     private LevelTransitionOverlay? _levelTransitionOverlay;
@@ -237,8 +237,8 @@ public partial class Level : Node2D
         }
 
         InitializeRuntimeSystems();
+        InitializeGameplaySoundPlayer();
         InitializeHud();
-        InitializePickupSoundPlayer();
         InitializePlayer();
         EnsureLevelTransitionOverlay();
     }
@@ -356,6 +356,7 @@ public partial class Level : Node2D
             _levelNumber);
 
         _mazeBorderTimer?.ConfigureForLevel(_levelNumber);
+        _soundPlayer?.ResetTimerStepCadence(_levelNumber);
     }
 
     /// <summary>
@@ -392,25 +393,20 @@ public partial class Level : Node2D
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
     }
 
-
     /// <summary>
-    /// Creates the runtime node that owns short gameplay sound effects.
+    /// Creates the runtime helper that owns short gameplay sound effects.
     /// </summary>
-    /// <remarks>
-    /// The sound node is intentionally created from code instead of being authored in
-    /// <c>Level.tscn</c>. This keeps the package small and avoids scene merge noise.
-    /// </remarks>
-    private void InitializePickupSoundPlayer()
+    private void InitializeGameplaySoundPlayer()
     {
-        if (_pickupSoundPlayer != null && GodotObject.IsInstanceValid(_pickupSoundPlayer))
+        if (_soundPlayer != null && GodotObject.IsInstanceValid(_soundPlayer))
             return;
 
-        _pickupSoundPlayer = new PickupSoundPlayer
+        _soundPlayer = new PickupSoundPlayer
         {
             Name = "PickupSoundPlayer"
         };
 
-        AddChild(_pickupSoundPlayer);
+        AddChild(_soundPlayer);
     }
 
     /// <summary>
@@ -497,12 +493,15 @@ public partial class Level : Node2D
         if (_mazeBorderTimer?.AdvanceOneSimulationTick() == true)
             _enemyRuntime?.TryReleaseNextEnemy();
 
+        _soundPlayer?.AdvanceTimerSoundOneTick(_levelNumber);
+
         if (_player != null)
         {
             _enemyRuntime?.AdvanceOneSimulationTick(
                 _player.ArcadePixelPos,
                 _player.CurrentDirectionForEnemies,
-                _collectibleField.TryConsumeSkullAt);
+                _collectibleField.TryConsumeSkullAt,
+                HandleEnemyDeathFromSkull);
         }
 
         if (_collectibleColorCycle.AdvanceOneTick())
@@ -674,6 +673,18 @@ public partial class Level : Node2D
     // --- Collectibles -------------------------------------------------------
 
     /// <summary>
+    /// Plays the short sound used when an active enemy touches a skull.
+    /// </summary>
+    /// <remarks>
+    /// The actual skull consumption and monster reset are owned by <see cref="EnemyRuntime"/>.
+    /// This callback is only the sound hook for a confirmed enemy-skull death.
+    /// </remarks>
+    private void HandleEnemyDeathFromSkull()
+    {
+        _soundPlayer?.PlayEnemyDeathFromSkull();
+    }
+
+    /// <summary>
     /// Tries to consume the collectible currently present at the given logical cell.
     /// </summary>
     /// <param name="cell">Logical cell to evaluate.</param>
@@ -725,7 +736,7 @@ public partial class Level : Node2D
             return;
         }
 
-        _pickupSoundPlayer?.PlayForCollectible(pickupResult.Kind);
+        _soundPlayer?.PlayForCollectible(pickupResult.Kind);
 
         CollectibleScoreCalculation scoreCalculation =
             CollectibleScoreService.Calculate(
@@ -911,6 +922,8 @@ public partial class Level : Node2D
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
 
+        _soundPlayer?.PlayDeathSequenceStart();
+
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();
     }
@@ -939,6 +952,8 @@ public partial class Level : Node2D
 
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
+
+        _soundPlayer?.PlayDeathSequenceStart();
 
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();
@@ -990,6 +1005,7 @@ public partial class Level : Node2D
     {
         _enemyRuntime?.ResetAfterPlayerDeath();
         _mazeBorderTimer?.ResetTimer();
+        _soundPlayer?.ResetTimerStepCadence(_levelNumber);
 
         if (_enemiesRoot != null)
             _enemiesRoot.Visible = true;
@@ -1008,7 +1024,7 @@ public partial class Level : Node2D
     {
         bool pushed = _gateRuntime.TryPushGate(gateId, moveDir, contactHalf);
         if (pushed)
-            _pickupSoundPlayer?.PlayGateRotated();
+            _soundPlayer?.PlayGateRotated();
 
         return pushed;
     }
