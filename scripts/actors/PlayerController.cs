@@ -34,6 +34,10 @@ public partial class PlayerController : Node2D
     private const string DeathRedTexturePath = "res://assets/sprites/player/player_dead_red.png";
     private const string DeathGhostTexturePath = "res://assets/sprites/player/player_dead_ghost.png";
 
+    // Render the temporary death sprite above rotating gates while keeping the
+    // normal living-player sprite in its existing scene order.
+    private const int DeathSpriteZIndexAboveGates = 100;
+
     // Animated sprite that visually represents the living player.
     private AnimatedSprite2D _animatedSprite = null!;
 
@@ -321,7 +325,9 @@ public partial class PlayerController : Node2D
             Centered = true,
             Hframes = PlayerDeathSequenceState.SheetFrameCount,
             Vframes = 1,
-            Frame = 0
+            Frame = 0,
+            ZAsRelative = false,
+            ZIndex = DeathSpriteZIndexAboveGates
         };
 
         AddChild(_deathSprite);
