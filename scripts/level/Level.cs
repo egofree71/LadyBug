@@ -127,7 +127,7 @@ public partial class Level : Node2D
     // Runtime popup view displayed when collecting hearts and letters.
     private CollectiblePickupPopupView? _pickupPopupView;
 
-    // Runtime pickup sound effects. Created in code so Level.tscn does not need to be edited.
+    // Runtime gameplay sound effects. Created in code so Level.tscn does not need to be edited.
     private PickupSoundPlayer? _pickupSoundPlayer;
 
     // Runtime-only between-level overlay shown before starting the next part.
@@ -393,7 +393,7 @@ public partial class Level : Node2D
     }
 
     /// <summary>
-    /// Creates the runtime node that owns short pickup sound effects.
+    /// Creates the runtime node that owns short gameplay sound effects.
     /// </summary>
     /// <remarks>
     /// The sound node is intentionally created from code instead of being authored in
@@ -910,6 +910,8 @@ public partial class Level : Node2D
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
 
+        _pickupSoundPlayer?.PlayDeathSequenceStart();
+
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();
     }
@@ -938,6 +940,8 @@ public partial class Level : Node2D
 
         _lifeState.LoseLife();
         _hud?.SetLives(_lifeState.Lives);
+
+        _pickupSoundPlayer?.PlayDeathSequenceStart();
 
         _isPlayerDeathSequenceActive = true;
         _player?.StartDeathSequence();

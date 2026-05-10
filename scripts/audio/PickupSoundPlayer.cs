@@ -4,12 +4,12 @@ using LadyBug.Gameplay.Collectibles;
 namespace LadyBug.Audio;
 
 /// <summary>
-/// Owns the short pickup sound effects used by the current gameplay board.
+/// Owns the short gameplay sound effects used by the current board.
 /// </summary>
 /// <remarks>
 /// The node is created by <c>Level</c> at runtime so the package can be dropped into
 /// the project without editing <c>Level.tscn</c>. It uses non-positional audio
-/// because the original pickup effects are global arcade sound effects rather than
+/// because these arcade-style effects are global gameplay sounds rather than
 /// spatialized world sounds.
 /// </remarks>
 public sealed partial class PickupSoundPlayer : Node
@@ -20,11 +20,17 @@ public sealed partial class PickupSoundPlayer : Node
     // Sound played when the player consumes a heart or letter collectible.
     private const string CollectiblePickupSoundPath = "res://assets/audio/collectible_pickup.wav";
 
-    // Output bus used by the simple pickup effects. The default Master bus exists in Godot projects.
+    // Sound played once when the player death sequence starts.
+    private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
+
+    // Output bus used by the simple gameplay effects. The default Master bus exists in Godot projects.
     private const string DefaultAudioBus = "Master";
 
     // Small polyphony budget to avoid cutting off the flower sound when pickups happen quickly.
     private const int PickupSoundMaxPolyphony = 4;
+
+    // Death is not expected to overlap with itself, so one voice is enough.
+    private const int DeathSoundMaxPolyphony = 1;
 
     // Runtime player dedicated to the flower pickup stream.
     private AudioStreamPlayer? _flowerPickupPlayer;
@@ -32,18 +38,28 @@ public sealed partial class PickupSoundPlayer : Node
     // Runtime player dedicated to the heart / letter pickup stream.
     private AudioStreamPlayer? _collectiblePickupPlayer;
 
+    // Runtime player dedicated to the death-sequence start stream.
+    private AudioStreamPlayer? _deathSequencePlayer;
+
     /// <summary>
     /// Loads the pickup sound streams and creates the runtime audio players.
     /// </summary>
     public override void _Ready()
     {
-        _flowerPickupPlayer = CreatePickupAudioPlayer(
+        _flowerPickupPlayer = CreateGameplayAudioPlayer(
             "FlowerPickupAudioPlayer",
-            FlowerPickupSoundPath);
+            FlowerPickupSoundPath,
+            PickupSoundMaxPolyphony);
 
-        _collectiblePickupPlayer = CreatePickupAudioPlayer(
+        _collectiblePickupPlayer = CreateGameplayAudioPlayer(
             "CollectiblePickupAudioPlayer",
-            CollectiblePickupSoundPath);
+            CollectiblePickupSoundPath,
+            PickupSoundMaxPolyphony);
+
+        _deathSequencePlayer = CreateGameplayAudioPlayer(
+            "DeathSequenceAudioPlayer",
+            DeathSequenceSoundPath,
+            DeathSoundMaxPolyphony);
     }
 
     /// <summary>
@@ -70,17 +86,29 @@ public sealed partial class PickupSoundPlayer : Node
     }
 
     /// <summary>
-    /// Creates one configured <see cref="AudioStreamPlayer"/> for a pickup effect.
+    /// Plays the sound used when the player death sequence starts.
+    /// </summary>
+    public void PlayDeathSequenceStart()
+    {
+        PlayIfAvailable(_deathSequencePlayer);
+    }
+
+    /// <summary>
+    /// Creates one configured <see cref="AudioStreamPlayer"/> for a gameplay effect.
     /// </summary>
     /// <param name="nodeName">Runtime child node name used for debugging.</param>
     /// <param name="streamPath">Resource path of the WAV file to play.</param>
+    /// <param name="maxPolyphony">Maximum number of simultaneous voices allowed for this effect.</param>
     /// <returns>The configured audio player, or <see langword="null"/> if the stream could not be loaded.</returns>
-    private AudioStreamPlayer? CreatePickupAudioPlayer(string nodeName, string streamPath)
+    private AudioStreamPlayer? CreateGameplayAudioPlayer(
+        string nodeName,
+        string streamPath,
+        int maxPolyphony)
     {
         AudioStream? stream = ResourceLoader.Load<AudioStream>(streamPath);
         if (stream == null)
         {
-            GD.PushWarning($"Pickup sound stream could not be loaded: {streamPath}");
+            GD.PushWarning($"Gameplay sound stream could not be loaded: {streamPath}");
             return null;
         }
 
@@ -93,7 +121,7 @@ public sealed partial class PickupSoundPlayer : Node
 
         // The C# wrapper follows Godot's snake_case property internally; Set keeps
         // this compatible with Godot 4.x even if generated property names change.
-        player.Set("max_polyphony", PickupSoundMaxPolyphony);
+        player.Set("max_polyphony", maxPolyphony);
 
         AddChild(player);
         return player;
