@@ -25,7 +25,13 @@ public sealed class EnemyReleaseBorderTimer
 {
     // Reverse-engineered delay between the enemy-exit warning sound and the actual
     // enemy-release state change: side 0 position 1 -> side 0 position 0x0C.
-    private const int EnemyExitWarningStepsBeforeRelease = 11;
+    private const int ArcadeEnemyExitWarningStepsBeforeRelease = 11;
+
+    // The current remake still uses a high-level release model instead of the exact
+    // 6060/6061 border-side release hooks. These small level-band offsets keep the
+    // warning better aligned perceptually with the visible timer and enemy exit.
+    private const int Level1EnemyExitWarningStepsBeforeRelease = 10;
+    private const int Level5PlusEnemyExitWarningStepsBeforeRelease = 26;
 
     // Number of visible border tiles in the complete clockwise loop.
     private int _tileCount;
@@ -212,13 +218,31 @@ public sealed class EnemyReleaseBorderTimer
     /// <remarks>
     /// The arcade routine raises the sound flag 11 border steps before the enemy
     /// state is changed to leave the lair. The current remake releases an enemy
-    /// when a visible border pass completes, so the warning is scheduled 11 visible
-    /// border steps before that existing release event.
+    /// when a visible border pass completes, so levels 2-4 keep the arcade 11-step
+    /// lead time. Level 1 is moved one visual step later and level 5+ several visual
+    /// steps earlier to compensate for the high-level release approximation and the
+    /// different perceptual weight of slow versus very fast border steps.
     /// </remarks>
     private bool ShouldPlayEnemyExitWarningAtCurrentProgress()
     {
-        return _tileCount > EnemyExitWarningStepsBeforeRelease &&
-               _progress == _tileCount - EnemyExitWarningStepsBeforeRelease;
+        int warningStepsBeforeRelease = GetEnemyExitWarningStepsBeforeRelease();
+
+        return _tileCount > warningStepsBeforeRelease &&
+               _progress == _tileCount - warningStepsBeforeRelease;
+    }
+
+    /// <summary>
+    /// Returns the calibrated warning lead time, expressed in visible border steps.
+    /// </summary>
+    private int GetEnemyExitWarningStepsBeforeRelease()
+    {
+        if (TicksPerTile >= 9)
+            return Level1EnemyExitWarningStepsBeforeRelease;
+
+        if (TicksPerTile <= 3)
+            return Level5PlusEnemyExitWarningStepsBeforeRelease;
+
+        return ArcadeEnemyExitWarningStepsBeforeRelease;
     }
 }
 
