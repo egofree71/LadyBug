@@ -10,7 +10,7 @@
 This document is intentionally concrete.
 It does not describe systems that are only planned.
 
-**Latest documented update:** title screen, initial PART 1 transition, visible GAME OVER return-to-title flow, and reverse-timed screen durations are now implemented.
+**Latest documented update:** gameplay function-key debug shortcuts are now centralized in LevelDebugShortcuts and can be enabled from the Level scene inspector; they are disabled by default.
 
 ## 1. Project Entry Point
 
@@ -218,7 +218,8 @@ Main (Node)
 - starts a fresh scenes/level/Level.tscn when the title screen emits StartRequested
 - asks Level to show the initial PART transition before the first playable board starts
 - listens for Level.GameOverFinished and returns to the title screen after the GAME OVER delay
-- attaches LevelDebugShortcuts under the Level instance so gameplay-only shortcuts are active only while playing
+- attaches LevelDebugShortcuts under the Level instance so gameplay-only shortcuts remain scoped to gameplay
+- passes the Level-owned EnableFunctionKeyDebugShortcuts setting to LevelDebugShortcuts so function keys are disabled by default
 
 **Current runtime screen flow:**
 
@@ -266,6 +267,7 @@ Level (Node2D)
 
 **Important current properties:**
 - PlayerStartCell = Vector2I(5, 8)
+- EnableFunctionKeyDebugShortcuts = false
 
 **Maze node:**
 - type = Sprite2D
@@ -534,9 +536,21 @@ Enemy (Node2D)
 
 **Current role:**
 - runtime child added under the Level instance by Main
+- centralizes gameplay-only function-key debug shortcuts in one script
 - keeps gameplay-only debug shortcuts out of the title screen
-- preserves the screenshot shortcut while a playable Level is active
 - does not handle title-screen start input
+- reads the Level-owned EnableFunctionKeyDebugShortcuts setting through Main when the shortcut node is created
+
+**Current shortcuts when enabled:**
+- F1 starts the normal transition to the next level
+- F12 saves a screenshot of the current viewport
+
+**Current activation model:**
+- function-key debug shortcuts are disabled by default
+- the option is exposed on the root Level node as EnableFunctionKeyDebugShortcuts
+- when EnableFunctionKeyDebugShortcuts is false, F1 and F12 are ignored during gameplay
+- when EnableFunctionKeyDebugShortcuts is true, F1 and F12 are available while a playable Level is active
+- title-screen start input still ignores F1 and F12, so those keys do not accidentally start a game
 
 ## 4. Logical Maze System
 
@@ -635,7 +649,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - check player/enemy collision after enemy and player movement have both advanced
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - preserve prototype session-like state while advancing to the next level
-- expose a temporary F1 debug shortcut that starts the normal next-level transition
+- expose the EnableFunctionKeyDebugShortcuts editor setting used to enable or disable gameplay function-key debug shortcuts
+- expose DebugAdvanceToNextLevel() as the Level-owned debug entry point used by LevelDebugShortcuts
 - initialize the player after maze, gates, collectibles, HUD, and collision resolver have been prepared
 - update player and gate previews in the editor
 
@@ -1537,15 +1552,24 @@ maze-border enemy-release timer
 player gameplay position
 ```
 
-### 18.7 Debug shortcut
+### 18.7 Gameplay function-key debug shortcuts
 
-A temporary debug shortcut is implemented to test level transitions:
+Gameplay function-key debug shortcuts are centralized in LevelDebugShortcuts and are disabled by default.
+They can be enabled from the root Level node in the Godot inspector:
 
 ```text
-F1 = start the normal transition to the next level
+EnableFunctionKeyDebugShortcuts = true
 ```
 
-This shortcut is development-only and should later either be removed or guarded behind a debug flag.
+When enabled during gameplay:
+
+```text
+F1  = start the normal transition to the next level
+F12 = save a screenshot of the current viewport
+```
+
+When the option is disabled, F1 and F12 are ignored during gameplay.
+On the title screen, F1 and F12 are always ignored as start inputs.
 
 ## 19. What Is Currently Working
 
@@ -1651,7 +1675,9 @@ The following is already implemented and functional:
 - the transition screen displays the next PART number, vegetable bonus, skull preview, letter preview, heart preview, and GOOD LUCK line
 - the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
-- F1 can be used as a debug shortcut to test the normal next-level transition
+- gameplay function-key debug shortcuts are centralized in LevelDebugShortcuts
+- F1 and F12 gameplay debug shortcuts are disabled by default
+- when EnableFunctionKeyDebugShortcuts is enabled on Level, F1 starts the normal next-level transition and F12 saves a screenshot
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
 - no-lives GAME OVER overlay is displayed in the maze-inner panel

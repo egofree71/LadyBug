@@ -156,6 +156,18 @@ public partial class Level : Node2D
     private Vector2I _playerStartCell = Vector2I.Zero;
 
     /// <summary>
+    /// Enables gameplay-only function-key shortcuts while this Level scene is active.
+    /// </summary>
+    /// <remarks>
+    /// This is intentionally disabled by default so development shortcuts such as
+    /// F1 level advance and F12 screenshot capture cannot be triggered accidentally.
+    /// Enable it on the Level root node in the Godot inspector when debug testing
+    /// those shortcuts.
+    /// </remarks>
+    [Export]
+    public bool EnableFunctionKeyDebugShortcuts { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the logical start cell used to place the player.
     /// </summary>
     /// <remarks>
@@ -254,34 +266,15 @@ public partial class Level : Node2D
 
 
     /// <summary>
-    /// Debug shortcut used while implementing and testing level transitions.
+    /// Starts the normal transition flow for the next level from the gameplay debug shortcuts.
     /// </summary>
     /// <remarks>
-    /// F1 behaves like the MAME-style "advance level" helper: it starts the normal
-    /// transition screen for the next level instead of instantly rebuilding the board.
-    /// This keeps the shortcut useful for validating the intermission flow.
+    /// F1 is handled centrally by <c>LevelDebugShortcuts</c>. This method keeps the
+    /// actual next-level transition logic inside Level, where the board state lives.
+    /// The transition screen is used instead of instantly rebuilding the board, so the
+    /// shortcut remains useful for validating the intermission flow.
     /// </remarks>
-    public override void _UnhandledInput(InputEvent @event)
-    {
-        if (Engine.IsEditorHint())
-            return;
-
-        if (@event is not InputEventKey keyEvent ||
-            !keyEvent.Pressed ||
-            keyEvent.Echo ||
-            keyEvent.Keycode != Key.F1)
-        {
-            return;
-        }
-
-        DebugAdvanceToNextLevel();
-        GetViewport().SetInputAsHandled();
-    }
-
-    /// <summary>
-    /// Starts the normal transition flow for the next level from the debug F1 shortcut.
-    /// </summary>
-    private void DebugAdvanceToNextLevel()
+    public void DebugAdvanceToNextLevel()
     {
         if (_isGameOver ||
             _isPlayerDeathSequenceActive ||

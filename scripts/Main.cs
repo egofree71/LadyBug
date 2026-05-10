@@ -7,7 +7,7 @@ using LadyBug.UI;
 ///
 /// Main owns only the coarse screen flow:
 /// title screen first, then the playable level when the title screen requests it.
-/// Gameplay-only shortcuts are attached to the Level instance instead of being handled here.
+/// Gameplay-only function-key shortcuts are attached to the Level instance instead of being handled here.
 /// </summary>
 public partial class Main : Node
 {
@@ -102,20 +102,26 @@ public partial class Main : Node
     }
 
     /// <summary>
-    /// Adds gameplay-only debug shortcuts under the Level instance.
+    /// Adds gameplay-only function-key debug shortcuts under the Level instance.
     ///
-    /// This keeps Main free from F1 / F12 handling while preserving the useful
-    /// screenshot shortcut once a playable level is active.
+    /// Main still creates the shortcut node so the title screen remains clean, but
+    /// the Level scene decides whether the function keys are actually enabled.
+    /// This makes the setting visible on the Level root node in the Godot inspector.
     /// </summary>
     private void AttachGameplayDebugShortcuts(Node levelNode)
     {
         if (levelNode.GetNodeOrNull<LevelDebugShortcuts>("LevelDebugShortcuts") != null)
             return;
 
+        bool enableFunctionKeyDebugShortcuts =
+            Debug &&
+            levelNode is Level level &&
+            level.EnableFunctionKeyDebugShortcuts;
+
         LevelDebugShortcuts shortcuts = new()
         {
             Name = "LevelDebugShortcuts",
-            Debug = Debug
+            Debug = enableFunctionKeyDebugShortcuts
         };
 
         levelNode.AddChild(shortcuts);

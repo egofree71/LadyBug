@@ -5,10 +5,10 @@ using Godot;
 namespace LadyBug.DebugTools;
 
 /// <summary>
-/// Gameplay-only debug shortcuts attached under the active Level instance.
+/// Gameplay-only function-key debug shortcuts attached under the active Level instance.
 ///
-/// Main deliberately does not handle these keys anymore, so the title screen
-/// stays clean and debug actions exist only while a playable level is running.
+/// Main deliberately does not handle these keys, so the title screen stays clean
+/// and function-key debug actions exist only while a playable level is running.
 /// </summary>
 public partial class LevelDebugShortcuts : Node
 {
@@ -17,11 +17,21 @@ public partial class LevelDebugShortcuts : Node
 
     private const string ScreenshotDirectory = "screenshots";
 
+    private global::Level? _level;
+
     /// <summary>
-    /// Handles only shortcuts that are meaningful during gameplay.
+    /// Caches the owning Level. This node is created as a runtime child of Level by Main.
+    /// </summary>
+    public override void _Ready()
+    {
+        _level = GetParent() as global::Level;
+    }
+
+    /// <summary>
+    /// Handles only function-key shortcuts that are meaningful during gameplay.
     ///
-    /// F1 is not handled here because Level.cs already owns the debug shortcut
-    /// used to start the next-level transition.
+    /// F1 advances through the normal next-level transition path.
+    /// F12 saves the current viewport as a PNG screenshot.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
@@ -31,11 +41,35 @@ public partial class LevelDebugShortcuts : Node
         if (@event is not InputEventKey keyEvent || !keyEvent.Pressed || keyEvent.Echo)
             return;
 
-        if (keyEvent.Keycode != Key.F12)
-            return;
+        switch (keyEvent.Keycode)
+        {
+            case Key.F1:
+                AdvanceToNextLevel();
+                break;
 
-        SaveScreenshot();
+            case Key.F12:
+                SaveScreenshot();
+                break;
+
+            default:
+                return;
+        }
+
         GetViewport().SetInputAsHandled();
+    }
+
+    /// <summary>
+    /// Delegates the debug level-advance action to Level, which owns board state.
+    /// </summary>
+    private void AdvanceToNextLevel()
+    {
+        if (_level == null)
+        {
+            GD.PushWarning("LevelDebugShortcuts could not find its owning Level node.");
+            return;
+        }
+
+        _level.DebugAdvanceToNextLevel();
     }
 
     /// <summary>
