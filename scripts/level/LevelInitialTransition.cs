@@ -1,11 +1,19 @@
 using Godot;
 
 /// <summary>
-/// Adds the first-level PART transition entry point to Level without touching the
-/// existing between-level transition implementation.
+/// Adds screen-flow helpers to Level without touching the existing board,
+/// movement, collectible, and enemy implementation.
 /// </summary>
 public partial class Level
 {
+    [Signal]
+    public delegate void GameOverFinishedEventHandler();
+
+    private const double GameOverReturnDelaySeconds = 2.0;
+
+    private LevelGameOverOverlay? _gameOverOverlay;
+    private GameOverOverlayDriver? _gameOverOverlayDriver;
+
     /// <summary>
     /// Shows the normal PART transition for the current level before gameplay starts.
     ///
@@ -17,12 +25,130 @@ public partial class Level
     /// </summary>
     public void StartInitialLevelTransition()
     {
-        if (Engine.IsEditorHint() || _isGameOver || _isPlayerDeathSequenceActive || _isLevelTransitionScreenActive)
+        if (Engine.IsEditorHint())
+            return;
+
+        EnsureGameOverOverlayDriver();
+
+        if (_isGameOver || _isPlayerDeathSequenceActive || _isLevelTransitionScreenActive)
             return;
 
         _pickupPopupState.Clear();
         ClearPickupPopupView();
         _isNextLevelQueuedAfterPopup = false;
         StartLevelTransitionScreen(_levelNumber);
+    }
+
+    /// <summary>
+    /// Creates the GAME OVER overlay if it does not already exist.
+    /// </summary>
+    private void EnsureGameOverOverlay()
+    {
+        if (_gameOverOverlay != null && GodotObject.IsInstanceValid(_gameOverOverlay))
+            return;
+
+        _gameOverOverlay = new LevelGameOverOverlay
+        {
+            Name = "LevelGameOverOverlay"
+        };
+        AddChild(_gameOverOverlay);
+    }
+
+    /// <summary>
+    /// Shows the GAME OVER overlay once the existing death/game-over state is reached.
+    /// </summary>
+    private void ShowGameOverOverlay()
+    {
+        EnsureGameOverOverlay();
+        _gameOverOverlay?.ShowGameOver();
+    }
+
+    /// <summary>
+    /// Hides the GAME OVER overlay when the level is no longer in game-over state.
+    /// </summary>
+    private void HideGameOverOverlay()
+    {
+        _gameOverOverlay?.HideOverlay();
+    }
+
+    /// <summary>
+    /// Installs a tiny runtime driver that observes the existing game-over flag.
+    ///
+    /// The base Level.cs already owns the actual life/death logic and sets
+    /// _isGameOver when the last life is lost. This driver only turns that
+    /// existing state into a visible overlay, without changing death timing.
+    /// </summary>
+    private void EnsureGameOverOverlayDriver()
+    {
+        if (_gameOverOverlayDriver != null && GodotObject.IsInstanceValid(_gameOverOverlayDriver))
+            return;
+
+        EnsureGameOverOverlay();
+
+        _gameOverOverlayDriver = new GameOverOverlayDriver
+        {
+            Name = "GameOverOverlayDriver"
+        };
+        _gameOverOverlayDriver.Configure(
+            () => _isGameOver,
+            ShowGameOverOverlay,
+            HideGameOverOverlay,
+            () => EmitSignal(SignalName.GameOverFinished));
+
+        AddChild(_gameOverOverlayDriver);
+    }
+
+    /// <summary>
+    /// Small child node used only to bridge the existing private game-over state
+    /// to the visible overlay and to request a return to the title screen.
+    /// </summary>
+    private sealed partial class GameOverOverlayDriver : Node
+    {
+        private System.Func<bool>? _isGameOver;
+        private System.Action? _showGameOver;
+        private System.Action? _hideGameOver;
+        private System.Action? _finishGameOver;
+        private bool _wasGameOver;
+        private bool _finishAlreadyRequested;
+        private double _elapsedGameOverSeconds;
+
+        public void Configure(
+            System.Func<bool> isGameOver,
+            System.Action showGameOver,
+            System.Action hideGameOver,
+            System.Action finishGameOver)
+        {
+            _isGameOver = isGameOver;
+            _showGameOver = showGameOver;
+            _hideGameOver = hideGameOver;
+            _finishGameOver = finishGameOver;
+        }
+
+        public override void _Process(double delta)
+        {
+            bool isGameOver = _isGameOver?.Invoke() == true;
+
+            if (isGameOver != _wasGameOver)
+            {
+                _wasGameOver = isGameOver;
+                _elapsedGameOverSeconds = 0.0;
+                _finishAlreadyRequested = false;
+
+                if (isGameOver)
+                    _showGameOver?.Invoke();
+                else
+                    _hideGameOver?.Invoke();
+            }
+
+            if (!isGameOver || _finishAlreadyRequested)
+                return;
+
+            _elapsedGameOverSeconds += delta;
+            if (_elapsedGameOverSeconds < GameOverReturnDelaySeconds)
+                return;
+
+            _finishAlreadyRequested = true;
+            _finishGameOver?.Invoke();
+        }
     }
 }

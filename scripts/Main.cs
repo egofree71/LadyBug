@@ -80,14 +80,25 @@ public partial class Main : Node
 
         AttachGameplayDebugShortcuts(_levelNode);
 
+        if (_levelNode is Level level)
+            level.Connect(Level.SignalName.GameOverFinished, Callable.From(OnGameOverFinished));
+
         _currentScreen = _levelNode;
         AddChild(_levelNode);
 
         // The title screen starts a new game, but the arcade-style PART panel
         // should still be shown before the first playable board begins.
         // Deferred execution lets Level finish its own _Ready initialization first.
-        if (_levelNode is Level level)
-            level.CallDeferred(nameof(Level.StartInitialLevelTransition));
+        if (_levelNode is Level initializedLevel)
+            initializedLevel.CallDeferred(nameof(Level.StartInitialLevelTransition));
+    }
+
+    /// <summary>
+    /// Returns to the title screen after the Level has displayed GAME OVER long enough.
+    /// </summary>
+    private void OnGameOverFinished()
+    {
+        ShowTitleScreen();
     }
 
     /// <summary>
@@ -116,7 +127,13 @@ public partial class Main : Node
     private void ClearCurrentScreen()
     {
         if (_currentScreen == null)
+        {
+            _levelNode = null;
             return;
+        }
+
+        if (_currentScreen == _levelNode)
+            _levelNode = null;
 
         _currentScreen.QueueFree();
         _currentScreen = null;
