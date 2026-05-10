@@ -1,85 +1,124 @@
-using System;
-using System.IO;
 using Godot;
+using LadyBug.DebugTools;
+using LadyBug.UI;
 
+/// <summary>
+/// Application entry point.
+///
+/// Main owns only the coarse screen flow:
+/// title screen first, then the playable level when the title screen requests it.
+/// Gameplay-only shortcuts are attached to the Level instance instead of being handled here.
+/// </summary>
 public partial class Main : Node
 {
     [Export]
     public bool Debug { get; set; } = true;
 
-    private const string ScreenshotDirectory = "screenshots";
+    private const string TitleScreenScenePath = "res://scenes/ui/TitleScreen.tscn";
+    private const string LevelScenePath = "res://scenes/level/Level.tscn";
 
+    // Keeps the current Level.tscn placement used by the previous Main.tscn.
+    private static readonly Vector2 LevelScenePosition = new(27, -1);
+
+    private Node? _currentScreen;
+    private Node? _levelNode;
+
+    /// <summary>
+    /// Starts on the title screen instead of instantiating the gameplay level directly.
+    /// </summary>
     public override void _Ready()
     {
         GD.Print("LadyBug project started.");
+        ShowTitleScreen();
     }
 
-    public override void _Input(InputEvent @event)
+    /// <summary>
+    /// Instantiates the title screen and subscribes to its start signal.
+    /// </summary>
+    private void ShowTitleScreen()
     {
-        if (Engine.IsEditorHint())
-            return;
+        ClearCurrentScreen();
 
-        if (@event is not InputEventKey keyEvent ||
-            !keyEvent.Pressed ||
-            keyEvent.Echo)
+        PackedScene? titleScene = ResourceLoader.Load<PackedScene>(TitleScreenScenePath);
+        if (titleScene == null)
         {
+            GD.PushError($"Could not load title screen scene: {TitleScreenScenePath}");
+            StartGame();
             return;
         }
 
-        if (keyEvent.Keycode != Key.F1 && keyEvent.Keycode != Key.F12)
-            return;
+        TitleScreen titleScreen = titleScene.Instantiate<TitleScreen>();
+        titleScreen.Name = "TitleScreen";
+        titleScreen.Connect(TitleScreen.SignalName.StartRequested, Callable.From(StartGame));
 
-        if (!Debug)
-        {
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
-        if (keyEvent.Keycode == Key.F12)
-        {
-            SaveScreenshot();
-            GetViewport().SetInputAsHandled();
-        }
-
-        // When Debug is enabled, F1 is intentionally left unhandled here.
-        // Level.cs already owns the F1 shortcut that starts the next-level transition.
+        _currentScreen = titleScreen;
+        AddChild(titleScreen);
     }
 
-    private void SaveScreenshot()
+    /// <summary>
+    /// Replaces the title screen with a fresh Level scene.
+    /// </summary>
+    private void StartGame()
     {
-        string directoryPath = GetScreenshotDirectoryPath();
+        if (_levelNode != null)
+            return;
 
-        try
+        ClearCurrentScreen();
+
+        PackedScene? levelScene = ResourceLoader.Load<PackedScene>(LevelScenePath);
+        if (levelScene == null)
         {
-            Directory.CreateDirectory(directoryPath);
-        }
-        catch (Exception exception)
-        {
-            GD.PushError($"Could not create screenshot directory '{directoryPath}': {exception.Message}");
+            GD.PushError($"Could not load level scene: {LevelScenePath}");
             return;
         }
 
-        Image image = GetViewport().GetTexture().GetImage();
-        string fileName = $"ladybug_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png";
-        string filePath = Path.Combine(directoryPath, fileName);
+        _levelNode = levelScene.Instantiate();
+        _levelNode.Name = "Level";
 
-        Error error = image.SavePng(filePath);
+        if (_levelNode is Node2D levelNode2D)
+            levelNode2D.Position = LevelScenePosition;
 
-        if (error != Error.Ok)
-        {
-            GD.PushError($"Could not save screenshot '{filePath}'. Godot error: {error}");
-            return;
-        }
+        AttachGameplayDebugShortcuts(_levelNode);
 
-        GD.Print($"Screenshot saved: {filePath}");
+        _currentScreen = _levelNode;
+        AddChild(_levelNode);
+
+        // The title screen starts a new game, but the arcade-style PART panel
+        // should still be shown before the first playable board begins.
+        // Deferred execution lets Level finish its own _Ready initialization first.
+        if (_levelNode is Level level)
+            level.CallDeferred(nameof(Level.StartInitialLevelTransition));
     }
 
-    private static string GetScreenshotDirectoryPath()
+    /// <summary>
+    /// Adds gameplay-only debug shortcuts under the Level instance.
+    ///
+    /// This keeps Main free from F1 / F12 handling while preserving the useful
+    /// screenshot shortcut once a playable level is active.
+    /// </summary>
+    private void AttachGameplayDebugShortcuts(Node levelNode)
     {
-        if (OS.HasFeature("editor"))
-            return ProjectSettings.GlobalizePath($"res://{ScreenshotDirectory}");
+        if (levelNode.GetNodeOrNull<LevelDebugShortcuts>("LevelDebugShortcuts") != null)
+            return;
 
-        string executableDirectory = Path.GetDirectoryName(OS.GetExecutablePath()) ?? ".";
-        return Path.Combine(executableDirectory, ScreenshotDirectory);
+        LevelDebugShortcuts shortcuts = new()
+        {
+            Name = "LevelDebugShortcuts",
+            Debug = Debug
+        };
+
+        levelNode.AddChild(shortcuts);
+    }
+
+    /// <summary>
+    /// Removes the current top-level screen before another one is displayed.
+    /// </summary>
+    private void ClearCurrentScreen()
+    {
+        if (_currentScreen == null)
+            return;
+
+        _currentScreen.QueueFree();
+        _currentScreen = null;
     }
 }
