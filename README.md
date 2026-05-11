@@ -1,6 +1,6 @@
 # Lady Bug Remake
 
-A personal remake of the 1981 arcade game **Lady Bug**, built with **Godot 4.6.1 .NET** and **C#**.
+A personal remake of the 1981 arcade game **Lady Bug**, built with **Godot 4.6.2 .NET** and **C#**.
 
 ## About the project
 
