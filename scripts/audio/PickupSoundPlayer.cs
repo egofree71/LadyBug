@@ -16,6 +16,7 @@ public sealed partial class PickupSoundPlayer : Node
     private const string FlowerPickupSoundPath = "res://assets/audio/flower_pickup.wav";
     private const string CollectiblePickupSoundPath = "res://assets/audio/collectible_pickup.wav";
     private const string GateRotatedSoundPath = "res://assets/audio/gate_rotated.wav";
+    private const string VegetablePickupSoundPath = "res://assets/audio/vegetable_pickup.wav";
     private const string TimerStepSoundPath = "res://assets/audio/timer.wav";
     private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
     private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
@@ -42,6 +43,7 @@ public sealed partial class PickupSoundPlayer : Node
     private AudioStreamPlayer? _flowerPickupPlayer;
     private AudioStreamPlayer? _collectiblePickupPlayer;
     private AudioStreamPlayer? _gateRotatedPlayer;
+    private AudioStreamPlayer? _vegetablePickupPlayer;
     private AudioStreamPlayer? _timerStepPlayer;
     private AudioStreamPlayer? _deathSequencePlayer;
     private AudioStreamPlayer? _enemyDeathPlayer;
@@ -107,6 +109,15 @@ public sealed partial class PickupSoundPlayer : Node
     {
         EnsurePlayers();
         Play(_gateRotatedPlayer);
+    }
+
+    /// <summary>
+    /// Plays the short sound used when the player consumes the central vegetable bonus.
+    /// </summary>
+    public void PlayVegetablePickup()
+    {
+        EnsurePlayers();
+        Play(_vegetablePickupPlayer);
     }
 
     /// <summary>
@@ -193,6 +204,11 @@ public sealed partial class PickupSoundPlayer : Node
         _gateRotatedPlayer = CreatePlayer(
             "GateRotatedAudio",
             GateRotatedSoundPath,
+            NormalEffectMaxPolyphony);
+
+        _vegetablePickupPlayer = CreatePlayer(
+            "VegetablePickupAudio",
+            VegetablePickupSoundPath,
             NormalEffectMaxPolyphony);
 
         _timerStepPlayer = CreatePlayer(

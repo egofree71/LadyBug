@@ -158,6 +158,8 @@ public sealed partial class VegetableBonusRuntime : Node2D
         _consumedDuringCurrentAllEnemiesOutCycle = true;
         HideVegetable();
 
+        _level.VegetableSupport_PlayPickupSound();
+
         int score = VegetableBonusCatalog.GetScore(_level.VegetableSupport_LevelNumber);
         _level.VegetableSupport_AddScore(score);
 

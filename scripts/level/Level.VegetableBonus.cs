@@ -70,6 +70,14 @@ public partial class Level
     }
 
     /// <summary>
+    /// Plays the central vegetable pickup sound.
+    /// </summary>
+    internal void VegetableSupport_PlayPickupSound()
+    {
+        _soundPlayer?.PlayVegetablePickup();
+    }
+
+    /// <summary>
     /// Adds vegetable score immediately, without popup and without heart multiplier.
     /// </summary>
     internal void VegetableSupport_AddScore(int score)
