@@ -25,6 +25,8 @@ using LadyBug.Gameplay.Collectibles;
 public partial class Hud : CanvasLayer
 {
     // Inactive letters in the arcade HUD are light grey rather than pure white.
+    private const string ArcadeFontPath = "res://assets/fonts/PressStart2P-Regular.ttf";
+
     private const string GreyColor = "#C8C8C8";
 
     // SPECIAL uses the same red/orange color as red heart/letter collectibles.
@@ -38,7 +40,10 @@ public partial class Hud : CanvasLayer
 
     // The original HUD uses large tile-like letters. RichTextLabel text is kept
     // at the same visual size as the lower score label.
-    private const int TopHudFontSize = 36;
+    private const int TopHudFontSize = 26;
+
+    // Lower score label. This is also visible during PART screens.
+    private const int ScoreFontSize = 28;
 
     // The player spritesheet is built from 64x64 frames. The spare-life HUD uses
     // one static atlas frame from the same sheet, matching the arcade-style icon
@@ -156,6 +161,8 @@ public partial class Hud : CanvasLayer
     [Export]
     public float LifeEntryAnimationFramesPerSecond { get; set; } = 12.0f;
 
+    private Font? _arcadeFont;
+
     private Label? _scoreLabel;
     private Label? _livesLabel;
     private RichTextLabel? _specialWordLabel;
@@ -200,6 +207,8 @@ public partial class Hud : CanvasLayer
     /// </summary>
     public override void _Ready()
     {
+        LoadArcadeFont();
+
         _scoreLabel = FindScoreLabel();
         _livesLabel = FindLivesLabel();
         _specialWordLabel = FindRichTextLabel(SpecialWordLabelPath, "Root/SpecialWordLabel", "SpecialWordLabel");
@@ -221,6 +230,8 @@ public partial class Hud : CanvasLayer
         if (_multipliersLabel == null)
             GD.PushWarning("[Hud] Could not find MultipliersLabel. Expected Root/MultipliersLabel or MultipliersLabel, or set MultipliersLabelPath in the Inspector.");
 
+        ApplyArcadeFontOverrides();
+
         // Important: this script does not set screen positions or anchors.
         // Those are controlled in Level.tscn. It only controls dynamic content.
         SetScore(_lastScore);
@@ -228,6 +239,52 @@ public partial class Hud : CanvasLayer
         ApplyRichText(_specialWordLabel, _lastSpecialWordText);
         ApplyRichText(_extraWordLabel, _lastExtraWordText);
         ApplyRichText(_multipliersLabel, _lastMultipliersText);
+    }
+
+    /// <summary>
+    /// Loads the shared arcade TTF used by HUD text.
+    /// If it is missing, Godot will fall back to the default UI font.
+    /// </summary>
+    private void LoadArcadeFont()
+    {
+        _arcadeFont = ResourceLoader.Load<Font>(ArcadeFontPath);
+        if (_arcadeFont == null)
+            GD.PushWarning($"[Hud] Missing arcade font: {ArcadeFontPath}");
+    }
+
+    /// <summary>
+    /// Applies the arcade font to the HUD labels that render text.
+    /// Life icons are sprites, so they are intentionally left untouched.
+    /// </summary>
+    private void ApplyArcadeFontOverrides()
+    {
+        ApplyRichTextFont(_specialWordLabel);
+        ApplyRichTextFont(_extraWordLabel);
+        ApplyRichTextFont(_multipliersLabel);
+
+        ApplyLabelFont(_scoreLabel, ScoreFontSize);
+    }
+
+    private void ApplyRichTextFont(RichTextLabel? label)
+    {
+        if (label == null)
+            return;
+
+        if (_arcadeFont != null)
+            label.AddThemeFontOverride("normal_font", _arcadeFont);
+
+        label.AddThemeFontSizeOverride("normal_font_size", TopHudFontSize);
+    }
+
+    private void ApplyLabelFont(Label? label, int fontSize)
+    {
+        if (label == null)
+            return;
+
+        if (_arcadeFont != null)
+            label.AddThemeFontOverride("font", _arcadeFont);
+
+        label.AddThemeFontSizeOverride("font_size", fontSize);
     }
 
     /// <summary>

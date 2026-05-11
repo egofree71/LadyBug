@@ -17,16 +17,21 @@ public partial class LevelGameOverOverlay : CanvasLayer
     private static readonly Vector2 ReferencePanelPosition = new(51.0f, 72.0f);
     private static readonly Vector2 ReferencePanelSize = new(696.0f, 696.0f);
 
+    private const string ArcadeFontPath = "res://assets/fonts/PressStart2P-Regular.ttf";
+    private const int GameOverFontSize = 28;
+
     private static readonly Color ArcadeBlack = new(0.0f, 0.0f, 0.0f, 1.0f);
     private static readonly Color ArcadeRed = Color.FromHtml("FF5100");
 
     private Control? _root;
     private ColorRect? _panel;
     private Label? _gameOverLabel;
+    private Font? _arcadeFont;
 
     public override void _Ready()
     {
         Layer = 120;
+        LoadArcadeFont();
         EnsureUi();
         HideOverlay();
     }
@@ -48,6 +53,16 @@ public partial class LevelGameOverOverlay : CanvasLayer
     public void HideOverlay()
     {
         Visible = false;
+    }
+
+    /// <summary>
+    /// Loads the project-wide arcade font used by the game-over text.
+    /// </summary>
+    private void LoadArcadeFont()
+    {
+        _arcadeFont = ResourceLoader.Load<Font>(ArcadeFontPath);
+        if (_arcadeFont == null)
+            GD.PushWarning($"[LevelGameOverOverlay] Missing arcade font: {ArcadeFontPath}");
     }
 
     /// <summary>
@@ -85,7 +100,10 @@ public partial class LevelGameOverOverlay : CanvasLayer
         };
         _gameOverLabel.AnchorRight = 1.0f;
         _gameOverLabel.AnchorBottom = 1.0f;
-        _gameOverLabel.AddThemeFontSizeOverride("font_size", 36);
+        if (_arcadeFont != null)
+            _gameOverLabel.AddThemeFontOverride("font", _arcadeFont);
+
+        _gameOverLabel.AddThemeFontSizeOverride("font_size", GameOverFontSize);
         _gameOverLabel.AddThemeColorOverride("font_color", ArcadeRed);
         _panel.AddChild(_gameOverLabel);
 

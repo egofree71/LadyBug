@@ -25,6 +25,7 @@ public partial class LevelTransitionOverlay : CanvasLayer
     private static readonly Vector2 ReferencePanelSize = new(696.0f, 696.0f);
 
     private const string VegetableSpriteSheetPath = "res://assets/sprites/props/vegetables.png";
+    private const string ArcadeFontPath = "res://assets/fonts/PressStart2P-Regular.ttf";
     private const string CollectiblesSpriteSheetPath = "res://assets/sprites/props/collectibles.png";
     private const float VegetableFrameSize = 64.0f;
     private const float CollectibleFrameSize = 64.0f;
@@ -47,6 +48,14 @@ public partial class LevelTransitionOverlay : CanvasLayer
     private static readonly Color ArcadeYellow = new(1.0f, 1.0f, 0.0f, 1.0f);
     private static readonly Color ArcadeRed = Color.FromHtml("FF5100");
     private static readonly Color ArcadeWhite = new(1.0f, 1.0f, 1.0f, 1.0f);
+
+    private const int PartFontSize = 28;
+    private const int BonusFormulaFontSize = 24;
+    private const int VegetableNameFontSize = 26;
+    private const int GoodLuckFontSize = 24;
+
+    // TTF arcade font used only for transition-screen text. Sprites keep their original assets.
+    private Font? _arcadeFont;
 
     // Full-screen root used only to anchor the transition panel to the viewport.
     private Control? _root;
@@ -90,6 +99,7 @@ public partial class LevelTransitionOverlay : CanvasLayer
     public override void _Ready()
     {
         Layer = 100;
+        LoadArcadeFont();
         EnsureUi();
         HideOverlay();
     }
@@ -132,6 +142,17 @@ public partial class LevelTransitionOverlay : CanvasLayer
     }
 
     /// <summary>
+    /// Loads the shared arcade TTF used by transition-screen labels.
+    /// If it is missing, Godot will fall back to the default UI font.
+    /// </summary>
+    private void LoadArcadeFont()
+    {
+        _arcadeFont = ResourceLoader.Load<Font>(ArcadeFontPath);
+        if (_arcadeFont == null)
+            GD.PushWarning($"[LevelTransitionOverlay] Missing arcade font: {ArcadeFontPath}");
+    }
+
+    /// <summary>
     /// Creates the runtime-only UI tree once.
     /// </summary>
     private void EnsureUi()
@@ -169,13 +190,13 @@ public partial class LevelTransitionOverlay : CanvasLayer
         _content.AddThemeConstantOverride("separation", 2);
         _panel.AddChild(_content);
 
-        _partLabel = CreateCenteredLabel("PartLabel", 36, ArcadeCyan);
+        _partLabel = CreateCenteredLabel("PartLabel", PartFontSize, ArcadeCyan);
         _vegetableBonusRow = CreateVegetableBonusRow();
-        _vegetableNameLabel = CreateCenteredLabel("VegetableNameLabel", 36, ArcadeYellow);
+        _vegetableNameLabel = CreateCenteredLabel("VegetableNameLabel", VegetableNameFontSize, ArcadeYellow);
         _skullRow = CreateIconRow("SkullRow", 66.0f, 14);
         _letterRow = CreateIconRow("LetterRow", 66.0f, 14);
         _heartRow = CreateIconRow("HeartRow", 66.0f, 12);
-        _goodLuckLabel = CreateCenteredLabel("GoodLuckLabel", 34, ArcadeRed);
+        _goodLuckLabel = CreateCenteredLabel("GoodLuckLabel", GoodLuckFontSize, ArcadeRed);
 
         _content.AddChild(CreateSpacer(42));
         _content.AddChild(_partLabel);
@@ -195,7 +216,7 @@ public partial class LevelTransitionOverlay : CanvasLayer
         UpdatePanelLayout();
     }
 
-    private static Label CreateCenteredLabel(string name, int fontSize, Color fontColor)
+    private Label CreateCenteredLabel(string name, int fontSize, Color fontColor)
     {
         Label label = new()
         {
@@ -206,6 +227,9 @@ public partial class LevelTransitionOverlay : CanvasLayer
             CustomMinimumSize = new Vector2(0.0f, fontSize + 12.0f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
+
+        if (_arcadeFont != null)
+            label.AddThemeFontOverride("font", _arcadeFont);
 
         label.AddThemeFontSizeOverride("font_size", fontSize);
         label.AddThemeColorOverride("font_color", fontColor);
@@ -232,7 +256,7 @@ public partial class LevelTransitionOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
 
-        _bonusFormulaLabel = CreateCenteredLabel("BonusFormulaLabel", 34, ArcadeGreen);
+        _bonusFormulaLabel = CreateCenteredLabel("BonusFormulaLabel", BonusFormulaFontSize, ArcadeGreen);
         // Do not reserve a fixed width here: the HBoxContainer must center the
         // visible icon + formula as a single group, like the arcade screen.
         // A wide label box would make the formula look centered mathematically

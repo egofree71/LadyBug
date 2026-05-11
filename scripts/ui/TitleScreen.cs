@@ -15,7 +15,8 @@ public partial class TitleScreen : Node2D
     public delegate void StartRequestedEventHandler();
 
     private const string LogoPath = "res://assets/images/title_lady_bug_logo.png";
-    private const string PlayerSpritesheetPath = "res://assets/sprites/player/lady_bug_spritesheet.png";
+    private const string PlayerSpritesheetPath = "res://assets/sprites/player/ladybug_spritesheet.png";
+    private const string ArcadeFontPath = "res://assets/fonts/PressStart2P-Regular.ttf";
     private const string EnemySpritesheetPattern = "res://assets/sprites/enemies/enemy_level{0}.png";
 
     private const int FrameSize = 64;
@@ -28,8 +29,13 @@ public partial class TitleScreen : Node2D
     private const float LogoPixelHeight = 176.0f;
 
     private readonly Color _black = new(0.0f, 0.0f, 0.0f, 1.0f);
-    private readonly Color _pink = new(1.0f, 0.55f, 1.0f, 1.0f);
+    private readonly Color _white = new(1.0f, 1.0f, 1.0f, 1.0f);
 
+    // Pulse between pure white and a light grey instead of blinking or using pink.
+    private const float PromptPulseMinimumBrightness = 0.55f;
+    private const float PromptPulseSpeed = 4.0f;
+
+    private Font? _arcadeFont;
     private Label? _pressAnyKeyLabel;
     private bool _startAlreadyRequested;
     private double _blinkTimer;
@@ -39,6 +45,7 @@ public partial class TitleScreen : Node2D
     /// </summary>
     public override void _Ready()
     {
+        LoadArcadeFont();
         BuildBackground();
         BuildAnimatedEnemies();
         BuildLogo();
@@ -46,7 +53,7 @@ public partial class TitleScreen : Node2D
     }
 
     /// <summary>
-    /// Blinks the start prompt.
+    /// Gently pulses the start prompt between white and light grey.
     /// </summary>
     public override void _Process(double delta)
     {
@@ -54,8 +61,10 @@ public partial class TitleScreen : Node2D
             return;
 
         _blinkTimer += delta;
-        float alpha = ((int)(_blinkTimer * 2.0) % 2 == 0) ? 1.0f : 0.35f;
-        _pressAnyKeyLabel.Modulate = new Color(1.0f, 1.0f, 1.0f, alpha);
+
+        float wave = 0.5f + (0.5f * Mathf.Sin((float)_blinkTimer * PromptPulseSpeed));
+        float brightness = Mathf.Lerp(PromptPulseMinimumBrightness, 1.0f, wave);
+        _pressAnyKeyLabel.Modulate = new Color(brightness, brightness, brightness, 1.0f);
     }
 
     /// <summary>
@@ -72,6 +81,18 @@ public partial class TitleScreen : Node2D
             EmitSignal(SignalName.StartRequested);
             GetViewport().SetInputAsHandled();
         }
+    }
+
+
+    /// <summary>
+    /// Loads the arcade TTF used by the title-screen prompt.
+    /// If the font is missing, the title screen still works with Godot's fallback font.
+    /// </summary>
+    private void LoadArcadeFont()
+    {
+        _arcadeFont = ResourceLoader.Load<Font>(ArcadeFontPath);
+        if (_arcadeFont == null)
+            GD.PushWarning($"[TitleScreen] Missing arcade font: {ArcadeFontPath}");
     }
 
     /// <summary>
@@ -146,13 +167,17 @@ public partial class TitleScreen : Node2D
         float logoBottomY = LogoCenterY + (LogoPixelHeight * 0.5f);
         float bottomAreaCenterY = logoBottomY + ((viewportSize.Y - logoBottomY) * 0.5f);
 
-        Vector2 labelSize = new(360.0f, 56.0f);
+        Vector2 labelSize = new(620.0f, 56.0f);
         Vector2 labelPosition = new(
             (viewportSize.X * 0.5f) - (labelSize.X * 0.5f),
             bottomAreaCenterY - (labelSize.Y * 0.5f));
 
-        AddLadybug(new Vector2(labelPosition.X - 95.0f, bottomAreaCenterY));
-        _pressAnyKeyLabel = AddLabel("PRESS ANY KEY", labelPosition, labelSize, 34, _pink, "PressAnyKeyLabel");
+        // Press Start 2P is much wider than Godot's default font.
+        // The prompt label is centered on the screen, but the visible text occupies only
+        // the middle of that label. Keep the ladybug in the left gap between the screen
+        // edge and the text, instead of anchoring it outside the enlarged label.
+        AddLadybug(new Vector2(labelPosition.X + 70.0f, bottomAreaCenterY));
+        _pressAnyKeyLabel = AddLabel("PRESS ANY KEY", labelPosition, labelSize, 26, _white, "PressAnyKeyLabel");
     }
 
     /// <summary>
@@ -247,6 +272,9 @@ public partial class TitleScreen : Node2D
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        if (_arcadeFont != null)
+            label.AddThemeFontOverride("font", _arcadeFont);
 
         label.AddThemeFontSizeOverride("font_size", fontSize);
         label.AddThemeColorOverride("font_color", fontColor);
