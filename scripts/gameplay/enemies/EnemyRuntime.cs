@@ -23,8 +23,8 @@ public sealed class EnemyRuntime
     // Owning level, used as the source of coordinate conversion and collision helpers.
     private readonly Level _level;
 
-    // Level-specific enemy spritesheet / visual definition.
-    private readonly EnemyLevelDefinition _enemyLevelDefinition;
+    // Visible level number used for slot-specific enemy sprite selection.
+    private readonly int _levelNumber;
 
     // Per-tick navigation map rebuilt from the static maze plus current rotating gates.
     private readonly EnemyNavigationGrid _navigationGrid;
@@ -69,11 +69,11 @@ public sealed class EnemyRuntime
         MazeGrid = mazeGrid ?? throw new ArgumentNullException(nameof(mazeGrid));
         GateSystem = gateSystem ?? throw new ArgumentNullException(nameof(gateSystem));
 
-        _enemyLevelDefinition = EnemyLevelCatalog.Get(levelNumber);
+        _levelNumber = Math.Max(1, levelNumber);
         _navigationGrid = new EnemyNavigationGrid(mazeGrid.Width, mazeGrid.Height);
         _movementAi = new EnemyMovementAi(level);
-        _basePreferenceSystem = new EnemyBasePreferenceSystem(levelNumber);
-        _chaseSystem = new EnemyChaseSystem(levelNumber);
+        _basePreferenceSystem = new EnemyBasePreferenceSystem(_levelNumber);
+        _chaseSystem = new EnemyChaseSystem(_levelNumber);
 
         CreateSlotsAndViews();
         UpdateWaitingLairVisibility();
@@ -248,7 +248,14 @@ public sealed class EnemyRuntime
     {
         for (int i = 0; i < EnemyMovementTuning.MaxEnemyCount; i++)
         {
-            MonsterEntity monster = new(i);
+            EnemyLevelDefinition definition = EnemyLevelCatalog.Get(_levelNumber, i);
+
+            MonsterEntity monster = new(i)
+            {
+                SpriteCode = definition.SpriteCode,
+                SpriteAttribute = definition.Attr
+            };
+
             PrepareMonsterInLair(monster);
             _monsters[i] = monster;
 
@@ -257,9 +264,9 @@ public sealed class EnemyRuntime
                 Name = $"Enemy{i}"
             };
 
-            view.ConfigureEnemyLevel(_enemyLevelDefinition);
+            view.ConfigureEnemyLevel(definition);
             _root.AddChild(view);
-            view.Initialize(_level, monster, _enemyLevelDefinition);
+            view.Initialize(_level, monster, definition);
             _views[i] = view;
         }
     }

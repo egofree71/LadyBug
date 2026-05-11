@@ -46,6 +46,29 @@ public sealed class MonsterEntity
     public int ChaseTimer { get; set; }
 
     /// <summary>
+    /// Gets or sets the arcade sprite code assigned to this slot.
+    /// </summary>
+    /// <remarks>
+    /// This corresponds to the original enemy slot byte at offset +3. The Godot view
+    /// uses a spritesheet path, but keeping the original value helps validate the
+    /// implementation against reverse-engineered traces.
+    /// </remarks>
+    public byte SpriteCode { get; set; }
+
+    /// <summary>
+    /// Gets or sets the arcade attribute / palette value assigned to this slot.
+    /// </summary>
+    /// <remarks>
+    /// This corresponds to the original enemy slot byte at offset +4.
+    /// </remarks>
+    public byte SpriteAttribute { get; set; }
+
+    /// <summary>
+    /// Gets the zero-based natural visual index derived from <see cref="SpriteAttribute"/>.
+    /// </summary>
+    public int NaturalVisualIndex => SpriteAttribute <= 0 ? 0 : SpriteAttribute - 1;
+
+    /// <summary>
     /// Gets or sets the high-level slot state.
     /// </summary>
     public MonsterRuntimeState RuntimeState { get; set; }
