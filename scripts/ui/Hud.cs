@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using LadyBug.Gameplay.Collectibles;
 
@@ -13,7 +14,7 @@ using LadyBug.Gameplay.Collectibles;
 /// <para>
 /// This script deliberately avoids hardcoding node placement. Positions, anchors,
 /// margins, and most visual layout details remain authored in <c>Level.tscn</c>.
-/// The script only finds the expected label nodes and updates their dynamic text.
+/// The script only finds the expected HUD nodes and updates their dynamic content.
 /// </para>
 /// <para>
 /// SPECIAL, EXTRA, and multiplier indicators use <see cref="RichTextLabel"/> so
@@ -36,8 +37,14 @@ public partial class Hud : CanvasLayer
     private const string MultiplierActiveColor = "#00AEFF";
 
     // The original HUD uses large tile-like letters. RichTextLabel text is kept
-    // at the same visual size as the lower score/lives labels.
+    // at the same visual size as the lower score label.
     private const int TopHudFontSize = 36;
+
+    // The player spritesheet is built from 64x64 frames. The spare-life HUD uses
+    // one static atlas frame from the same sheet, matching the arcade-style icon
+    // display instead of drawing a numeric text value.
+    private const string DefaultLifeIconTexturePath = "res://assets/sprites/player/ladybug_spritesheet.png";
+    private const int LifeIconFrameSize = 64;
 
     /// <summary>
     /// Gets or sets the path to the score label.
@@ -50,8 +57,13 @@ public partial class Hud : CanvasLayer
     public NodePath ScoreLabelPath { get; set; } = "Root/ScoreLabel";
 
     /// <summary>
-    /// Gets or sets the path to the lives label.
+    /// Gets or sets the path to the lives display anchor.
     /// </summary>
+    /// <remarks>
+    /// The node is still a Label in <c>Level.tscn</c> for compatibility with the
+    /// previous HUD layout, but its text is cleared and TextureRect children are
+    /// created under it to render one coccinelle sprite per visible life.
+    /// </remarks>
     [Export]
     public NodePath LivesLabelPath { get; set; } = "Root/LivesLabel";
 
@@ -73,11 +85,59 @@ public partial class Hud : CanvasLayer
     [Export]
     public NodePath MultipliersLabelPath { get; set; } = "Root/MultipliersLabel";
 
+    /// <summary>
+    /// Gets or sets the spritesheet used for the spare-life icon.
+    /// </summary>
+    [Export]
+    public string LifeIconTexturePath { get; set; } = DefaultLifeIconTexturePath;
+
+    /// <summary>
+    /// Gets or sets which 64x64 frame from <see cref="LifeIconTexturePath"/> is
+    /// used as the static spare-life icon.
+    /// </summary>
+    [Export]
+    public int LifeIconFrameIndex { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the maximum number of lives that can be rendered in the HUD.
+    /// </summary>
+    /// <remarks>
+    /// This is only a display cap. The semantic life counter itself is not capped:
+    /// if the player has more lives than this value, the internal count remains
+    /// higher but the HUD still draws only this many icons.
+    /// </remarks>
+    [Export]
+    public int MaxVisibleLifeIcons { get; set; } = 5;
+
+    /// <summary>
+    /// Gets or sets the rendered size of each spare-life icon.
+    /// </summary>
+    [Export]
+    public Vector2 LifeIconSize { get; set; } = new(64, 64);
+
+    /// <summary>
+    /// Gets or sets the horizontal spacing between spare-life icons.
+    /// </summary>
+    [Export]
+    public float LifeIconSpacing { get; set; } = 64.0f;
+
+    /// <summary>
+    /// Gets or sets a local offset applied inside the lives display anchor.
+    /// </summary>
+    [Export]
+    public Vector2 LifeIconOffset { get; set; } = Vector2.Zero;
+
     private Label? _scoreLabel;
     private Label? _livesLabel;
     private RichTextLabel? _specialWordLabel;
     private RichTextLabel? _extraWordLabel;
     private RichTextLabel? _multipliersLabel;
+
+    private readonly List<TextureRect> _lifeIconViews = new();
+    private Texture2D? _lifeIconTexture;
+    private string _loadedLifeIconTexturePath = string.Empty;
+    private int _loadedLifeIconFrameIndex = int.MinValue;
+    private bool _lifeIconTextureWarningShown;
 
     // Last known values are cached so _Ready can safely reapply them if the HUD
     // enters the scene after Level has already called one of the setter methods.
@@ -89,7 +149,7 @@ public partial class Hud : CanvasLayer
     private string _lastMultipliersText = BuildMultipliersText(0);
 
     /// <summary>
-    /// Resolves the HUD label nodes and applies the cached initial values.
+    /// Resolves the HUD nodes and applies the cached initial values.
     /// </summary>
     public override void _Ready()
     {
@@ -115,7 +175,7 @@ public partial class Hud : CanvasLayer
             GD.PushWarning("[Hud] Could not find MultipliersLabel. Expected Root/MultipliersLabel or MultipliersLabel, or set MultipliersLabelPath in the Inspector.");
 
         // Important: this script does not set screen positions or anchors.
-        // Those are controlled in Level.tscn. It only controls dynamic text.
+        // Those are controlled in Level.tscn. It only controls dynamic content.
         SetScore(_lastScore);
         SetLives(_lastLives);
         ApplyRichText(_specialWordLabel, _lastSpecialWordText);
@@ -144,11 +204,7 @@ public partial class Hud : CanvasLayer
     public void SetLives(int lives)
     {
         _lastLives = lives;
-
-        if (_livesLabel == null)
-            return;
-
-        _livesLabel.Text = $"LIVES {lives}";
+        UpdateLifeIconDisplay();
     }
 
     /// <summary>
@@ -199,7 +255,7 @@ public partial class Hud : CanvasLayer
     }
 
     /// <summary>
-    /// Finds the lives label using the exported path first, then scene-name fallbacks.
+    /// Finds the lives display anchor using the exported path first, then scene-name fallbacks.
     /// </summary>
     private Label? FindLivesLabel()
     {
@@ -240,6 +296,129 @@ public partial class Hud : CanvasLayer
             return rootChildLabel;
 
         return GetNodeOrNull<RichTextLabel>(fallbackPath);
+    }
+
+    /// <summary>
+    /// Renders one static coccinelle icon per visible life, capped to MaxVisibleLifeIcons.
+    /// </summary>
+    private void UpdateLifeIconDisplay()
+    {
+        if (_livesLabel == null)
+            return;
+
+        // The label remains as a scene-authored layout anchor, but it no longer
+        // renders text. Its children carry the actual life icons.
+        _livesLabel.Text = string.Empty;
+        _livesLabel.TextureFilter = CanvasItem.TextureFilterEnum.Nearest;
+
+        int maxVisibleIcons = Math.Max(0, MaxVisibleLifeIcons);
+        int visibleLives = Math.Clamp(_lastLives, 0, maxVisibleIcons);
+
+        EnsureLifeIconTexture();
+        EnsureLifeIconViews(maxVisibleIcons);
+
+        for (int i = 0; i < _lifeIconViews.Count; i++)
+        {
+            TextureRect icon = _lifeIconViews[i];
+            bool visible = i < visibleLives && _lifeIconTexture != null;
+
+            icon.Visible = visible;
+            icon.Texture = _lifeIconTexture;
+            icon.Position = LifeIconOffset + new Vector2(i * LifeIconSpacing, 0.0f);
+            icon.Size = LifeIconSize;
+            icon.CustomMinimumSize = LifeIconSize;
+        }
+    }
+
+    /// <summary>
+    /// Loads the configured player spritesheet frame used by the life icons.
+    /// </summary>
+    private void EnsureLifeIconTexture()
+    {
+        string texturePath = string.IsNullOrWhiteSpace(LifeIconTexturePath)
+            ? DefaultLifeIconTexturePath
+            : LifeIconTexturePath;
+
+        int frameIndex = Math.Max(0, LifeIconFrameIndex);
+
+        if (_lifeIconTexture != null
+            && _loadedLifeIconTexturePath == texturePath
+            && _loadedLifeIconFrameIndex == frameIndex)
+        {
+            return;
+        }
+
+        Texture2D? sheetTexture = GD.Load<Texture2D>(texturePath);
+        if (sheetTexture == null)
+        {
+            _lifeIconTexture = null;
+            _loadedLifeIconTexturePath = string.Empty;
+            _loadedLifeIconFrameIndex = int.MinValue;
+
+            if (!_lifeIconTextureWarningShown)
+            {
+                GD.PushWarning($"[Hud] Could not load life icon texture at '{texturePath}'.");
+                _lifeIconTextureWarningShown = true;
+            }
+
+            return;
+        }
+
+        int maxFrameIndex = Math.Max(0, (sheetTexture.GetWidth() / LifeIconFrameSize) - 1);
+        int clampedFrameIndex = Math.Clamp(frameIndex, 0, maxFrameIndex);
+
+        if (clampedFrameIndex != frameIndex && !_lifeIconTextureWarningShown)
+        {
+            GD.PushWarning($"[Hud] LifeIconFrameIndex {frameIndex} is outside '{texturePath}'. Using frame {clampedFrameIndex} instead.");
+            _lifeIconTextureWarningShown = true;
+        }
+
+        _lifeIconTexture = new AtlasTexture
+        {
+            Atlas = sheetTexture,
+            Region = new Rect2(
+                clampedFrameIndex * LifeIconFrameSize,
+                0,
+                LifeIconFrameSize,
+                Math.Min(LifeIconFrameSize, sheetTexture.GetHeight()))
+        };
+
+        _loadedLifeIconTexturePath = texturePath;
+        _loadedLifeIconFrameIndex = frameIndex;
+    }
+
+    /// <summary>
+    /// Ensures the HUD owns exactly one reusable TextureRect per possible visible life.
+    /// </summary>
+    /// <param name="desiredCount">Number of icon views to keep alive.</param>
+    private void EnsureLifeIconViews(int desiredCount)
+    {
+        if (_livesLabel == null)
+            return;
+
+        while (_lifeIconViews.Count > desiredCount)
+        {
+            int lastIndex = _lifeIconViews.Count - 1;
+            TextureRect icon = _lifeIconViews[lastIndex];
+            _lifeIconViews.RemoveAt(lastIndex);
+            icon.QueueFree();
+        }
+
+        while (_lifeIconViews.Count < desiredCount)
+        {
+            int iconNumber = _lifeIconViews.Count + 1;
+            TextureRect icon = new()
+            {
+                Name = $"LifeIcon{iconNumber}",
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+            };
+
+            _livesLabel.AddChild(icon);
+            _lifeIconViews.Add(icon);
+        }
     }
 
     /// <summary>

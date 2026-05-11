@@ -230,7 +230,7 @@ Level (Node2D)
 	  ├─ ExtraWordLabel (RichTextLabel)
 	  ├─ MultipliersLabel (RichTextLabel)
 	  ├─ ScoreLabel (Label)
-	  └─ LivesLabel (Label)
+	  └─ LivesLabel (Label used as the sprite-icon anchor)
 ```
 
 **Current main script:**
@@ -283,6 +283,8 @@ Level (Node2D)
 - type = CanvasLayer
 - script = scripts/ui/Hud.cs
 - displays SPECIAL progress, EXTRA progress, blue-heart multipliers, lives, and score
+- lives are rendered as one player sprite icon per visible life instead of numeric text
+- the semantic life count is not capped, but the HUD renders at most five visible life icons
 - the upper HUD uses three RichTextLabel nodes:
   - SPECIAL aligned to the left third of the screen
   - EXTRA centered in the middle third
@@ -954,7 +956,7 @@ Level
 	  ├─ ExtraWordLabel (RichTextLabel)
 	  ├─ MultipliersLabel (RichTextLabel)
 	  ├─ ScoreLabel (Label)
-	  └─ LivesLabel (Label)
+	  └─ LivesLabel (Label used as the sprite-icon anchor)
 ```
 
 **Current responsibilities:**
@@ -964,7 +966,7 @@ Level
 - find the EXTRA word RichTextLabel
 - find the multiplier RichTextLabel
 - display the current score
-- display the current number of lives
+- display the current lives as sprite icons, capped to five visible icons
 - display SPECIAL with inactive letters in grey and active letters in red
 - display EXTRA with inactive letters in grey and active letters in yellow
 - display x2 / x3 / x5 with inactive entries in grey and active entries in blue
@@ -972,6 +974,7 @@ Level
 **Important:**
 - Hud.cs does not hardcode label positions, anchors, sizes, or editor layout
 - Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
+- Hud.cs creates the runtime TextureRect children used for the life icons under LivesLabel
 - visual placement is controlled by Level.tscn
 - credits, top score, title screen HUD, and full arcade screen flow are not implemented yet
 
@@ -1550,7 +1553,7 @@ The following is already implemented and functional:
 - EXTRA word progress works for valid yellow letters
 - EXTRA completion grants one extra life
 - SPECIAL completion records a placeholder free-game award
-- lives are tracked and displayed
+- lives are tracked and displayed as sprite icons, with no semantic cap and a five-icon HUD display cap
 - skull pickup is lethal to the player
 - skull death removes all remaining skulls before the death sequence starts
 - skull death removes one life and starts the player death sequence
