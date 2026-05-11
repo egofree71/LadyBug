@@ -22,6 +22,7 @@ public sealed partial class PickupSoundPlayer : Node
     private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
     private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
     private const string EnemyExitWarningSoundPath = "res://assets/audio/enemy_exit.wav";
+    private const string EnterMazeSoundPath = "res://assets/audio/enter_maze.wav";
 
     private const string DefaultAudioBus = "Master";
 
@@ -44,6 +45,10 @@ public sealed partial class PickupSoundPlayer : Node
     // The lair-exit warning is a single global alert effect.
     private const int EnemyExitWarningEffectMaxPolyphony = 1;
 
+    // The player-entry jingle is triggered when a new life starts travelling from
+    // the HUD into the maze. It should restart cleanly instead of stacking.
+    private const int EnterMazeEffectMaxPolyphony = 1;
+
     private AudioStreamPlayer? _flowerPickupPlayer;
     private AudioStreamPlayer? _collectiblePickupPlayer;
     private AudioStreamPlayer? _gateRotatedPlayer;
@@ -53,6 +58,7 @@ public sealed partial class PickupSoundPlayer : Node
     private AudioStreamPlayer? _deathSequencePlayer;
     private AudioStreamPlayer? _enemyDeathPlayer;
     private AudioStreamPlayer? _enemyExitWarningPlayer;
+    private AudioStreamPlayer? _enterMazePlayer;
 
     // Countdown for the audible border-timer cadence. It is intentionally allowed
     // to differ from the visual cadence on level 5+ so the sound stays regular
@@ -198,6 +204,15 @@ public sealed partial class PickupSoundPlayer : Node
     }
 
     /// <summary>
+    /// Plays the short musical phrase used when a new life enters the maze from the HUD.
+    /// </summary>
+    public void PlayEnterMaze()
+    {
+        EnsurePlayers();
+        Restart(_enterMazePlayer);
+    }
+
+    /// <summary>
     /// Creates all effect players if they do not already exist.
     /// </summary>
     private void EnsurePlayers()
@@ -249,6 +264,11 @@ public sealed partial class PickupSoundPlayer : Node
             "EnemyExitWarningAudio",
             EnemyExitWarningSoundPath,
             EnemyExitWarningEffectMaxPolyphony);
+
+        _enterMazePlayer = CreatePlayer(
+            "EnterMazeAudio",
+            EnterMazeSoundPath,
+            EnterMazeEffectMaxPolyphony);
     }
 
     /// <summary>

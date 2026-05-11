@@ -1121,6 +1121,7 @@ public partial class Level : Node2D
 
         _isPlayerEntryAnimationActive = true;
         _simulationAccumulator = 0.0;
+        _soundPlayer?.PlayEnterMaze();
         _player.SetGameplaySpriteVisible(false);
         _player.SynchronizeSceneFromGameplay();
     }
