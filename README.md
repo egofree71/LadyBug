@@ -31,8 +31,11 @@ Implemented systems include:
 - first playable enemy movement system with simulator-refined center decisions
 - level progression through PART transition screens
 - HUD with score, sprite-based lives, SPECIAL, EXTRA and multipliers
+- arcade-style Press Start 2P typography on the title prompt, HUD labels, PART transition labels, score, and GAME OVER overlay
 
 Recent gameplay refinements include arcade-style life handling. The HUD renders ladybug sprites for spare lives, while the current active life is represented by the player in the maze. At the very first PART screen the HUD shows the initial total stock of lives; during gameplay and later PART screens it shows only the remaining spare lives. A new life enters the maze from the HUD only when the game starts or after a death. Normal level transitions keep the active player life and simply place the player at the next level's start cell. The entry animation moves at one arcade pixel per simulation tick and plays the `enter_maze.wav` cue as soon as it starts.
+
+Other recent refinements include UI typography polish. The title prompt, HUD word labels and multipliers, score, PART transition labels, and GAME OVER overlay now use the bundled Press Start 2P font for a more coherent arcade-style look. The title prompt pulses between white and light gray, and the prompt ladybug position has been adjusted to sit cleanly between the left edge and the text.
 
 Other recent refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later simulator comparison showed that broad gate / boundary checks were too aggressive outside decision centers, so enemies now keep their current direction outside centers instead of reversing from a high-level gate block. Local movement probes now use simulator-derived directional offsets, while exact tile-shape filtering around rotating gates remains a future refinement.
 

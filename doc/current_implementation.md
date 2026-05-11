@@ -185,7 +185,8 @@ doc/
 **Important currently used visual assets:**
 - assets/images/maze_background.png
 - assets/images/title_lady_bug_logo.png
-- assets/sprites/player/lady_bug_spritesheet.png
+- assets/fonts/PressStart2P-Regular.ttf
+- assets/sprites/player/ladybug_spritesheet.png
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
 - assets/sprites/enemies/enemy_level1.png
@@ -252,7 +253,9 @@ TitleScreen (Node2D)
 **Current role:**
 - arcade-style entry screen before gameplay
 - builds its visible UI from code at runtime
-- displays a black background, animated enemy sprites, the Lady Bug logo, a ladybug sprite, and a blinking start prompt
+- displays a black background, animated enemy sprites, the Lady Bug logo, a ladybug sprite, and a Press Start 2P start prompt
+- the start prompt pulses between white and light gray rather than blinking by transparency
+- the prompt ladybug is positioned in the free space to the left of the prompt text so it is not clipped by the screen edge
 - emits StartRequested when a normal key or joypad button is pressed
 - deliberately ignores F1, F2, and F12 as start inputs so those keys remain reserved for gameplay debug shortcuts
 - does not touch gameplay state, enemy AI, score state, lives, or session data
@@ -333,6 +336,7 @@ Level (Node2D)
 - type = CanvasLayer
 - script = scripts/ui/Hud.cs
 - displays SPECIAL progress, EXTRA progress, blue-heart multipliers, lives, and score
+- uses the bundled Press Start 2P font for the SPECIAL / EXTRA / multiplier labels and the numeric score
 - lives are rendered as one player sprite icon per visible life instead of numeric text
 - during normal gameplay, HUD life icons represent spare lives only; the active life is the player sprite in the maze
 - on the very first PART screen only, the HUD shows the initial total life stock before the first active life enters the maze
@@ -352,6 +356,7 @@ Level (Node2D)
 - the black panel is drawn only inside the purple maze frame, leaving the upper HUD, lower HUD, maze-border timer tiles, and purple maze frame visible
 - displays the upcoming PART number
 - displays the upcoming level vegetable icon, bonus value, and vegetable name
+- uses the bundled Press Start 2P font for PART, the vegetable bonus formula, the vegetable name, and GOOD LUCK
 - displays the skull icons, letter icons, and heart icons planned for the upcoming level
 - heart icons are rendered as a composite of the heart ring frame and the fixed inner heart overlay frame, matching the runtime Collectible scene model
 - uses assets/sprites/props/vegetables.png for vegetable icons
@@ -465,7 +470,7 @@ Player (Node2D)
 - scripts/actors/PlayerController.cs
 
 **Current living-player visual setup:**
-- AnimatedSprite2D uses assets/sprites/player/lady_bug_spritesheet.png
+- AnimatedSprite2D uses assets/sprites/player/ladybug_spritesheet.png
 - two animations are currently defined:
   - move_right
   - move_up
@@ -1057,6 +1062,13 @@ Level
 - display EXTRA with inactive letters in grey and active letters in yellow
 - display x2 / x3 / x5 with inactive entries in grey and active entries in blue
 
+**Current typography:**
+- Hud.cs loads `res://assets/fonts/PressStart2P-Regular.ttf`
+- SPECIAL, EXTRA, and x2 / x3 / x5 use Press Start 2P through RichTextLabel theme overrides
+- the numeric score uses Press Start 2P through Label theme overrides
+- current font-size constants are 26 for the upper HUD labels and 30 for the numeric score
+- the upper HUD label positions are still controlled by Level.tscn; after the font change, their vertical offset was adjusted so the glyphs are not clipped at the top of the viewport
+
 **Important:**
 - Hud.cs does not hardcode label positions, anchors, sizes, or editor layout
 - Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
@@ -1528,6 +1540,8 @@ Current visual behavior:
 - the purple maze frame remains visible
 - the upper HUD and lower HUD remain visible
 - the maze-border timer tiles remain visible
+- PART, the bonus formula, the vegetable name, and GOOD LUCK use the bundled Press Start 2P font
+- current transition-label font sizes are 28 for PART, 24 for the bonus formula, 26 for the vegetable name, and 24 for GOOD LUCK
 - sprites are rendered through high-level Godot UI controls rather than arcade VRAM / color RAM writes
 
 Current preview-plan behavior:
@@ -1600,8 +1614,12 @@ TitleScreen
 Current behavior:
 - Main starts with scenes/ui/TitleScreen.tscn.
 - TitleScreen builds its visual layout from code and emits StartRequested on normal key / joypad input.
+- The title-screen PRESS ANY KEY prompt uses `res://assets/fonts/PressStart2P-Regular.ttf` at size 26.
+- The prompt color pulses between white and light gray; the current minimum brightness used in the local tuning is 0.55.
+- The small prompt ladybug is positioned to the left of the text without being clipped by the left edge of the viewport.
 - Main then instantiates scenes/level/Level.tscn and asks Level to show the initial PART transition before gameplay begins.
 - When the player reaches game over, LevelGameOverOverlay draws a GAME OVER panel inside the maze frame.
+- The GAME OVER text uses the bundled Press Start 2P font; the current local tuning uses font size 28.
 - After the measured arcade-style delay, Level emits GameOverFinished and Main returns to the title screen.
 - F1, F2, and F12 are reserved for Level debug shortcuts and are ignored by the title screen start-input handler.
 
@@ -1618,6 +1636,8 @@ The following is already implemented and functional:
 - upper HUD strip has room above the maze
 - lower HUD displays lives and score below the maze
 - SPECIAL, EXTRA, and x2/x3/x5 are displayed in the upper HUD
+- the title prompt, upper HUD labels, score, PART transition labels, and GAME OVER overlay use Press Start 2P
+- the title prompt pulses between white and light gray
 - pre-placed rotating gates are displayed
 - maze-border timer tiles are displayed around the maze
 - maze-border timer animation starts near the middle of the top border and advances clockwise
@@ -1713,6 +1733,7 @@ The following is already implemented and functional:
 - skulls do not block level clear
 - completing a board starts the next-level transition
 - the transition screen displays the next PART number, vegetable bonus, skull preview, letter preview, heart preview, and GOOD LUCK line
+- the transition screen uses Press Start 2P for its text labels while leaving collectible / vegetable sprites unchanged
 - the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - F1 can be used as a debug shortcut to test the normal next-level transition
