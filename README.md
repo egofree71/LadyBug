@@ -16,6 +16,7 @@ The project is currently a playable prototype.
 
 Implemented systems include:
 
+- title screen to gameplay to game-over loop
 - maze rendering
 - player movement with arcade-style assisted turns
 - rotating gates
@@ -23,23 +24,25 @@ Implemented systems include:
 - scoring and score multipliers
 - bonus vegetables with bonus scoring
 - SPECIAL / EXTRA word progress
-- lives and player death sequence
+- lives, player death sequence, and HUD-to-maze life-entry animation
+- audio cues for pickups, death, enemy release, timer events, gates, level endings, and player entry into the maze
 - enemy release through the animated border timer
 - enemy freeze after collecting the central bonus vegetable, while enemies remain fatal
 - first playable enemy movement system with simulator-refined center decisions
-- level progression placeholder
-- HUD with score, lives, SPECIAL, EXTRA and multipliers
+- level progression through PART transition screens
+- HUD with score, sprite-based lives, SPECIAL, EXTRA and multipliers
 
-Recent gameplay refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later simulator comparison showed that broad gate / boundary checks were too aggressive outside decision centers, so enemies now keep their current direction outside centers instead of reversing from a high-level gate block. Local movement probes now use simulator-derived directional offsets, while exact tile-shape filtering around rotating gates remains a future refinement.
+Recent gameplay refinements include arcade-style life handling. The HUD renders ladybug sprites for spare lives, while the current active life is represented by the player in the maze. At the very first PART screen the HUD shows the initial total stock of lives; during gameplay and later PART screens it shows only the remaining spare lives. A new life enters the maze from the HUD only when the game starts or after a death. Normal level transitions keep the active player life and simply place the player at the next level's start cell. The entry animation moves at one arcade pixel per simulation tick and plays the `enter_maze.wav` cue as soon as it starts.
+
+Other recent refinements include bonus vegetables, their score award, and the arcade-style enemy-freeze behavior where enemies stop moving for a short time but remain dangerous on contact. Recent enemy-movement refinements also include a more arcade-like decision order at intersections: enemies now try their preferred direction first, keep their current direction when it remains valid, and only then scan fallback directions. A later simulator comparison showed that broad gate / boundary checks were too aggressive outside decision centers, so enemies now keep their current direction outside centers instead of reversing from a high-level gate block. Local movement probes now use simulator-derived directional offsets, while exact tile-shape filtering around rotating gates remains a future refinement.
 
 Some systems are still incomplete or approximate, especially:
 
 - exact bonus-vegetable timing and low-level arcade rendering details
 - remaining pixel-perfect enemy movement edge cases around rotating gates and later-level behavior
-- later-level enemy rotation
-- title screen and full arcade screen flow
-- game over and high-score screens
-- arcade-accurate transition screens
+- full original arcade screen flow beyond the current title / gameplay / game-over loop
+- high-score screens and persistence
+- exact arcade transition-screen tile / color RAM rendering
 
 ## Technology
 

@@ -205,6 +205,7 @@ doc/
 - assets/audio/death_sequence.wav
 - assets/audio/end_level.wav
 - assets/audio/enemy_exit.wav
+- assets/audio/enter_maze.wav
 - assets/audio/flower_pickup.wav
 - assets/audio/gate_rotated.wav
 - assets/audio/timer.wav
@@ -333,6 +334,9 @@ Level (Node2D)
 - script = scripts/ui/Hud.cs
 - displays SPECIAL progress, EXTRA progress, blue-heart multipliers, lives, and score
 - lives are rendered as one player sprite icon per visible life instead of numeric text
+- during normal gameplay, HUD life icons represent spare lives only; the active life is the player sprite in the maze
+- on the very first PART screen only, the HUD shows the initial total life stock before the first active life enters the maze
+- during later PART screens, the HUD keeps showing spare lives only because the current active life continues into the next level
 - the semantic life count is not capped, but the HUD renders at most five visible life icons
 - the upper HUD uses three RichTextLabel nodes:
   - SPECIAL aligned to the left third of the screen
@@ -586,12 +590,14 @@ Level.cs is currently the runtime coordinator for one active board.
 - freeze enemy movement after a vegetable bonus pickup while keeping enemy collisions fatal
 - configure the maze-border enemy-release timer for the current level number
 - detect board completion when all progression collectibles are consumed
+- own the initial level-transition screen state before the first active life enters the maze
 - own the current level-transition screen state
 - rebuild board-local runtime state when advancing to the next level
 - own the current prototype score state
 - own the current prototype heart multiplier state
 - own the current prototype SPECIAL / EXTRA word progress state
 - own the current prototype life state
+- own the HUD-to-maze life-entry animation state used at game start and after death
 - own the short heart / letter pickup popup state
 - own the player death sequence state at board-coordinator level
 - own the minimal game-over guard used by the GAME OVER overlay driver
@@ -623,7 +629,8 @@ Level.cs is currently the runtime coordinator for one active board.
 - HUD rendering: Hud
 - pickup popup rendering: CollectiblePickupPopupView
 - transition overlay rendering: LevelTransitionOverlay
-- game-over overlay rendering / return-to-title flow: LevelInitialTransition and LevelGameOverOverlay
+- initial PART transition helper: LevelInitialTransition
+- game-over overlay rendering / return-to-title flow: LevelGameOverOverlay
 - gameplay-only function-key shortcuts: LevelDebugShortcuts
 - gameplay sound effects: PickupSoundPlayer
 
@@ -635,9 +642,11 @@ Level.cs is currently the runtime coordinator for one active board.
 - while the vegetable freeze timer is active, enemy movement is skipped but player/enemy collision remains active
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
+- while the HUD-to-maze life-entry animation is active, normal gameplay is frozen and the player sprite is hidden until the animation reaches the start cell
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
-- when the death sequence completes, the player either respawns at PlayerStartCell or the GAME OVER overlay / return-to-title flow starts
-- when the transition timer completes, Level rebuilds the board for the next level and respawns the player at PlayerStartCell
+- when the death sequence completes, the player either starts a new-life HUD entry animation or the GAME OVER overlay / return-to-title flow starts
+- when the transition timer completes for the first level, Level starts the initial HUD-to-maze entry animation
+- when the transition timer completes for later levels, Level rebuilds the board and places the already-active player directly at PlayerStartCell without replaying the HUD entry animation
 
 ## 7. Collectible System
 
@@ -994,6 +1003,25 @@ scripts/gameplay/player/
 - full original arcade game-over / high-score flow is not implemented yet
 - player death still uses the current high-level red shrink / ghost sequence rather than exact tile-level arcade rendering
 
+### 10.1 HUD-to-maze life entry animation
+
+**Current behavior:**
+- the animation is played when the first life enters the maze after the initial PART screen
+- the animation is played again after a death, when at least one life remains
+- the animation is not played when the player clears a level and advances to the next PART screen; the same active life continues and is placed directly at `PlayerStartCell` in the next maze
+- the animated ladybug starts from the rightmost currently visible HUD life slot and moves horizontally first, then vertically, until it reaches the player start position
+- movement speed is `4` scene pixels per simulation tick, matching one arcade pixel per tick with the current render scale
+- the normal player sprite is hidden while the entry animation is active
+- board simulation is frozen until the animated sprite reaches the start position
+- if the life counter exceeds the visible HUD cap, the source HUD slot is temporarily hidden during the animation to avoid a duplicate sprite remaining under the moving sprite
+- `assets/audio/enter_maze.wav` is played as soon as the HUD-to-maze animation actually starts
+
+**Life display rules validated against MAME observation:**
+- before level 1 starts, the initial PART screen shows the total starting stock of lives; with 3 lives, the HUD shows 3 ladybug sprites
+- once gameplay starts, the HUD shows spare lives only; with 3 total lives, this means 2 HUD sprites plus the active player in the maze
+- after clearing a level without dying, later PART screens still show only the spare lives, because the active player life is carried forward into the next level
+- after death, the active player life is lost; if lives remain, one spare life leaves the HUD and becomes the new active player in the maze
+
 ## 11. HUD
 
 **Current HUD script:**
@@ -1020,6 +1048,10 @@ Level
 - find the multiplier RichTextLabel
 - display the current score
 - display the current lives as sprite icons, capped to five visible icons
+- distinguish between total lives and spare lives by tracking whether the current life is already in the maze
+- on the initial PART screen, temporarily show the full starting stock before the first active life enters the maze
+- hide the source HUD slot while the HUD-to-maze life-entry animation is active
+- create and advance the temporary animated sprite used for the HUD-to-maze life-entry sequence
 - use frame index 1 from the player spritesheet by default for the spare-life icon
 - display SPECIAL with inactive letters in grey and active letters in red
 - display EXTRA with inactive letters in grey and active letters in yellow
@@ -1029,6 +1061,7 @@ Level
 - Hud.cs does not hardcode label positions, anchors, sizes, or editor layout
 - Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
 - Hud.cs creates the runtime TextureRect children used for the life icons under LivesLabel
+- Hud.cs owns the temporary life-entry sprite and exposes tick-based methods so Level can advance it from the fixed simulation loop
 - visual placement is controlled by Level.tscn
 - credits, top score, and full arcade screen flow are not implemented yet
 
@@ -1471,7 +1504,7 @@ last heart / letter consumed
 -> PART screen starts after the popup ends
 ```
 
-Normal board simulation is frozen while the transition screen is active.
+Normal board simulation is frozen while the transition screen is active. The HUD-to-maze life-entry animation is not replayed for normal level transitions: the active player life is carried into the next board and placed directly at the start cell after the PART screen ends.
 
 ### 18.3 Transition overlay
 
@@ -1533,6 +1566,8 @@ enemy runtime and enemy views
 maze-border enemy-release timer
 player gameplay position
 ```
+
+When advancing after level 1 or later, the active life is preserved. Only board-local state is rebuilt; the HUD spare-life count is not decremented and no entry animation is played. The first level is the exception: after the initial PART screen, the first active life is animated from the HUD into the maze.
 
 ### 18.5 Gameplay function-key debug shortcuts
 
@@ -1638,6 +1673,10 @@ The following is already implemented and functional:
 - SPECIAL completion records a placeholder free-game award
 - lives are tracked and displayed as sprite icons, with no semantic cap and a five-icon HUD display cap
 - spare-life icons use the second player spritesheet frame by default
+- the initial PART screen shows the full starting life stock before the first active life enters the maze
+- during gameplay and later PART screens, the HUD shows spare lives only while the active life is represented by the player in the maze
+- the HUD-to-maze life-entry animation runs at game start and after death, but not when advancing to the next level
+- the life-entry animation plays `assets/audio/enter_maze.wav` when it starts
 - skull pickup is lethal to the player
 - skull death removes all remaining skulls before the death sequence starts
 - skull death removes one life and starts the player death sequence
@@ -1707,6 +1746,7 @@ Current limitations include:
 - the PART screen is implemented with high-level Godot UI controls rather than original tile / color RAM rendering
 - score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
 - HUD is functional but still scene-local rather than part of a full screen-flow architecture
+- the HUD-to-maze life-entry animation is high-level Sprite2D/UI rendering rather than original VRAM / color RAM reproduction
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
 - SPECIAL completion is only a placeholder award and does not implement credits/free games yet
 - SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition; EXTRA currently awards a life and resets word progress
