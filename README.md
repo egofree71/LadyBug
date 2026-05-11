@@ -2,6 +2,8 @@
 
 A personal remake of the 1981 arcade game **Lady Bug**, built with **Godot 4.6.2 .NET** and **C#**.
 
+![Current gameplay screenshot](doc/screenshots/current_gameplay.png)
+
 ## About
 
 This project recreates the gameplay of the original arcade version of **Lady Bug** in a modern engine, while keeping the codebase readable, testable and maintainable.
