@@ -41,15 +41,13 @@ Other recent refinements include bonus vegetables, their score award, and the ar
 
 Some systems are still incomplete or approximate, especially:
 
-- exact bonus-vegetable timing and low-level arcade rendering details
-- remaining pixel-perfect enemy movement edge cases around rotating gates and later-level behavior
 - full original arcade screen flow beyond the current title / gameplay / game-over loop
 - high-score screens and persistence
 - exact arcade transition-screen tile / color RAM rendering
 
 ## Technology
 
-- **Godot 4.6.1 .NET**
+- **Godot 4.6.2 .NET**
 - **C#**
 - **MAME** for observation, debugging and runtime traces
 - **Ghidra** for reverse-engineering work
