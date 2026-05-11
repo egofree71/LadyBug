@@ -9,7 +9,6 @@
 
 [node name="Level" type="Node2D" unique_id=499888811]
 script = ExtResource("1_l1x8v")
-EnableFunctionKeyDebugShortcuts = true
 PlayerStartCell = Vector2i(5, 8)
 
 [node name="Maze" type="Sprite2D" parent="." unique_id=1774754904]
@@ -149,12 +148,12 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="SpecialWordLabel" type="RichTextLabel" parent="Hud/Root" unique_id=526001726]
+clip_contents = false
 layout_mode = 1
 anchors_preset = -1
 anchor_right = 0.333333
-offset_left = 16.0
+offset_left = 22.0
 offset_top = -4.0
-offset_right = -6.0
 offset_bottom = 60.0
 theme_override_font_sizes/normal_font_size = 36
 bbcode_enabled = true
@@ -181,9 +180,9 @@ layout_mode = 1
 anchors_preset = -1
 anchor_left = 0.666667
 anchor_right = 1.0
-offset_left = 6.000458
+offset_left = 0.66638184
 offset_top = -4.0
-offset_right = -15.999512
+offset_right = -21.333618
 offset_bottom = 60.0
 theme_override_font_sizes/normal_font_size = 36
 bbcode_enabled = true
