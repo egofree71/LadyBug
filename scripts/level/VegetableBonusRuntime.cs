@@ -87,6 +87,12 @@ public sealed partial class VegetableBonusRuntime : Node2D
             return;
         }
 
+        if (_level.VegetableSupport_ShouldPauseBonusRuntime())
+        {
+            _simulationAccumulator = 0.0;
+            return;
+        }
+
         _simulationAccumulator += delta;
 
         while (_simulationAccumulator >= LadyBug.Actors.PlayerMovementTuning.TickDuration)
@@ -279,7 +285,9 @@ public sealed partial class VegetableBonusRuntime : Node2D
     }
 
     /// <summary>
-    /// Clears vegetable and freeze state during death, transition, or game over pauses.
+    /// Clears vegetable and freeze state during board teardown / replacement states.
+    /// The visible end-level freeze uses a pause instead, so the board keeps
+    /// the exact visual state it had when the last progression collectible was consumed.
     /// </summary>
     private void ResetRuntimeState()
     {

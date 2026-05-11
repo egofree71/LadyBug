@@ -34,13 +34,29 @@ public partial class Level
 
         EnsureGameOverOverlayDriver();
 
-        if (_isGameOver || _isPlayerDeathSequenceActive || _isLevelTransitionScreenActive)
+        if (_isGameOver ||
+            _isPlayerDeathSequenceActive ||
+            _isEndLevelFreezeActive ||
+            _isLevelTransitionScreenActive)
+        {
             return;
+        }
 
         _pickupPopupState.Clear();
         ClearPickupPopupView();
         _isNextLevelQueuedAfterPopup = false;
-        StartLevelTransitionScreen(_levelNumber);
+
+        // This is the pre-level PART screen shown after the title screen.
+        // It must not use StartLevelTransitionScreen(...), because that method is
+        // now the post-clear flow: sound + two-second frozen board + PART screen.
+        // For a fresh game, there is no completed board to freeze, so show the
+        // PART overlay immediately before the first playable level starts.
+        _queuedNextLevelNumber = _levelNumber < 1 ? 1 : _levelNumber;
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
+        _simulationAccumulator = 0.0;
+
+        ShowLevelTransitionScreen();
     }
 
     /// <summary>

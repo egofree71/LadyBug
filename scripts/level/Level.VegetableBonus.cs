@@ -63,10 +63,22 @@ public partial class Level
 
     /// <summary>
     /// Returns true when the vegetable runtime should clear its local state.
+    /// This is used for real board teardown / replacement states, not for the
+    /// visible end-level freeze where the board should remain unchanged.
     /// </summary>
     internal bool VegetableSupport_ShouldResetBonusRuntime()
     {
         return _isGameOver || _isLevelTransitionScreenActive || _isPlayerDeathSequenceActive;
+    }
+
+    /// <summary>
+    /// Returns true when the vegetable runtime should pause without changing
+    /// its visible state. During the end-level freeze, a visible vegetable
+    /// should remain visible until the PART screen replaces the board.
+    /// </summary>
+    internal bool VegetableSupport_ShouldPauseBonusRuntime()
+    {
+        return _isEndLevelFreezeActive;
     }
 
     /// <summary>

@@ -17,6 +17,7 @@ public sealed partial class PickupSoundPlayer : Node
     private const string CollectiblePickupSoundPath = "res://assets/audio/collectible_pickup.wav";
     private const string GateRotatedSoundPath = "res://assets/audio/gate_rotated.wav";
     private const string VegetablePickupSoundPath = "res://assets/audio/vegetable_pickup.wav";
+    private const string EndLevelSoundPath = "res://assets/audio/end_level.wav";
     private const string TimerStepSoundPath = "res://assets/audio/timer.wav";
     private const string DeathSequenceSoundPath = "res://assets/audio/death_sequence.wav";
     private const string EnemyDeathSoundPath = "res://assets/audio/death_enemy.wav";
@@ -31,6 +32,9 @@ public sealed partial class PickupSoundPlayer : Node
     // than timer.wav finishes. Restarting or throttling stays cleaner than stacking.
     private const int TimerEffectMaxPolyphony = 1;
 
+    // Level-complete jingle should restart cleanly instead of stacking.
+    private const int EndLevelEffectMaxPolyphony = 1;
+
     // Player death should not overlap with itself.
     private const int DeathEffectMaxPolyphony = 1;
 
@@ -44,6 +48,7 @@ public sealed partial class PickupSoundPlayer : Node
     private AudioStreamPlayer? _collectiblePickupPlayer;
     private AudioStreamPlayer? _gateRotatedPlayer;
     private AudioStreamPlayer? _vegetablePickupPlayer;
+    private AudioStreamPlayer? _endLevelPlayer;
     private AudioStreamPlayer? _timerStepPlayer;
     private AudioStreamPlayer? _deathSequencePlayer;
     private AudioStreamPlayer? _enemyDeathPlayer;
@@ -118,6 +123,15 @@ public sealed partial class PickupSoundPlayer : Node
     {
         EnsurePlayers();
         Play(_vegetablePickupPlayer);
+    }
+
+    /// <summary>
+    /// Plays the sound used when a board has been completed and the between-level freeze begins.
+    /// </summary>
+    public void PlayEndLevel()
+    {
+        EnsurePlayers();
+        Restart(_endLevelPlayer);
     }
 
     /// <summary>
@@ -210,6 +224,11 @@ public sealed partial class PickupSoundPlayer : Node
             "VegetablePickupAudio",
             VegetablePickupSoundPath,
             NormalEffectMaxPolyphony);
+
+        _endLevelPlayer = CreatePlayer(
+            "EndLevelAudio",
+            EndLevelSoundPath,
+            EndLevelEffectMaxPolyphony);
 
         _timerStepPlayer = CreatePlayer(
             "TimerStepAudio",

@@ -65,6 +65,13 @@ public partial class Level : Node2D
     // Minimal game-over guard until proper screen flow exists.
     private bool _isGameOver;
 
+    // True while the board is frozen after the last progression collectible was consumed,
+    // before the PART transition screen becomes visible.
+    private bool _isEndLevelFreezeActive;
+
+    // Remaining fixed ticks for the post-clear frozen-board pause.
+    private int _endLevelFreezeTicksRemaining;
+
     // True while the simple between-level part screen is visible.
     private bool _isLevelTransitionScreenActive;
 
@@ -77,9 +84,14 @@ public partial class Level : Node2D
     // Remaining fixed ticks while the transition screen stays visible.
     private int _levelTransitionTicksRemaining;
 
+    // Duration of the frozen-board pause after a board clear.
+    // This is intentionally 120 fixed ticks: roughly 2 seconds at the arcade-like
+    // 60 Hz simulation cadence. The end-level sound starts at the beginning of this
+    // same pause, so the audible jingle is included in the 2-second freeze.
+    private const int EndLevelFreezeDurationTicks = 120;
+
     // Duration of the temporary between-level PART screen.
-    // Arcade reverse: 0xB4 frames = 180 frames, about 3 seconds at ~60.1145 Hz.
-    private const int LevelTransitionDurationTicks = 0xB4;
+    private const int LevelTransitionDurationTicks = 120;
 
     // Prototype counter for completed SPECIAL awards. Proper free-game / credit flow is not implemented yet.
     private int _specialAwardCount;
@@ -283,6 +295,7 @@ public partial class Level : Node2D
     {
         if (_isGameOver ||
             _isPlayerDeathSequenceActive ||
+            _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive)
         {
             return;
@@ -382,6 +395,8 @@ public partial class Level : Node2D
         _specialAwardCount = 0;
         _isPlayerDeathSequenceActive = false;
         _isGameOver = false;
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
         _isLevelTransitionScreenActive = false;
         _isNextLevelQueuedAfterPopup = false;
         _queuedNextLevelNumber = 0;
@@ -461,6 +476,12 @@ public partial class Level : Node2D
         if (_isGameOver)
             return;
 
+        if (_isEndLevelFreezeActive)
+        {
+            AdvanceEndLevelFreezeOneTick();
+            return;
+        }
+
         if (_isLevelTransitionScreenActive)
         {
             AdvanceLevelTransitionOneTick();
@@ -515,6 +536,29 @@ public partial class Level : Node2D
     }
 
     /// <summary>
+    /// Advances the frozen board pause that happens immediately after clearing a level.
+    /// </summary>
+    /// <remarks>
+    /// The current board stays visible during this pause: no player movement, no enemy
+    /// movement, no border timer and no color-cycle updates. When the pause finishes,
+    /// the normal PART transition screen is shown.
+    /// </remarks>
+    private void AdvanceEndLevelFreezeOneTick()
+    {
+        if (!_isEndLevelFreezeActive)
+            return;
+
+        _endLevelFreezeTicksRemaining--;
+
+        if (_endLevelFreezeTicksRemaining > 0)
+            return;
+
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
+        ShowLevelTransitionScreen();
+    }
+
+    /// <summary>
     /// Advances the current between-level screen by one gameplay tick.
     /// </summary>
     private void AdvanceLevelTransitionOneTick()
@@ -535,18 +579,46 @@ public partial class Level : Node2D
     /// </summary>
     private void StartLevelTransitionScreen(int nextLevelNumber)
     {
+        if (_isEndLevelFreezeActive || _isLevelTransitionScreenActive)
+            return;
+
+        _isNextLevelQueuedAfterPopup = false;
+        _queuedNextLevelNumber = Math.Max(1, nextLevelNumber);
+
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+
+        // First keep the current board visible and frozen for two seconds.
+        // The PART overlay is intentionally not shown yet: it appears only after
+        // this pause has elapsed.
+        _isEndLevelFreezeActive = true;
+        _endLevelFreezeTicksRemaining = EndLevelFreezeDurationTicks;
+        _simulationAccumulator = 0.0;
+
+        _soundPlayer?.PlayEndLevel();
+
+        if (_enemiesRoot != null)
+            _enemiesRoot.Visible = true;
+
+        if (_player != null)
+        {
+            _player.SetGameplaySpriteVisible(true);
+            _player.SynchronizeSceneFromGameplay();
+        }
+    }
+
+    /// <summary>
+    /// Shows the temporary PART screen after the post-clear board freeze has finished.
+    /// </summary>
+    private void ShowLevelTransitionScreen()
+    {
         if (_isLevelTransitionScreenActive)
             return;
 
         EnsureLevelTransitionOverlay();
 
-        _isNextLevelQueuedAfterPopup = false;
-        _queuedNextLevelNumber = Math.Max(1, nextLevelNumber);
         _isLevelTransitionScreenActive = true;
         _levelTransitionTicksRemaining = LevelTransitionDurationTicks;
-
-        _pickupPopupState.Clear();
-        ClearPickupPopupView();
 
         _levelTransitionOverlay?.ShowForUpcomingLevel(_queuedNextLevelNumber);
 
@@ -565,6 +637,8 @@ public partial class Level : Node2D
     /// </summary>
     private void CompleteLevelTransition()
     {
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
         _isLevelTransitionScreenActive = false;
         _levelTransitionOverlay?.HideOverlay();
 
@@ -584,6 +658,8 @@ public partial class Level : Node2D
         ClearPickupPopupView();
         _simulationAccumulator = 0.0;
         _isPlayerDeathSequenceActive = false;
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
         _isNextLevelQueuedAfterPopup = false;
 
         RebuildBoardForCurrentLevel();
@@ -654,6 +730,7 @@ public partial class Level : Node2D
         if (_player == null || _enemyRuntime == null ||
             _pickupPopupState.IsActive ||
             _isPlayerDeathSequenceActive ||
+            _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive ||
             _isGameOver)
         {
@@ -715,6 +792,7 @@ public partial class Level : Node2D
     {
         if (_pickupPopupState.IsActive ||
             _isPlayerDeathSequenceActive ||
+            _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive ||
             _isGameOver)
             return false;
@@ -797,6 +875,7 @@ public partial class Level : Node2D
     private void TryQueueNextLevelAfterBoardClear()
     {
         if (_collectibleField.HasRemainingProgressCollectibles() ||
+            _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive ||
             _isPlayerDeathSequenceActive ||
             _isGameOver)
@@ -929,6 +1008,8 @@ public partial class Level : Node2D
         _pickupPopupState.Clear();
         ClearPickupPopupView();
         _isNextLevelQueuedAfterPopup = false;
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
         _isLevelTransitionScreenActive = false;
         _levelTransitionOverlay?.HideOverlay();
 
@@ -964,6 +1045,8 @@ public partial class Level : Node2D
         _pickupPopupState.Clear();
         ClearPickupPopupView();
         _isNextLevelQueuedAfterPopup = false;
+        _isEndLevelFreezeActive = false;
+        _endLevelFreezeTicksRemaining = 0;
         _isLevelTransitionScreenActive = false;
         _levelTransitionOverlay?.HideOverlay();
 
