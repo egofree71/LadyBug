@@ -444,8 +444,10 @@ Enemy (Node2D)
 **Current role:**
 - lightweight visual node used by EnemyRuntime for each enemy slot
 - creates and owns the AnimatedSprite2D runtime child used to display the enemy
-- chooses a level-aware enemy spritesheet through EnemyLevelCatalog / EnemyLevelDefinition
+- chooses a slot-aware arcade enemy visual definition through EnemyLevelCatalog / EnemyLevelDefinition
 - currently supports assets/sprites/enemies/enemy_level1.png through enemy_level8.png
+- levels 1 through 8 use one insect type for all enemy slots
+- levels 9 and later select enemy visuals from both the current level number and the enemy slot id
 - keeps enemy rendering separate from enemy movement logic
 
 **Current visual setup:**
@@ -1080,15 +1082,31 @@ When the vegetable-freeze state is active, Level skips enemy movement updates bu
 - current direction
 - preferred direction
 - chase timer
+- arcade sprite code assigned to the slot
+- arcade sprite attribute / palette value assigned to the slot
 - runtime state
 - movement / collision flags
 - lair visibility flag
 
 **EnemyController** owns only the visual node for one enemy.
-It receives the current level visual definition, loads the matching enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
+It receives the slot-specific visual definition, loads the matching enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
 
-**EnemyLevelCatalog / EnemyLevelDefinition** map the current level number to the spritesheet and animation frame layout used by EnemyController.
-The current implementation provides enemy visual sheets for levels 1 through 8.
+**EnemyLevelCatalog / EnemyLevelDefinition** map the current level number and enemy slot id to the arcade sprite code, arcade attribute, spritesheet path, and animation frame layout used by EnemyController.
+The current implementation provides enemy visual sheets for the eight arcade insect types through assets/sprites/enemies/enemy_level1.png through enemy_level8.png.
+
+Current arcade sprite selection model:
+- levels 1 through 8 ignore the enemy slot and use one insect type for all four slots
+- levels 1 through 8 use explicit reverse-engineered tables:
+  - sprite codes = 18, 30, 60, 48, 78, 90, A8, C0
+  - attributes   = 01, 02, 04, 03, 05, 06, 07, 08
+- the level 3 / level 4 inversion is preserved: level 3 uses spriteCode 0x60 / attr 0x04, and level 4 uses spriteCode 0x48 / attr 0x03
+- levels 9 and later use the reverse-engineered slot formula:
+  - start = (level - 1) & 0x07
+  - if start >= 5, start -= 5
+  - n = start + enemySlot
+  - spriteCode = 0x18 + 0x18 * n
+  - attr = n + 1
+- current Godot spritesheets are stored by first visible level name, so spriteCode 0x48 maps to enemy_level4.png and spriteCode 0x60 maps to enemy_level3.png
 
 **EnemyNavigationGrid** builds an enemy navigation map from the static MazeGrid and the current GateSystem state.
 It stores allowed directions and BFS guidance directions separately.
@@ -1118,7 +1136,10 @@ Current implemented behavior:
 - one enemy is visible in the central lair before the first release
 - the visible waiting enemy is placed at logical cell (5, 5), using the enemy decision anchor X&0x0F=0x08 and Y&0x0F=0x06
 - enemies are released by the maze-border timer
-- enemy spritesheets are selected from the current level number for levels 1 through 8
+- enemy spritesheets are selected through the reverse-engineered arcade sprite/attribute rules
+- levels 1 through 8 use the same insect for all four enemy slots
+- levels 9 and later use the current level number plus enemy slot id to produce four different insects per level
+- each MonsterEntity stores the arcade-facing SpriteCode and SpriteAttribute values used to select its visual definition
 - after one enemy leaves the lair, another waiting enemy becomes visible if a slot is available
 - active enemies move one arcade pixel per fixed simulation tick
 - enemies make direction choices at decision centers
@@ -1143,7 +1164,52 @@ Current implemented behavior:
 - enemies can be frozen by the central vegetable bonus; while frozen, movement is skipped but collision remains fatal
 - enemies can be killed by skulls and return to the lair
 
-### 13.3 Player death from enemy
+### 13.3 Enemy visual selection by level and slot
+
+The current enemy visual selection follows the reverse-engineered arcade initialization logic from FUN_ram_3061 / FUN_ram_3087.
+
+For levels 1 through 8, all four enemy slots use the same insect type for the current level:
+
+```text
+Level 1 = spriteCode 18 / attr 01
+Level 2 = spriteCode 30 / attr 02
+Level 3 = spriteCode 60 / attr 04
+Level 4 = spriteCode 48 / attr 03
+Level 5 = spriteCode 78 / attr 05
+Level 6 = spriteCode 90 / attr 06
+Level 7 = spriteCode A8 / attr 07
+Level 8 = spriteCode C0 / attr 08
+```
+
+For levels 9 and later, the visual type depends on both the current level and the enemy slot id:
+
+```text
+start = (level - 1) & 0x07
+if start >= 5:
+    start -= 5
+
+n = start + enemySlot
+
+spriteCode = 0x18 + 0x18 * n
+attr       = n + 1
+```
+
+Validation examples:
+
+```text
+Level 9  : 18/01, 30/02, 48/03, 60/04
+Level 10 : 30/02, 48/03, 60/04, 78/05
+Level 13 : 78/05, 90/06, A8/07, C0/08
+Level 14 : 18/01, 30/02, 48/03, 60/04
+```
+
+Important mapping detail:
+- the natural arcade order is 18, 30, 48, 60, 78, 90, A8, C0
+- the first eight visible levels present level 3 and level 4 crossed relative to that natural order
+- therefore spriteCode 0x48 maps to assets/sprites/enemies/enemy_level4.png
+- spriteCode 0x60 maps to assets/sprites/enemies/enemy_level3.png
+
+### 13.4 Player death from enemy
 
 When the player touches an active enemy:
 - enemy views are hidden immediately before the red shrink / ghost death sequence starts
@@ -1165,7 +1231,7 @@ The attempt restart deliberately preserves:
 - SPECIAL / EXTRA progress
 - heart multiplier state
 
-### 13.4 Current enemy limitations
+### 13.5 Current enemy limitations
 
 The current enemy system is a first playable approximation.
 The following details are still approximate or not implemented yet:
@@ -1175,7 +1241,6 @@ The following details are still approximate or not implemented yet:
 - exact local door rejection behavior from the arcade routines
 - exact forced reversal semantics around rotating doors
 - full chase activation tables for all levels and DIP settings
-- exact enemy type rotation / visual reuse rules from level 9 onward
 - exact visual state progression for lair / release transitions
 
 ## 14. Rotating Gate System
@@ -1517,7 +1582,7 @@ The following is already implemented and functional:
 - collecting a bonus vegetable awards the current level vegetable bonus score
 - collecting a bonus vegetable freezes enemy movement temporarily
 - frozen enemies remain fatal on contact
-- enemy visuals can use level-specific spritesheets for levels 1 through 8
+- enemy visuals use the reverse-engineered arcade sprite/attribute selection rules, including four different enemy types per level from level 9 onward
 - all flowers, hearts and letters are now required for normal level clear
 - skulls do not block level clear
 - completing a board starts the next-level transition
@@ -1533,7 +1598,6 @@ The following is already implemented and functional:
 
 The following systems are still not implemented yet:
 
-- exact enemy type rotation from level 9 onward
 - title screen flow
 - gameplay screen / screen transition architecture
 - proper game-over screen flow
@@ -1582,6 +1646,5 @@ A reasonable current priority is now:
 7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
 8) decide the remake behavior for SPECIAL completion
 9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-10) refine later-level enemy visual rotation beyond level 8 if needed
-11) implement remaining screen-flow and persistence systems
-12) continue refining arcade fidelity only where reverse engineering or testing justifies it
+10) implement remaining screen-flow and persistence systems
+11) continue refining arcade fidelity only where reverse engineering or testing justifies it
