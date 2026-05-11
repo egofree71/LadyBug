@@ -256,7 +256,7 @@ public partial class TitleScreen : Node2D
     }
 
     /// <summary>
-    /// Accepts normal start inputs while preserving F12 for screenshots and F1 for debug usage.
+    /// Accepts normal start inputs while preserving function keys for gameplay debug usage.
     /// </summary>
     private static bool IsStartInput(InputEvent @event)
     {
@@ -265,7 +265,7 @@ public partial class TitleScreen : Node2D
             if (!keyEvent.Pressed || keyEvent.Echo)
                 return false;
 
-            return keyEvent.Keycode != Key.F1 && keyEvent.Keycode != Key.F12;
+            return keyEvent.Keycode != Key.F1 && keyEvent.Keycode != Key.F2 && keyEvent.Keycode != Key.F12;
         }
 
         if (@event is InputEventJoypadButton joypadButton)

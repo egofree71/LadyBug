@@ -31,6 +31,7 @@ public partial class LevelDebugShortcuts : Node
     /// Handles only function-key shortcuts that are meaningful during gameplay.
     ///
     /// F1 advances through the normal next-level transition path.
+    /// F2 simulates collecting all EXTRA letters while they are yellow.
     /// F12 saves the current viewport as a PNG screenshot.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
@@ -45,6 +46,10 @@ public partial class LevelDebugShortcuts : Node
         {
             case Key.F1:
                 AdvanceToNextLevel();
+                break;
+
+            case Key.F2:
+                CompleteExtraWordAsYellowLetters();
                 break;
 
             case Key.F12:
@@ -70,6 +75,20 @@ public partial class LevelDebugShortcuts : Node
         }
 
         _level.DebugAdvanceToNextLevel();
+    }
+
+    /// <summary>
+    /// Delegates the debug EXTRA-completion action to Level, which owns word and life state.
+    /// </summary>
+    private void CompleteExtraWordAsYellowLetters()
+    {
+        if (_level == null)
+        {
+            GD.PushWarning("LevelDebugShortcuts could not find its owning Level node.");
+            return;
+        }
+
+        _level.DebugCompleteExtraWordAsYellowLetters();
     }
 
     /// <summary>

@@ -307,6 +307,50 @@ public partial class Level : Node2D
 
         StartLevelTransitionScreen(_levelNumber + 1);
     }
+
+    /// <summary>
+    /// Simulates collecting every EXTRA letter while the collectible color is yellow.
+    /// </summary>
+    /// <remarks>
+    /// This is a gameplay debug shortcut used to test the extra-life award and the
+    /// spare-life HUD display without having to wait for the exact letter sequence
+    /// to appear during normal play. It intentionally touches only SPECIAL / EXTRA
+    /// word progress and the resulting life award: it does not consume board
+    /// collectibles, add letter score, or show pickup popups.
+    ///
+    /// EXTRA is reset before the simulated sequence, then reset again by the normal
+    /// completion path after the life is awarded. This keeps the debug shortcut
+    /// faithful to the repeatable EXTRA-award rule even when partial EXTRA progress
+    /// already exists.
+    /// </remarks>
+    public void DebugCompleteExtraWordAsYellowLetters()
+    {
+        if (_isGameOver ||
+            _isPlayerDeathSequenceActive ||
+            _isEndLevelFreezeActive ||
+            _isLevelTransitionScreenActive)
+        {
+            return;
+        }
+
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+        _isNextLevelQueuedAfterPopup = false;
+
+        // Start from a clean EXTRA word before replaying the full yellow-letter
+        // sequence. Otherwise, if one of the later letters is already active,
+        // completion can happen before the debug loop reaches the final A; the
+        // normal completion path then resets EXTRA, and the remaining loop item
+        // would reactivate a letter immediately after the award.
+        _wordProgressState.ResetExtra();
+        _hud?.SetWordProgress(_wordProgressState);
+
+        foreach (LetterKind letter in WordProgressState.ExtraWordLetters)
+            ApplyLetterWordProgress(letter, CollectibleColor.Yellow);
+
+        _hud?.SetWordProgress(_wordProgressState);
+    }
+
     /// <summary>
     /// Builds all runtime-only board systems after the scene nodes have been resolved.
     /// </summary>
@@ -901,8 +945,9 @@ public partial class Level : Node2D
     /// <remarks>
     /// Red letters can progress SPECIAL, yellow letters can progress EXTRA, and blue
     /// letters are points-only. When EXTRA completes, the current player gains one
-    /// life immediately. SPECIAL currently records a placeholder award because free
-    /// credit / free game flow is not implemented yet.
+    /// life immediately, then clears EXTRA so the next extra-life award requires
+    /// collecting the full word again. SPECIAL currently records a placeholder award
+    /// because free credit / free game flow is not implemented yet.
     /// </remarks>
     private void ApplyLetterWordProgress(LetterKind letter, CollectibleColor color)
     {
@@ -917,8 +962,10 @@ public partial class Level : Node2D
         if (wordResult.CompletedWord == WordCompletionKind.Extra)
         {
             _lifeState.AddLife();
+            _wordProgressState.ResetExtra();
             _hud?.SetLives(_lifeState.Lives);
-            GD.Print("EXTRA completed: awarded one extra life. Level transition is not implemented yet.");
+            _hud?.SetWordProgress(_wordProgressState);
+            GD.Print("EXTRA completed: awarded one extra life and reset EXTRA progress. Level transition is not implemented yet.");
         }
         else if (wordResult.CompletedWord == WordCompletionKind.Special)
         {
