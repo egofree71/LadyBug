@@ -84,6 +84,20 @@ public partial class Level : Node2D
     // Remaining fixed ticks while the transition screen stays visible.
     private int _levelTransitionTicksRemaining;
 
+    // True while the rightmost HUD life icon is travelling into the player start
+    // position. Normal board simulation is frozen until this short sequence ends.
+    private bool _isPlayerEntryAnimationActive;
+
+    // True only for transitions that must spawn a fresh playable life from the HUD.
+    // This happens when a new game starts from the title screen, but not when the
+    // player clears a board and continues to the next part with the same active life.
+    private bool _shouldPlayPlayerEntryAnimationAfterTransition;
+
+    // True only while the pre-game PART screen is visible before level 1.
+    // MAME shows all available lives there, unlike later PART screens where the
+    // active life is already considered to be carried forward to the next maze.
+    private bool _isInitialLevelTransitionScreen;
+
     // Duration of the frozen-board pause after a board clear.
     // This is intentionally 120 fixed ticks: roughly 2 seconds at the arcade-like
     // 60 Hz simulation cadence. The end-level sound starts at the beginning of this
@@ -295,6 +309,7 @@ public partial class Level : Node2D
     {
         if (_isGameOver ||
             _isPlayerDeathSequenceActive ||
+            _isPlayerEntryAnimationActive ||
             _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive)
         {
@@ -327,6 +342,7 @@ public partial class Level : Node2D
     {
         if (_isGameOver ||
             _isPlayerDeathSequenceActive ||
+            _isPlayerEntryAnimationActive ||
             _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive)
         {
@@ -445,8 +461,11 @@ public partial class Level : Node2D
         _isNextLevelQueuedAfterPopup = false;
         _queuedNextLevelNumber = 0;
         _levelTransitionTicksRemaining = 0;
+        _isPlayerEntryAnimationActive = false;
+        _shouldPlayPlayerEntryAnimationAfterTransition = false;
 
         _hud?.SetScore(_scoreState.Score);
+        _hud?.SetCurrentLifeInMaze(true);
         _hud?.SetLives(_lifeState.Lives);
         _hud?.SetWordProgress(_wordProgressState);
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
@@ -535,6 +554,12 @@ public partial class Level : Node2D
         if (_isPlayerDeathSequenceActive)
         {
             AdvancePlayerDeathOneTick();
+            return;
+        }
+
+        if (_isPlayerEntryAnimationActive)
+        {
+            AdvancePlayerEntryAnimationOneTick();
             return;
         }
 
@@ -628,7 +653,10 @@ public partial class Level : Node2D
 
         _isNextLevelQueuedAfterPopup = false;
         _queuedNextLevelNumber = Math.Max(1, nextLevelNumber);
+        _shouldPlayPlayerEntryAnimationAfterTransition = false;
+        _isInitialLevelTransitionScreen = false;
 
+        CancelPlayerEntryAnimation();
         _pickupPopupState.Clear();
         ClearPickupPopupView();
 
@@ -666,6 +694,13 @@ public partial class Level : Node2D
 
         _levelTransitionOverlay?.ShowForUpcomingLevel(_queuedNextLevelNumber);
 
+        // MAME has a slightly asymmetric HUD rule:
+        // - before PART 1, the HUD shows the full starting stock of ladybugs;
+        // - on later PART screens, the active ladybug is carried to the next maze,
+        //   so the HUD still shows only reserve lives.
+        _hud?.SetCurrentLifeInMaze(!_isInitialLevelTransitionScreen);
+        _hud?.SetLives(_lifeState.Lives);
+
         if (_player != null)
         {
             _player.SetGameplaySpriteVisible(false);
@@ -690,7 +725,14 @@ public partial class Level : Node2D
         _queuedNextLevelNumber = 0;
         _levelTransitionTicksRemaining = 0;
 
+        bool shouldPlayEntry = _shouldPlayPlayerEntryAnimationAfterTransition;
+        _shouldPlayPlayerEntryAnimationAfterTransition = false;
+        _isInitialLevelTransitionScreen = false;
+
         RebuildBoardForNextLevel();
+
+        if (shouldPlayEntry)
+            StartPlayerEntryAnimation();
     }
 
     /// <summary>
@@ -715,6 +757,7 @@ public partial class Level : Node2D
         _player?.SetGameplaySpriteVisible(true);
 
         _hud?.SetScore(_scoreState.Score);
+        _hud?.SetCurrentLifeInMaze(true);
         _hud?.SetLives(_lifeState.Lives);
         _hud?.SetWordProgress(_wordProgressState);
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
@@ -1040,6 +1083,89 @@ public partial class Level : Node2D
         _pickupPopupView = null;
     }
 
+    // --- Player Entry Animation -------------------------------------------
+
+    /// <summary>
+    /// Starts the HUD-to-player life-entry animation and freezes gameplay until it finishes.
+    /// </summary>
+    /// <remarks>
+    /// The HUD owns the temporary moving sprite because it already owns the life
+    /// icons. The Level owns the gameplay freeze because the animation must pause
+    /// player movement, enemy movement, the border timer, and the collectible color cycle.
+    /// </remarks>
+    private void StartPlayerEntryAnimation()
+    {
+        _isPlayerEntryAnimationActive = false;
+
+        if (_player == null || _hud == null)
+        {
+            _player?.SetGameplaySpriteVisible(true);
+            return;
+        }
+
+        Vector2 targetCenter = GetPlayerEntryTargetCanvasPosition();
+
+        // Entry always starts from the full set of available HUD lives. If the
+        // animation cannot start for any reason, gameplay still begins with the
+        // player in the maze, so the HUD falls back to reserve-life display.
+        _hud.SetCurrentLifeInMaze(false);
+        _hud.SetLives(_lifeState.Lives);
+
+        if (!_hud.TryStartLifeEntryAnimation(targetCenter))
+        {
+            _hud.SetCurrentLifeInMaze(true);
+            _hud.SetLives(_lifeState.Lives);
+            _player.SetGameplaySpriteVisible(true);
+            return;
+        }
+
+        _isPlayerEntryAnimationActive = true;
+        _simulationAccumulator = 0.0;
+        _player.SetGameplaySpriteVisible(false);
+        _player.SynchronizeSceneFromGameplay();
+    }
+
+    /// <summary>
+    /// Advances the active life-entry animation by one fixed simulation tick.
+    /// </summary>
+    private void AdvancePlayerEntryAnimationOneTick()
+    {
+        bool finished = _hud == null || _hud.AdvanceLifeEntryAnimationOneTick();
+        if (!finished)
+            return;
+
+        _isPlayerEntryAnimationActive = false;
+        _simulationAccumulator = 0.0;
+        _hud?.SetCurrentLifeInMaze(true);
+        _hud?.SetLives(_lifeState.Lives);
+        _player?.SetGameplaySpriteVisible(true);
+        _player?.SynchronizeSceneFromGameplay();
+    }
+
+    /// <summary>
+    /// Cancels the life-entry animation if another higher-priority state starts.
+    /// </summary>
+    private void CancelPlayerEntryAnimation()
+    {
+        if (!_isPlayerEntryAnimationActive && _hud?.IsLifeEntryAnimationActive != true)
+            return;
+
+        _isPlayerEntryAnimationActive = false;
+        _hud?.CancelLifeEntryAnimation();
+    }
+
+    /// <summary>
+    /// Returns the player sprite center position in canvas coordinates for the HUD animation target.
+    /// </summary>
+    private Vector2 GetPlayerEntryTargetCanvasPosition()
+    {
+        Vector2 localTarget =
+            LogicalCellToScenePosition(PlayerStartCell) +
+            ArcadeDeltaToSceneDelta(PlayerMovementTuning.SpriteRenderOffsetVerticalArcade);
+
+        return ToGlobal(localTarget);
+    }
+
     // --- Player Life / Death ----------------------------------------------
 
     /// <summary>
@@ -1054,6 +1180,7 @@ public partial class Level : Node2D
     {
         _pickupPopupState.Clear();
         ClearPickupPopupView();
+        CancelPlayerEntryAnimation();
         _isNextLevelQueuedAfterPopup = false;
         _isEndLevelFreezeActive = false;
         _endLevelFreezeTicksRemaining = 0;
@@ -1067,6 +1194,11 @@ public partial class Level : Node2D
         _enemyRuntime?.HideAllViewsForPlayerDeathSequence();
 
         _lifeState.LoseLife();
+
+        // The active life has just been consumed by the death sequence. The HUD
+        // must now show all remaining reserve lives, not `Lives - 1`, until one
+        // of those lives enters the maze after the death animation.
+        _hud?.SetCurrentLifeInMaze(false);
         _hud?.SetLives(_lifeState.Lives);
 
         _soundPlayer?.PlayDeathSequenceStart();
@@ -1091,6 +1223,7 @@ public partial class Level : Node2D
         // icon disappears before the red shrink / ghost death animation starts.
         _pickupPopupState.Clear();
         ClearPickupPopupView();
+        CancelPlayerEntryAnimation();
         _isNextLevelQueuedAfterPopup = false;
         _isEndLevelFreezeActive = false;
         _endLevelFreezeTicksRemaining = 0;
@@ -1100,6 +1233,11 @@ public partial class Level : Node2D
         _collectibleField.ClearSkulls();
 
         _lifeState.LoseLife();
+
+        // The active life has just been consumed by the death sequence. The HUD
+        // must now show all remaining reserve lives, not `Lives - 1`, until one
+        // of those lives enters the maze after the death animation.
+        _hud?.SetCurrentLifeInMaze(false);
         _hud?.SetLives(_lifeState.Lives);
 
         _soundPlayer?.PlayDeathSequenceStart();
@@ -1138,6 +1276,7 @@ public partial class Level : Node2D
 
         RestartBoardAttemptAfterPlayerDeath();
         _player?.RespawnAtStartCell();
+        StartPlayerEntryAnimation();
     }
 
     /// <summary>

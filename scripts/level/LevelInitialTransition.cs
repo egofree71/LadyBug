@@ -36,6 +36,7 @@ public partial class Level
 
         if (_isGameOver ||
             _isPlayerDeathSequenceActive ||
+            _isPlayerEntryAnimationActive ||
             _isEndLevelFreezeActive ||
             _isLevelTransitionScreenActive)
         {
@@ -44,7 +45,10 @@ public partial class Level
 
         _pickupPopupState.Clear();
         ClearPickupPopupView();
+        CancelPlayerEntryAnimation();
         _isNextLevelQueuedAfterPopup = false;
+        _shouldPlayPlayerEntryAnimationAfterTransition = true;
+        _isInitialLevelTransitionScreen = true;
 
         // This is the pre-level PART screen shown after the title screen.
         // It must not use StartLevelTransitionScreen(...), because that method is

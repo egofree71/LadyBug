@@ -46,6 +46,22 @@ public partial class Hud : CanvasLayer
     private const string DefaultLifeIconTexturePath = "res://assets/sprites/player/ladybug_spritesheet.png";
     private const int LifeIconFrameSize = 64;
 
+    // Runtime-only sprite drawn above the HUD while one life icon enters the maze.
+    private const int LifeEntryAnimationZIndex = 300;
+
+    // The entry path is driven by the Level fixed tick. The player moves one
+    // arcade pixel per tick; with the current 4x render scale that is four scene
+    // pixels per tick. This keeps the entry ladybug at the same movement speed as
+    // the playable ladybug.
+    private const float DefaultLifeEntryAnimationScenePixelsPerTick = 4.0f;
+
+    private enum LifeEntryAnimationPhase
+    {
+        None,
+        Horizontal,
+        Vertical
+    }
+
     /// <summary>
     /// Gets or sets the path to the score label.
     /// </summary>
@@ -127,6 +143,19 @@ public partial class Hud : CanvasLayer
     [Export]
     public Vector2 LifeIconOffset { get; set; } = Vector2.Zero;
 
+    /// <summary>
+    /// Gets or sets the distance travelled by the entering life icon on each fixed
+    /// simulation tick, in rendered scene pixels.
+    /// </summary>
+    [Export]
+    public float LifeEntryAnimationScenePixelsPerTick { get; set; } = DefaultLifeEntryAnimationScenePixelsPerTick;
+
+    /// <summary>
+    /// Gets or sets the animation speed used by the temporary entering ladybug sprite.
+    /// </summary>
+    [Export]
+    public float LifeEntryAnimationFramesPerSecond { get; set; } = 12.0f;
+
     private Label? _scoreLabel;
     private Label? _livesLabel;
     private RichTextLabel? _specialWordLabel;
@@ -138,6 +167,24 @@ public partial class Hud : CanvasLayer
     private string _loadedLifeIconTexturePath = string.Empty;
     private int _loadedLifeIconFrameIndex = int.MinValue;
     private bool _lifeIconTextureWarningShown;
+
+    private AnimatedSprite2D? _lifeEntrySprite;
+    private LifeEntryAnimationPhase _lifeEntryAnimationPhase = LifeEntryAnimationPhase.None;
+    private Vector2 _lifeEntryHorizontalTarget;
+    private Vector2 _lifeEntryFinalTarget;
+    private int _lifeEntryHiddenSourceIconIndex = -1;
+    private bool _lifeEntryAnimationWarningShown;
+
+    // True while the current playable life is represented by the player sprite in
+    // the maze. In that state, the HUD displays only reserve lives. During PART
+    // screens and after a death has consumed the active life, every remaining
+    // available life is displayed in the HUD.
+    private bool _isCurrentLifeInMaze = true;
+
+    /// <summary>
+    /// Gets whether a HUD life icon is currently travelling into the playfield.
+    /// </summary>
+    public bool IsLifeEntryAnimationActive => _lifeEntrySprite != null;
 
     // Last known values are cached so _Ready can safely reapply them if the HUD
     // enters the scene after Level has already called one of the setter methods.
@@ -208,6 +255,23 @@ public partial class Hud : CanvasLayer
     }
 
     /// <summary>
+    /// Controls whether the current life is already represented by the player sprite in the maze.
+    /// </summary>
+    /// <remarks>
+    /// When <paramref name="isInMaze"/> is true, the HUD shows only reserve lives
+    /// because one life is currently being played. When it is false, every remaining
+    /// available life is shown in the HUD. This matches the arcade flow: PART screens
+    /// show all available ladybugs, then the rightmost one leaves the HUD and becomes
+    /// the playable character.
+    /// </remarks>
+    /// <param name="isInMaze">Whether the current available life is already in the maze.</param>
+    public void SetCurrentLifeInMaze(bool isInMaze)
+    {
+        _isCurrentLifeInMaze = isInMaze;
+        UpdateLifeIconDisplay();
+    }
+
+    /// <summary>
     /// Updates the SPECIAL and EXTRA word displays from the current word progress state.
     /// </summary>
     /// <param name="wordProgress">Semantic progress through both bonus words.</param>
@@ -233,6 +297,117 @@ public partial class Hud : CanvasLayer
         _lastMultiplierStep = Math.Clamp(multiplierStep, 0, 3);
         _lastMultipliersText = BuildMultipliersText(_lastMultiplierStep);
         ApplyRichText(_multipliersLabel, _lastMultipliersText);
+    }
+
+    /// <summary>
+    /// Starts the arcade-style entry animation from the slot occupied by the
+    /// current playable life.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SetLives"/> receives the total semantic life count, including
+    /// the active player life. The static HUD icons show only reserve lives, so
+    /// the moving sprite starts from the next slot to the right of the reserves.
+    /// Example: with 3 total lives, 2 static HUD icons remain and the 3rd icon
+    /// enters the maze as the current player.
+    /// </remarks>
+    /// <param name="targetCenterScenePosition">Target sprite-center position in viewport / canvas coordinates.</param>
+    /// <returns><see langword="true"/> when the animation was started.</returns>
+    public bool TryStartLifeEntryAnimation(Vector2 targetCenterScenePosition)
+    {
+        CancelLifeEntryAnimation();
+
+        if (_livesLabel == null)
+            return false;
+
+        int maxVisibleIcons = Math.Max(0, MaxVisibleLifeIcons);
+        int totalLives = Math.Max(0, _lastLives);
+
+        if (totalLives <= 0 || maxVisibleIcons <= 0)
+            return false;
+
+        // Before the entry starts, all remaining lives are available in the HUD.
+        // The moving sprite is cloned from the rightmost available icon.
+        _isCurrentLifeInMaze = false;
+        UpdateLifeIconDisplay();
+
+        int sourceIconIndex = Math.Clamp(totalLives - 1, 0, maxVisibleIcons - 1);
+        if (sourceIconIndex < 0 || sourceIconIndex >= _lifeIconViews.Count)
+            return false;
+
+        Texture2D? sheetTexture = LoadLifeIconSheetTexture();
+        if (sheetTexture == null)
+            return false;
+
+        TextureRect sourceIcon = _lifeIconViews[sourceIconIndex];
+        Vector2 sourceCenter = GetLifeIconCenter(sourceIcon, sourceIconIndex);
+
+        // Hide the exact HUD slot that visually becomes the travelling sprite.
+        // This matters when the life counter is higher than MaxVisibleLifeIcons:
+        // the reserve-life count is still capped at the maximum, so without this
+        // explicit hidden slot the rightmost icon would remain visible underneath
+        // its moving clone for the whole entry animation.
+        _lifeEntryHiddenSourceIconIndex = sourceIconIndex;
+
+        _lifeEntryHorizontalTarget = new Vector2(targetCenterScenePosition.X, sourceCenter.Y);
+        _lifeEntryFinalTarget = targetCenterScenePosition;
+        _lifeEntryAnimationPhase = LifeEntryAnimationPhase.Horizontal;
+
+        _lifeEntrySprite = CreateLifeEntrySprite(sheetTexture);
+        _lifeEntrySprite.Position = sourceCenter;
+        AddChild(_lifeEntrySprite);
+
+        // The rightmost HUD icon is now in transit, so the static HUD immediately
+        // switches back to reserve-life display while the clone moves into the maze.
+        _isCurrentLifeInMaze = true;
+
+        ApplyLifeEntrySpriteFacing(_lifeEntryHorizontalTarget);
+        UpdateLifeIconDisplay();
+        return true;
+    }
+
+    /// <summary>
+    /// Advances the active life-entry animation by one fixed gameplay tick.
+    /// </summary>
+    /// <returns><see langword="true"/> when the animation is finished or inactive.</returns>
+    public bool AdvanceLifeEntryAnimationOneTick()
+    {
+        if (_lifeEntrySprite == null)
+            return true;
+
+        Vector2 target = _lifeEntryAnimationPhase == LifeEntryAnimationPhase.Horizontal
+            ? _lifeEntryHorizontalTarget
+            : _lifeEntryFinalTarget;
+
+        float stepDistance = Math.Max(1.0f, LifeEntryAnimationScenePixelsPerTick);
+        _lifeEntrySprite.Position = MoveTowards(_lifeEntrySprite.Position, target, stepDistance);
+
+        if (!HasReached(_lifeEntrySprite.Position, target))
+            return false;
+
+        if (_lifeEntryAnimationPhase == LifeEntryAnimationPhase.Horizontal)
+        {
+            _lifeEntryAnimationPhase = LifeEntryAnimationPhase.Vertical;
+            ApplyLifeEntrySpriteFacing(_lifeEntryFinalTarget);
+            return false;
+        }
+
+        CancelLifeEntryAnimation();
+        return true;
+    }
+
+    /// <summary>
+    /// Stops the life-entry animation. The travelling icon is not restored as a
+    /// reserve icon because it has become the active player life in the maze.
+    /// </summary>
+    public void CancelLifeEntryAnimation()
+    {
+        if (_lifeEntrySprite != null && GodotObject.IsInstanceValid(_lifeEntrySprite))
+            _lifeEntrySprite.QueueFree();
+
+        _lifeEntrySprite = null;
+        _lifeEntryAnimationPhase = LifeEntryAnimationPhase.None;
+        _lifeEntryHiddenSourceIconIndex = -1;
+        UpdateLifeIconDisplay();
     }
 
     /// <summary>
@@ -299,7 +474,7 @@ public partial class Hud : CanvasLayer
     }
 
     /// <summary>
-    /// Renders one static coccinelle icon per visible life, capped to MaxVisibleLifeIcons.
+    /// Renders the static coccinelle icons for the current HUD phase, capped to MaxVisibleLifeIcons.
     /// </summary>
     private void UpdateLifeIconDisplay()
     {
@@ -312,7 +487,7 @@ public partial class Hud : CanvasLayer
         _livesLabel.TextureFilter = CanvasItem.TextureFilterEnum.Nearest;
 
         int maxVisibleIcons = Math.Max(0, MaxVisibleLifeIcons);
-        int visibleLives = Math.Clamp(_lastLives, 0, maxVisibleIcons);
+        int visibleLives = GetVisibleLifeIconCount(maxVisibleIcons);
 
         EnsureLifeIconTexture();
         EnsureLifeIconViews(maxVisibleIcons);
@@ -320,7 +495,9 @@ public partial class Hud : CanvasLayer
         for (int i = 0; i < _lifeIconViews.Count; i++)
         {
             TextureRect icon = _lifeIconViews[i];
-            bool visible = i < visibleLives && _lifeIconTexture != null;
+            bool visible = i < visibleLives
+                && _lifeIconTexture != null
+                && i != _lifeEntryHiddenSourceIconIndex;
 
             icon.Visible = visible;
             icon.Texture = _lifeIconTexture;
@@ -328,6 +505,20 @@ public partial class Hud : CanvasLayer
             icon.Size = LifeIconSize;
             icon.CustomMinimumSize = LifeIconSize;
         }
+    }
+
+
+    /// <summary>
+    /// Converts the semantic life counter to the number of icons visible in the
+    /// current HUD phase.
+    /// </summary>
+    private int GetVisibleLifeIconCount(int maxVisibleIcons)
+    {
+        int visibleLives = _isCurrentLifeInMaze
+            ? Math.Max(0, _lastLives - 1)
+            : Math.Max(0, _lastLives);
+
+        return Math.Clamp(visibleLives, 0, maxVisibleIcons);
     }
 
     /// <summary>
@@ -419,6 +610,142 @@ public partial class Hud : CanvasLayer
             _livesLabel.AddChild(icon);
             _lifeIconViews.Add(icon);
         }
+    }
+
+    /// <summary>
+    /// Loads the full player spritesheet used by the temporary entry animation.
+    /// </summary>
+    private Texture2D? LoadLifeIconSheetTexture()
+    {
+        string texturePath = string.IsNullOrWhiteSpace(LifeIconTexturePath)
+            ? DefaultLifeIconTexturePath
+            : LifeIconTexturePath;
+
+        Texture2D? sheetTexture = ResourceLoader.Load<Texture2D>(texturePath);
+        if (sheetTexture != null)
+            return sheetTexture;
+
+        if (!_lifeEntryAnimationWarningShown)
+        {
+            GD.PushWarning($"[Hud] Could not start life-entry animation because '{texturePath}' could not be loaded.");
+            _lifeEntryAnimationWarningShown = true;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Computes the center of one HUD life icon in canvas coordinates.
+    /// </summary>
+    private Vector2 GetLifeIconCenter(TextureRect icon, int iconIndex)
+    {
+        if (icon.Size != Vector2.Zero)
+            return icon.GlobalPosition + icon.Size * 0.5f;
+
+        if (_livesLabel != null)
+        {
+            return _livesLabel.GlobalPosition +
+                   LifeIconOffset +
+                   new Vector2(iconIndex * LifeIconSpacing, 0.0f) +
+                   LifeIconSize * 0.5f;
+        }
+
+        return LifeIconOffset + LifeIconSize * 0.5f;
+    }
+
+    /// <summary>
+    /// Creates the temporary animated ladybug sprite used only during entry.
+    /// </summary>
+    private AnimatedSprite2D CreateLifeEntrySprite(Texture2D texture)
+    {
+        AnimatedSprite2D sprite = new()
+        {
+            Name = "LifeEntrySprite",
+            Centered = true,
+            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            ZAsRelative = false,
+            ZIndex = LifeEntryAnimationZIndex
+        };
+
+        float animationSpeed = Math.Max(1.0f, LifeEntryAnimationFramesPerSecond);
+        SpriteFrames frames = new();
+        AddAnimation(frames, "move_right", texture, animationSpeed, 1, 0, 2);
+        AddAnimation(frames, "move_up", texture, animationSpeed, 3, 4, 5);
+
+        sprite.SpriteFrames = frames;
+        sprite.Animation = "move_right";
+        return sprite;
+    }
+
+    /// <summary>
+    /// Selects the temporary sprite animation and mirroring for the current segment.
+    /// </summary>
+    private void ApplyLifeEntrySpriteFacing(Vector2 target)
+    {
+        if (_lifeEntrySprite == null)
+            return;
+
+        Vector2 delta = target - _lifeEntrySprite.Position;
+        _lifeEntrySprite.FlipH = false;
+        _lifeEntrySprite.FlipV = false;
+
+        if (Math.Abs(delta.X) >= Math.Abs(delta.Y) && Math.Abs(delta.X) > 0.01f)
+        {
+            _lifeEntrySprite.Play("move_right");
+            _lifeEntrySprite.FlipH = delta.X < 0.0f;
+        }
+        else
+        {
+            _lifeEntrySprite.Play("move_up");
+            _lifeEntrySprite.FlipV = delta.Y > 0.0f;
+        }
+    }
+
+    /// <summary>
+    /// Adds one looping animation from three frame indexes in the player spritesheet.
+    /// </summary>
+    private static void AddAnimation(SpriteFrames frames, string animationName, Texture2D texture, float speed, int frame0, int frame1, int frame2)
+    {
+        frames.AddAnimation(animationName);
+        frames.SetAnimationLoop(animationName, true);
+        frames.SetAnimationSpeed(animationName, speed);
+        frames.AddFrame(animationName, MakeAtlasTexture(texture, frame0));
+        frames.AddFrame(animationName, MakeAtlasTexture(texture, frame1));
+        frames.AddFrame(animationName, MakeAtlasTexture(texture, frame2));
+    }
+
+    /// <summary>
+    /// Returns one 64x64 atlas frame from the horizontal player spritesheet.
+    /// </summary>
+    private static AtlasTexture MakeAtlasTexture(Texture2D texture, int frameIndex)
+    {
+        return new AtlasTexture
+        {
+            Atlas = texture,
+            Region = new Rect2(frameIndex * LifeIconFrameSize, 0, LifeIconFrameSize, LifeIconFrameSize)
+        };
+    }
+
+    /// <summary>
+    /// Moves a point toward a target without overshooting.
+    /// </summary>
+    private static Vector2 MoveTowards(Vector2 current, Vector2 target, float maxDistanceDelta)
+    {
+        Vector2 delta = target - current;
+        float distance = delta.Length();
+
+        if (distance <= maxDistanceDelta || distance <= 0.0001f)
+            return target;
+
+        return current + delta / distance * maxDistanceDelta;
+    }
+
+    /// <summary>
+    /// Checks whether a moving point has reached its current target.
+    /// </summary>
+    private static bool HasReached(Vector2 current, Vector2 target)
+    {
+        return current.DistanceSquaredTo(target) <= 0.01f;
     }
 
     /// <summary>
