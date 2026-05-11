@@ -50,8 +50,10 @@ scenes/
 │  ├─ Level.tscn
 │  ├─ MazeBorderTimer.tscn
 │  └─ RotatingGate.tscn
-└─ player/
-   └─ Player.tscn
+├─ player/
+│  └─ Player.tscn
+└─ ui/
+   └─ TitleScreen.tscn
 ```
 
 **Important currently used scripts:**
@@ -74,6 +76,10 @@ scripts/
 │  ├─ PlayerTurnWindowDecision.cs
 │  ├─ PlayerTurnWindowMaps.cs
 │  └─ PlayerTurnWindowResolver.cs
+├─ audio/
+│  └─ PickupSoundPlayer.cs
+├─ debug/
+│  └─ LevelDebugShortcuts.cs
 ├─ gameplay/
 │  ├─ collectibles/
 │  │  ├─ CollectibleAnchorFamilies.cs
@@ -89,6 +95,7 @@ scripts/
 │  │  ├─ CollectibleSpawnPlan.cs
 │  │  ├─ CollectibleSpawnPlanner.cs
 │  │  ├─ LetterKind.cs
+│  │  ├─ VegetableBonusCatalog.cs
 │  │  └─ WordProgressState.cs
 │  ├─ enemies/
 │  │  ├─ EnemyBasePreferenceSystem.cs
@@ -138,13 +145,19 @@ scripts/
 │  ├─ CollectibleFieldRuntime.cs
 │  ├─ CollectiblePickupPopupView.cs
 │  ├─ Level.cs
-│  ├─ LevelTransitionOverlay.cs
+│  ├─ Level.VegetableBonus.cs
 │  ├─ LevelCoordinateSystem.cs
+│  ├─ LevelGameOverOverlay.cs
 │  ├─ LevelGateRuntime.cs
+│  ├─ LevelInitialTransition.cs
+│  ├─ LevelTransitionOverlay.cs
 │  ├─ MazeBorderTimerView.cs
-│  └─ RotatingGateView.cs
+│  ├─ RotatingGateView.cs
+│  ├─ VegetableBonusRuntime.cs
+│  └─ VegetableBonusView.cs
 └─ ui/
-   └─ Hud.cs
+   ├─ Hud.cs
+   └─ TitleScreen.cs
 ```
 
 **Important current data files:**
@@ -163,12 +176,15 @@ doc/
 ├─ current_implementation.md
 ├─ collectibles_reverse_engineering.md
 ├─ enemy_movement.md
-├─ player_movement.md
-└─ reverse_engineering.txt
+├─ enemy_sprite_selection.md
+├─ gameplay_timers_reverse_engineering.md
+├─ maze_reverse_engineering.md
+└─ player_movement.md
 ```
 
 **Important currently used visual assets:**
 - assets/images/maze_background.png
+- assets/images/title_lady_bug_logo.png
 - assets/sprites/player/lady_bug_spritesheet.png
 - assets/sprites/player/player_dead_red.png
 - assets/sprites/player/player_dead_ghost.png
@@ -184,6 +200,15 @@ doc/
 - assets/sprites/props/vegetables.png
 - assets/sprites/props/maze_border_timer_tiles.png
 - assets/sprites/props/rotating_gate.png
+- assets/audio/collectible_pickup.wav
+- assets/audio/death_enemy.wav
+- assets/audio/death_sequence.wav
+- assets/audio/end_level.wav
+- assets/audio/enemy_exit.wav
+- assets/audio/flower_pickup.wav
+- assets/audio/gate_rotated.wav
+- assets/audio/timer.wav
+- assets/audio/vegetable_pickup.wav
 
 ## 3. Current Scene Structure
 
@@ -196,7 +221,6 @@ doc/
 
 ```text
 Main (Node)
-└─ Level (instance of scenes/level/Level.tscn)
 ```
 
 **Current script:**
@@ -204,9 +228,33 @@ Main (Node)
 
 **Current role:**
 - application entry point
-- currently still minimal
-- instantiates the Level scene directly
-- does not yet manage screen flow or gameplay states
+- owns the coarse screen flow
+- starts on the title screen
+- instantiates a fresh Level scene when the title screen requests the game start
+- attaches the gameplay-only function-key debug shortcut node under Level when debugging is enabled and the Level scene option allows it
+- returns to the title screen after the Level game-over overlay has completed
+
+### 3.1.1 Title screen
+
+**Scene:**
+- scenes/ui/TitleScreen.tscn
+
+**Current structure:**
+
+```text
+TitleScreen (Node2D)
+```
+
+**Current script:**
+- scripts/ui/TitleScreen.cs
+
+**Current role:**
+- arcade-style entry screen before gameplay
+- builds its visible UI from code at runtime
+- displays a black background, animated enemy sprites, the Lady Bug logo, a ladybug sprite, and a blinking start prompt
+- emits StartRequested when a normal key or joypad button is pressed
+- deliberately ignores F1, F2, and F12 as start inputs so those keys remain reserved for gameplay debug shortcuts
+- does not touch gameplay state, enemy AI, score state, lives, or session data
 
 ### 3.2 Level scene
 
@@ -238,6 +286,7 @@ Level (Node2D)
 
 **Important current properties:**
 - PlayerStartCell = Vector2I(5, 8)
+- EnableFunctionKeyDebugShortcuts controls whether gameplay function-key debug shortcuts are active for this Level scene
 
 **Maze node:**
 - type = Sprite2D
@@ -545,7 +594,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - own the current prototype life state
 - own the short heart / letter pickup popup state
 - own the player death sequence state at board-coordinator level
-- own the minimal game-over guard
+- own the minimal game-over guard used by the GAME OVER overlay driver
 - own the fixed gameplay tick for board-level systems, the maze-border timer, enemies, and the player
 - expose runtime MazeGrid and GateSystem
 - expose coordinate conversion wrapper methods
@@ -554,7 +603,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - check player/enemy collision after enemy and player movement have both advanced
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - preserve prototype session-like state while advancing to the next level
-- expose a temporary F1 debug shortcut that starts the normal next-level transition
+- expose debug methods used by gameplay function-key shortcuts: F1 for next-level transition and F2 for EXTRA completion / extra-life testing
 - initialize the player after maze, gates, collectibles, HUD, and collision resolver have been prepared
 - update player and gate previews in the editor
 
@@ -574,6 +623,9 @@ Level.cs is currently the runtime coordinator for one active board.
 - HUD rendering: Hud
 - pickup popup rendering: CollectiblePickupPopupView
 - transition overlay rendering: LevelTransitionOverlay
+- game-over overlay rendering / return-to-title flow: LevelInitialTransition and LevelGameOverOverlay
+- gameplay-only function-key shortcuts: LevelDebugShortcuts
+- gameplay sound effects: PickupSoundPlayer
 
 **Fixed tick ownership:**
 - Level owns the fixed gameplay simulation tick
@@ -584,7 +636,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - while a pickup popup is active, normal gameplay is frozen and only the popup timer advances
 - while the player death sequence is active, normal gameplay is frozen and only the death animation advances
 - while the level-transition screen is active, normal gameplay is frozen and only the transition timer advances
-- when the death sequence completes, the player either respawns at PlayerStartCell or the minimal game-over placeholder is entered
+- when the death sequence completes, the player either respawns at PlayerStartCell or the GAME OVER overlay / return-to-title flow starts
 - when the transition timer completes, Level rebuilds the board for the next level and respawns the player at PlayerStartCell
 
 ## 7. Collectible System
@@ -702,7 +754,7 @@ Current implementation detail:
 - A and E can progress either SPECIAL or EXTRA depending on color
 - triggers the temporary pickup popup
 - if it was the final remaining progression collectible, the next-level transition is queued until the popup finishes
-- when EXTRA completes, the player gains one extra life immediately
+- when EXTRA completes, the player gains one extra life immediately and EXTRA progress is reset so a future extra-life award requires collecting the full word again
 - when SPECIAL completes, a placeholder free-game award counter is incremented and a debug message is printed
 - SPECIAL / EXTRA completion does not yet trigger an immediate separate stage transition; normal board-clear level transition is implemented
 
@@ -713,7 +765,7 @@ Current implementation detail:
 - decrements lives immediately when it kills the player
 - freezes normal gameplay while the player death sequence runs
 - respawns the player at PlayerStartCell if lives remain
-- enters a minimal game-over placeholder if no lives remain
+- starts the GAME OVER overlay / return-to-title flow if no lives remain
 - can also kill an enemy through EnemyRuntime / TryConsumeSkullAt(...), in which case the enemy returns to the lair and the skull is removed
 
 ### 7.7 Level completion participation
@@ -850,6 +902,7 @@ E X T R A
 - blue letters are score-only
 - letters already active in the relevant word do not progress again
 - letters not present in the relevant word do not progress
+- after EXTRA completes, EXTRA progress is cleared back to inactive letters
 
 ### 8.5 PlayerLifeState
 
@@ -860,7 +913,7 @@ E X T R A
 **Current rules:**
 - default initial lives = 3
 - skull death removes one life
-- EXTRA completion adds one life
+- EXTRA completion adds one life and resets EXTRA progress
 - game over is true when lives <= 0
 
 ## 9. Temporary Pickup Popup
@@ -914,7 +967,7 @@ scripts/gameplay/player/
 - the player plays the arcade-style death sequence
 - when the death sequence completes:
   - if lives remain, the player respawns at PlayerStartCell
-  - if no lives remain, the player remains hidden and a game-over placeholder is entered
+  - if no lives remain, the player remains hidden, GAME OVER is shown, and Main returns to the title screen after the configured delay
 
 **Current enemy-death behavior:**
 - touching an active enemy immediately hides all enemy views before the player death sequence starts
@@ -938,7 +991,7 @@ scripts/gameplay/player/
 - the normal player sprite is hidden while the runtime death sprite is visible
 
 **Current limitations:**
-- proper game-over screen flow is not implemented yet
+- full original arcade game-over / high-score flow is not implemented yet
 - player death still uses the current high-level red shrink / ghost sequence rather than exact tile-level arcade rendering
 
 ## 11. HUD
@@ -967,6 +1020,7 @@ Level
 - find the multiplier RichTextLabel
 - display the current score
 - display the current lives as sprite icons, capped to five visible icons
+- use frame index 1 from the player spritesheet by default for the spare-life icon
 - display SPECIAL with inactive letters in grey and active letters in red
 - display EXTRA with inactive letters in grey and active letters in yellow
 - display x2 / x3 / x5 with inactive entries in grey and active entries in blue
@@ -976,7 +1030,7 @@ Level
 - Hud.cs does build the BBCode text used to color individual word letters and multiplier entries
 - Hud.cs creates the runtime TextureRect children used for the life icons under LivesLabel
 - visual placement is controlled by Level.tscn
-- credits, top score, title screen HUD, and full arcade screen flow are not implemented yet
+- credits, top score, and full arcade screen flow are not implemented yet
 
 
 ## 12. Maze Border Enemy Release Timer
@@ -1480,21 +1534,50 @@ maze-border enemy-release timer
 player gameplay position
 ```
 
-### 18.5 Debug shortcut
+### 18.5 Gameplay function-key debug shortcuts
 
-A temporary debug shortcut is implemented to test level transitions:
+Gameplay-only function-key shortcuts are implemented in `scripts/debug/LevelDebugShortcuts.cs`. Main creates this runtime child under the active Level scene only when debugging is enabled and the Level scene has `EnableFunctionKeyDebugShortcuts` enabled.
+
+Current shortcuts:
 
 ```text
-F1 = start the normal transition to the next level
+F1  = start the normal transition to the next level
+F2  = simulate collecting E X T R A as yellow letters
+F12 = save the current viewport as a PNG screenshot
 ```
 
-This shortcut is development-only and should later either be removed or guarded behind a debug flag.
+F2 is intended for testing the extra-life award and the five-icon lives HUD cap. It resets EXTRA first, simulates the full yellow-letter sequence, awards one life through the normal completion path, and then resets EXTRA again so no letters remain active afterward.
 
-## 19. What Is Currently Working
+These shortcuts are development-only and should later either be removed or guarded behind a broader debug build / tooling policy.
+
+
+## 19. Title Screen, Game Over, and Function Keys
+
+The project now has a minimal top-level screen loop owned by Main:
+
+```text
+TitleScreen
+-> Level
+-> GAME OVER overlay
+-> TitleScreen
+```
+
+Current behavior:
+- Main starts with scenes/ui/TitleScreen.tscn.
+- TitleScreen builds its visual layout from code and emits StartRequested on normal key / joypad input.
+- Main then instantiates scenes/level/Level.tscn and asks Level to show the initial PART transition before gameplay begins.
+- When the player reaches game over, LevelGameOverOverlay draws a GAME OVER panel inside the maze frame.
+- After the measured arcade-style delay, Level emits GameOverFinished and Main returns to the title screen.
+- F1, F2, and F12 are reserved for Level debug shortcuts and are ignored by the title screen start-input handler.
+
+## 20. What Is Currently Working
 
 The following is already implemented and functional:
 
 - Main scene launches correctly
+- Main starts on the title screen
+- the title screen starts a fresh Level scene on normal key / joypad input
+- F1, F2, and F12 do not start the game from the title screen
 - Level scene is instantiated from Main
 - maze background is displayed
 - upper HUD strip has room above the maze
@@ -1551,9 +1634,10 @@ The following is already implemented and functional:
 - popup is removed and player sprite is restored after 30 ticks
 - SPECIAL word progress works for valid red letters
 - EXTRA word progress works for valid yellow letters
-- EXTRA completion grants one extra life
+- EXTRA completion grants one extra life and resets EXTRA progress
 - SPECIAL completion records a placeholder free-game award
 - lives are tracked and displayed as sprite icons, with no semantic cap and a five-icon HUD display cap
+- spare-life icons use the second player spritesheet frame by default
 - skull pickup is lethal to the player
 - skull death removes all remaining skulls before the death sequence starts
 - skull death removes one life and starts the player death sequence
@@ -1593,17 +1677,17 @@ The following is already implemented and functional:
 - the transition screen preserves the visible purple maze frame and HUD instead of covering the whole viewport
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - F1 can be used as a debug shortcut to test the normal next-level transition
+- F2 can be used as a debug shortcut to test yellow EXTRA completion, extra-life award, and EXTRA reset
+- F12 can be used as a debug shortcut to save screenshots
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
-- no-lives game over placeholder exists
+- a GAME OVER overlay appears when no lives remain and Main returns to the title screen after the arcade-style delay
 
-## 20. What Is Not Implemented Yet
+## 21. What Is Not Implemented Yet
 
 The following systems are still not implemented yet:
 
-- title screen flow
-- gameplay screen / screen transition architecture
-- proper game-over screen flow
+- full arcade screen-flow architecture beyond the current title / gameplay / game-over loop
 - high score screen flow
 - persistent session state / GameSession
 - high-score persistence
@@ -1613,7 +1697,7 @@ The following systems are still not implemented yet:
 - top score display
 - automated movement / enemy regression tests
 
-## 21. Current Limitations
+## 22. Current Limitations
 
 The movement, gate, collectible, scoring, HUD, death-sequence, bonus-vegetable, and first enemy systems are functional enough to continue development from this point.
 The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
@@ -1625,8 +1709,8 @@ Current limitations include:
 - HUD is functional but still scene-local rather than part of a full screen-flow architecture
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
 - SPECIAL completion is only a placeholder award and does not implement credits/free games yet
-- SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition
-- game over is only a placeholder state
+- SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition; EXTRA currently awards a life and resets word progress
+- game over has a visible overlay and return-to-title flow, but not the full original arcade screen flow
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
 - enemy center decisions now follow the simulator-validated preferred -> current -> fallback order, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
@@ -1636,7 +1720,7 @@ Current limitations include:
 - enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
 - vegetable bonus / freeze is implemented as a first playable feature, but exact arcade duration, central-area state transitions, and low-level visual timing may need more traces
 
-## 22. Current Development Priority
+## 23. Current Development Priority
 
 A reasonable current priority is now:
 
