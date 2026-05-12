@@ -48,6 +48,8 @@ public partial class Level : Node2D
     private readonly CollectibleColorCycle _collectibleColorCycle = new();
 
     // Multiplier unlocked by collecting blue hearts.
+    // This is level-scoped: SPECIAL / EXTRA progress carries between levels,
+    // but blue-heart score multipliers must return to x1 when a new PART starts.
     private readonly HeartMultiplierState _heartMultiplierState = new();
 
     // Progress through the SPECIAL and EXTRA words.
@@ -692,6 +694,11 @@ public partial class Level : Node2D
         _isLevelTransitionScreenActive = true;
         _levelTransitionTicksRemaining = LevelTransitionDurationTicks;
 
+        // The blue-heart multiplier lasts only for the board that has just ended.
+        // Reset it as soon as the upcoming PART screen becomes visible, while
+        // deliberately preserving SPECIAL / EXTRA word progress.
+        ResetLevelScopedScoreMultiplier();
+
         _levelTransitionOverlay?.ShowForUpcomingLevel(_queuedNextLevelNumber);
 
         // MAME has a slightly asymmetric HUD rule:
@@ -736,7 +743,9 @@ public partial class Level : Node2D
     }
 
     /// <summary>
-    /// Rebuilds the board state for the new current level while preserving score, lives and progress.
+    /// Rebuilds the board state for the new current level while preserving score, lives,
+    /// and SPECIAL / EXTRA word progress. The blue-heart score multiplier is level-scoped
+    /// and is therefore reset for the new board.
     /// </summary>
     private void RebuildBoardForNextLevel()
     {
@@ -747,6 +756,8 @@ public partial class Level : Node2D
         _isEndLevelFreezeActive = false;
         _endLevelFreezeTicksRemaining = 0;
         _isNextLevelQueuedAfterPopup = false;
+
+        ResetLevelScopedScoreMultiplier();
 
         RebuildBoardForCurrentLevel();
 
@@ -760,6 +771,16 @@ public partial class Level : Node2D
         _hud?.SetCurrentLifeInMaze(true);
         _hud?.SetLives(_lifeState.Lives);
         _hud?.SetWordProgress(_wordProgressState);
+        _hud?.SetMultiplierStep(_heartMultiplierState.Step);
+    }
+
+    /// <summary>
+    /// Resets the blue-heart score multiplier for a new level without touching score,
+    /// lives, or SPECIAL / EXTRA word progress.
+    /// </summary>
+    private void ResetLevelScopedScoreMultiplier()
+    {
+        _heartMultiplierState.Reset();
         _hud?.SetMultiplierStep(_heartMultiplierState.Step);
     }
 
