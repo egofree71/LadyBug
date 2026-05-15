@@ -1,6 +1,6 @@
 # Current Implementation
 
-**Project:** Lady Bug remake in Godot 4.6.1 (.NET) with C#
+**Project:** Lady Bug remake in Godot 4.6.2 (.NET) with C#
 
 **Purpose of this document:**
 - describe only what is actually implemented in the repository now
@@ -27,6 +27,17 @@ It does not describe systems that are only planned.
 - move_right
 - move_up
 - move_down
+
+**Current input mapping:**
+- keyboard arrow keys
+- gamepad D-pad
+- gamepad left analog stick
+- movement action deadzone is currently 0.5 so small analog-stick drift is ignored
+
+**Global quit input:**
+- Escape quits the desktop game from any screen
+- Main handles this globally through `_Input`
+- Escape is marked as handled so it does not also trigger title-screen start input
 
 ## 2. Current File / Folder State
 
@@ -232,6 +243,7 @@ Main (Node)
 - application entry point
 - owns the coarse screen flow
 - starts on the title screen
+- handles Escape as a global quit input from any screen
 - instantiates a fresh Level scene when the title screen requests the game start
 - attaches the gameplay-only function-key debug shortcut node under Level when debugging is enabled and the Level scene option allows it
 - returns to the title screen after the Level game-over overlay has completed
@@ -257,7 +269,9 @@ TitleScreen (Node2D)
 - the start prompt pulses between white and light gray rather than blinking by transparency
 - the prompt ladybug is positioned in the free space to the left of the prompt text so it is not clipped by the screen edge
 - emits StartRequested when a normal key or joypad button is pressed
-- deliberately ignores F1, F2, and F12 as start inputs so those keys remain reserved for gameplay debug shortcuts
+- deliberately ignores Escape, F1, F2, and F12 as start inputs
+- Escape is reserved for quitting the desktop game
+- F1, F2, and F12 remain reserved for gameplay debug shortcuts
 - does not touch gameplay state, enemy AI, score state, lives, or session data
 
 ### 3.2 Level scene
@@ -1438,6 +1452,7 @@ Current player-related files:
 
 **PlayerInputState:**
 - tracks held movement directions
+- receives movement actions that may come from keyboard arrows, gamepad D-pad, or gamepad left analog stick
 - tracks the relative order in which they were pressed
 - resolves the currently intended direction
 - if several movement keys are held, the last pressed one wins
@@ -1471,6 +1486,7 @@ The current player movement model includes:
 - 1 pixel straight movement per normal tick
 - assisted-turn ticks that can include two one-pixel segments
 - buffered multi-key input using last-pressed-wins
+- movement input works through Godot actions mapped to keyboard arrows, gamepad D-pad, and gamepad left analog stick
 - request latching for some direction changes
 - preserved movement context during short taps
 - explicit current / wanted / facing / offset directions
@@ -1613,7 +1629,7 @@ TitleScreen
 
 Current behavior:
 - Main starts with scenes/ui/TitleScreen.tscn.
-- TitleScreen builds its visual layout from code and emits StartRequested on normal key / joypad input.
+- TitleScreen builds its visual layout from code and emits StartRequested on normal key / joypad button input.
 - The title-screen PRESS ANY KEY prompt uses `res://assets/fonts/PressStart2P-Regular.ttf` at size 26.
 - The prompt color pulses between white and light gray; the current minimum brightness used in the local tuning is 0.55.
 - The small prompt ladybug is positioned to the left of the text without being clipped by the left edge of the viewport.
@@ -1621,6 +1637,7 @@ Current behavior:
 - When the player reaches game over, LevelGameOverOverlay draws a GAME OVER panel inside the maze frame.
 - The GAME OVER text uses the bundled Press Start 2P font; the current local tuning uses font size 28.
 - After the measured arcade-style delay, Level emits GameOverFinished and Main returns to the title screen.
+- Escape is reserved for quitting the desktop game and is ignored by the title screen start-input handler.
 - F1, F2, and F12 are reserved for Level debug shortcuts and are ignored by the title screen start-input handler.
 
 ## 20. What Is Currently Working
@@ -1629,8 +1646,12 @@ The following is already implemented and functional:
 
 - Main scene launches correctly
 - Main starts on the title screen
-- the title screen starts a fresh Level scene on normal key / joypad input
+- the title screen starts a fresh Level scene on normal key / joypad button input
+- Escape quits the game from any screen
+- Escape does not start the game from the title screen
 - F1, F2, and F12 do not start the game from the title screen
+- player movement works with keyboard arrow keys
+- player movement works with gamepad D-pad and left analog stick
 - Level scene is instantiated from Main
 - maze background is displayed
 - upper HUD strip has room above the maze
@@ -1662,6 +1683,7 @@ The following is already implemented and functional:
 - gate turning visuals are shown briefly
 - Level owns the fixed simulation tick
 - player movement runs pixel by pixel in gameplay coordinates
+- keyboard and gamepad movement share the same PlayerInputState / PlayerMovementMotor path
 - buffered multi-key input works
 - short-tap turn behavior preserves movement context
 - assisted turns work at intersections
