@@ -33,6 +33,29 @@ public partial class Main : Node
     }
 
     /// <summary>
+    /// Lets the player quit the desktop build with Escape from any screen.
+    /// </summary>
+    public override void _Input(InputEvent @event)
+    {
+        if (!IsQuitInput(@event))
+            return;
+
+        GetViewport().SetInputAsHandled();
+        GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Escape is reserved for quitting. Ignore repeated key events while it is held down.
+    /// </summary>
+    private static bool IsQuitInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey keyEvent)
+            return false;
+
+        return keyEvent.Pressed && !keyEvent.Echo && keyEvent.Keycode == Key.Escape;
+    }
+
+    /// <summary>
     /// Instantiates the title screen and subscribes to its start signal.
     /// </summary>
     private void ShowTitleScreen()

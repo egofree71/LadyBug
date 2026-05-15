@@ -293,7 +293,10 @@ public partial class TitleScreen : Node2D
             if (!keyEvent.Pressed || keyEvent.Echo)
                 return false;
 
-            return keyEvent.Keycode != Key.F1 && keyEvent.Keycode != Key.F2 && keyEvent.Keycode != Key.F12;
+            return keyEvent.Keycode != Key.Escape &&
+                   keyEvent.Keycode != Key.F1 &&
+                   keyEvent.Keycode != Key.F2 &&
+                   keyEvent.Keycode != Key.F12;
         }
 
         if (@event is InputEventJoypadButton joypadButton)
