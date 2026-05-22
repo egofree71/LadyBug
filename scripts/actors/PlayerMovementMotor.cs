@@ -254,7 +254,8 @@ public sealed class PlayerMovementMotor
     /// <summary>
     /// Applies one orthogonal correction pixel toward the selected turn lane.
     /// The correction is skipped when the requested direction is blocked by a
-    /// fixed wall from the target lane, but kept when the block is a pushable gate.
+    /// fixed wall from the target lane, but kept when the requested direction
+    /// would be blocked only by a pushable gate.
     /// </summary>
     private void ApplyStoredTurnAlignmentCorrection()
     {
@@ -275,7 +276,7 @@ public sealed class PlayerMovementMotor
 
             if (correction != Vector2I.Zero)
             {
-                TryAdvanceOnePixel(correction, updateCurrentDirection: false);
+                TryAdvanceOnePixel(correction, updateCurrentDirection: false, allowGatePush: false);
                 _debugTrace.Note("corrected Y toward target lane");
             }
 
@@ -288,7 +289,7 @@ public sealed class PlayerMovementMotor
 
             if (correction != Vector2I.Zero)
             {
-                TryAdvanceOnePixel(correction, updateCurrentDirection: false);
+                TryAdvanceOnePixel(correction, updateCurrentDirection: false, allowGatePush: false);
                 _debugTrace.Note("corrected X toward target lane");
             }
         }
@@ -404,7 +405,7 @@ public sealed class PlayerMovementMotor
             Vector2I correction = StepTowardX(_turnLaneTarget.X);
 
             if (correction != Vector2I.Zero)
-                TryAdvanceOnePixel(correction, updateCurrentDirection: false);
+                TryAdvanceOnePixel(correction, updateCurrentDirection: false, allowGatePush: false);
 
             return;
         }
@@ -414,7 +415,7 @@ public sealed class PlayerMovementMotor
             Vector2I correction = StepTowardY(_turnLaneTarget.Y);
 
             if (correction != Vector2I.Zero)
-                TryAdvanceOnePixel(correction, updateCurrentDirection: false);
+                TryAdvanceOnePixel(correction, updateCurrentDirection: false, allowGatePush: false);
         }
     }
 
@@ -439,10 +440,14 @@ public sealed class PlayerMovementMotor
 
         Vector2I correction = GetCorrectionTowardTurnLane(requested);
 
-        if (correction != Vector2I.Zero)
-            TryAdvanceOnePixel(correction, updateCurrentDirection: false);
+        if (correction != Vector2I.Zero &&
+            !TryAdvanceOnePixel(correction, updateCurrentDirection: false, allowGatePush: false))
+        {
+            _debugTrace.Note("assisted step paused: correction was blocked");
+            return;
+        }
 
-        if (TryAdvanceOnePixel(requested, updateCurrentDirection: true))
+        if (TryAdvanceOnePixel(requested, updateCurrentDirection: true, allowGatePush: true))
         {
             _latchedRequestedDir = requested;
             _offsetDir = requested;
@@ -528,14 +533,30 @@ public sealed class PlayerMovementMotor
     /// When <paramref name="updateCurrentDirection"/> is false, the movement is
     /// treated as an alignment correction and does not become the player's effective
     /// movement direction.
+    ///
+    /// Alignment corrections are deliberately not allowed to push rotating gates:
+    /// otherwise a turn assist can rotate a nearby gate on the axis the player is
+    /// leaving, before the player actually contacts the gate in the requested
+    /// direction.
     /// </remarks>
-    private bool TryAdvanceOnePixel(Vector2I direction, bool updateCurrentDirection)
+    private bool TryAdvanceOnePixel(
+        Vector2I direction,
+        bool updateCurrentDirection,
+        bool allowGatePush = true)
     {
         if (direction == Vector2I.Zero)
             return false;
 
         PlayfieldStepResult step = EvaluateOnePixelStep(direction);
-        step = ResolveGatePushIfNeeded(step, direction);
+
+        if (allowGatePush)
+        {
+            step = ResolveGatePushIfNeeded(step, direction);
+        }
+        else if (step.Kind == PlayfieldStepKind.BlockedByGate)
+        {
+            _debugTrace.Note("alignment correction blocked by gate; gate push suppressed");
+        }
 
         if (!step.Allowed)
         {
@@ -678,28 +699,16 @@ public sealed class PlayerMovementMotor
     }
 
     /// <summary>
-    /// Returns the directional probe offset used when evaluating collision for one
-    /// pixel of movement.
+    /// Returns the collision profile used when evaluating one pixel of player movement.
     /// </summary>
     /// <remarks>
-    /// The lead distance is direction-specific, matching the calibrated collision
-    /// probe values in <see cref="PlayerMovementTuning"/>.
+    /// The player deliberately uses separate probes for fixed maze walls and
+    /// rotating gates. Fixed walls still use the calibrated body lead; gates use
+    /// a shorter contact lead so they rotate on contact rather than too early.
     /// </remarks>
-    private Vector2I GetCollisionLead(Vector2I direction)
+    private PlayfieldCollisionProfile GetCollisionProfile(Vector2I direction)
     {
-        if (direction == Vector2I.Left)
-            return new Vector2I(-PlayerMovementTuning.CollisionLeadLeft, 0);
-
-        if (direction == Vector2I.Right)
-            return new Vector2I(PlayerMovementTuning.CollisionLeadRight, 0);
-
-        if (direction == Vector2I.Up)
-            return new Vector2I(0, -PlayerMovementTuning.CollisionLeadUp);
-
-        if (direction == Vector2I.Down)
-            return new Vector2I(0, PlayerMovementTuning.CollisionLeadDown);
-
-        return Vector2I.Zero;
+        return PlayerMovementTuning.GetCollisionProfile(direction);
     }
 
     /// <summary>
@@ -728,7 +737,7 @@ public sealed class PlayerMovementMotor
         return _level.EvaluateArcadePixelStepWithGates(
             arcadePixelPos,
             direction,
-            GetCollisionLead(direction));
+            GetCollisionProfile(direction));
     }
 
     /// <summary>

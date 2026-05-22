@@ -50,37 +50,47 @@ public sealed class PlayfieldCollisionResolver
     /// </summary>
     /// <param name="arcadePixelPos">Current gameplay position in arcade pixels.</param>
     /// <param name="direction">Attempted one-pixel movement direction.</param>
-    /// <param name="collisionLead">Forward collision probe offset.</param>
+    /// <param name="collisionProfile">Probe offsets used for static walls and rotating gates.</param>
     /// <returns>A combined playfield result for the attempted step.</returns>
     public PlayfieldStepResult EvaluateArcadePixelStep(
         Vector2I arcadePixelPos,
         Vector2I direction,
-        Vector2I collisionLead)
+        PlayfieldCollisionProfile collisionProfile)
     {
         MazeStepResult mazeStep = _mazeGrid.EvaluateArcadePixelStep(
             arcadePixelPos,
             direction,
-            collisionLead,
+            collisionProfile.StaticCollisionLead,
             _arcadePixelToLogicalCell);
 
         if (!mazeStep.Allowed)
             return PlayfieldStepResult.BlockedByFixedWall(mazeStep);
 
+        // Static walls and rotating gates can use different probes. The actor
+        // supplies that policy through its collision profile.
+        Vector2I gateContactLead = collisionProfile.GateContactLead;
+
         if (TryGetBlockingGateIdAtProbe(
                 arcadePixelPos,
                 direction,
-                collisionLead,
+                gateContactLead,
                 out int gateId,
                 out GateContactHalf? contactHalf))
         {
             return PlayfieldStepResult.BlockedByGate(mazeStep, gateId, contactHalf);
         }
 
-        if (mazeStep.NextCell == mazeStep.CurrentCell)
+        MazeStepResult gateContactStep = _mazeGrid.EvaluateArcadePixelStep(
+            arcadePixelPos,
+            direction,
+            gateContactLead,
+            _arcadePixelToLogicalCell);
+
+        if (gateContactStep.NextCell == gateContactStep.CurrentCell)
             return PlayfieldStepResult.AllowedStep(mazeStep);
 
         if (TryGetBlockingGateIdForCellBoundaryStep(
-                mazeStep,
+                gateContactStep,
                 direction,
                 out gateId,
                 out GateContactHalf boundaryContactHalf))

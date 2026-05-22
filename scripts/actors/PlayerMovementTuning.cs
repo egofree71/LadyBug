@@ -1,4 +1,5 @@
 using Godot;
+using LadyBug.Gameplay;
 
 namespace LadyBug.Actors;
 
@@ -43,4 +44,62 @@ public static class PlayerMovementTuning
 
     // Forward probe distance used when moving down.
     public const int CollisionLeadDown = 7;
+
+    // Rotating-gate contact probe calibrated for the player sprite/motor.
+    // The fixed-wall lead remains 7/8 px, but gates need a shorter contact
+    // lead so they rotate on contact rather than on mere approach.
+    public const int GateContactLeadLeft = 6;
+    public const int GateContactLeadRight = 6;
+    public const int GateContactLeadUp = 6;
+    public const int GateContactLeadDown = 6;
+
+    /// <summary>
+    /// Gets the forward collision probe offset for one player direction.
+    /// </summary>
+    public static Vector2I GetStaticCollisionLead(Vector2I direction)
+    {
+        if (direction == Vector2I.Left)
+            return new Vector2I(-CollisionLeadLeft, 0);
+
+        if (direction == Vector2I.Right)
+            return new Vector2I(CollisionLeadRight, 0);
+
+        if (direction == Vector2I.Up)
+            return new Vector2I(0, -CollisionLeadUp);
+
+        if (direction == Vector2I.Down)
+            return new Vector2I(0, CollisionLeadDown);
+
+        return Vector2I.Zero;
+    }
+
+    /// <summary>
+    /// Gets the rotating-gate contact probe offset for one player direction.
+    /// </summary>
+    public static Vector2I GetGateContactLead(Vector2I direction)
+    {
+        if (direction == Vector2I.Left)
+            return new Vector2I(-GateContactLeadLeft, 0);
+
+        if (direction == Vector2I.Right)
+            return new Vector2I(GateContactLeadRight, 0);
+
+        if (direction == Vector2I.Up)
+            return new Vector2I(0, -GateContactLeadUp);
+
+        if (direction == Vector2I.Down)
+            return new Vector2I(0, GateContactLeadDown);
+
+        return Vector2I.Zero;
+    }
+
+    /// <summary>
+    /// Gets the complete playfield collision profile for one player step.
+    /// </summary>
+    public static PlayfieldCollisionProfile GetCollisionProfile(Vector2I direction)
+    {
+        return new PlayfieldCollisionProfile(
+            GetStaticCollisionLead(direction),
+            GetGateContactLead(direction));
+    }
 }

@@ -1,4 +1,5 @@
 using Godot;
+using LadyBug.Gameplay;
 
 namespace LadyBug.Gameplay.Enemies;
 
@@ -117,5 +118,19 @@ public static class EnemyMovementTuning
             MonsterDir.Down => new Vector2I(0, CollisionLeadDown),
             _ => Vector2I.Zero
         };
+    }
+
+    /// <summary>
+    /// Gets the complete playfield collision profile for one enemy step.
+    /// </summary>
+    /// <remarks>
+    /// Enemy gate contact intentionally keeps the existing enemy probe values.
+    /// The player-specific 6 px gate contact tuning must not leak into enemy
+    /// path validation or decision-center behavior.
+    /// </remarks>
+    public static PlayfieldCollisionProfile GetCollisionProfile(MonsterDir dir)
+    {
+        Vector2I collisionLead = GetCollisionLead(dir);
+        return PlayfieldCollisionProfile.SameLead(collisionLead);
     }
 }

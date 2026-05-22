@@ -1350,10 +1350,25 @@ public partial class Level : Node2D
         Vector2I direction,
         Vector2I collisionLead)
     {
+        return EvaluateArcadePixelStepWithGates(
+            arcadePixelPos,
+            direction,
+            PlayfieldCollisionProfile.SameLead(collisionLead));
+    }
+
+    /// <summary>
+    /// Evaluates one attempted arcade-pixel step with separate probes for fixed
+    /// maze walls and rotating-gate contact.
+    /// </summary>
+    public PlayfieldStepResult EvaluateArcadePixelStepWithGates(
+        Vector2I arcadePixelPos,
+        Vector2I direction,
+        PlayfieldCollisionProfile collisionProfile)
+    {
         return _playfieldCollisionResolver.EvaluateArcadePixelStep(
             arcadePixelPos,
             direction,
-            collisionLead);
+            collisionProfile);
     }
 
     // --- Coordinate Conversion ---------------------------------------------

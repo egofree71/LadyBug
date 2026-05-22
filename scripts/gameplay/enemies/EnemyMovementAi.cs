@@ -321,7 +321,7 @@ public sealed class EnemyMovementAi
         return _level.EvaluateArcadePixelStepWithGates(
             monster.ArcadePixelPos,
             dir.ToVector(),
-            EnemyMovementTuning.GetCollisionLead(dir));
+            EnemyMovementTuning.GetCollisionProfile(dir));
     }
 }
 
