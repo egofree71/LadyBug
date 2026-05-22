@@ -304,6 +304,7 @@ The current model uses:
 - integer arcade-pixel positions
 - one-pixel committed movement segments
 - collision validation before every committed segment
+- separate collision probes for fixed maze walls and rotating-gate contact
 
 Normal straight movement usually commits one segment:
 
@@ -387,12 +388,14 @@ Before committing an orthogonal correction for a requested turn, the motor check
 
 This prevents the player from sliding sideways when the requested direction is blocked by a fixed wall.
 
-However, if the block is caused by a pushable rotating gate, the correction is allowed.
-The committed movement step will then push the gate through the normal gate-push path.
+If the requested-direction block from the target lane is caused by a pushable rotating gate, the assisted turn can still start because the real requested-direction step will push the gate through the normal gate-push path.
+
+The orthogonal alignment correction itself does not push gates. It is evaluated with gate pushing suppressed. If that correction is blocked by a gate, the assisted step pauses for that tick instead of letting the player slide through a wall or rotate the wrong gate too early.
 
 This distinction is important:
-- fixed wall block: do not correct sideways
-- pushable gate block: allow correction, then push gate on the committed step
+- fixed wall block from the target lane: do not correct sideways
+- pushable gate block in the requested direction: allow the turn path, then push the gate on the real requested-direction step
+- gate block during the alignment correction: suppress the gate push and pause the assisted step
 
 ## 11. Static Maze and Playfield Validation
 
@@ -400,14 +403,16 @@ Movement legality starts with the static maze and is then extended by dynamic ga
 
 Current flow:
 - PlayerMovementMotor evaluates an attempted one-pixel step
+- it supplies a PlayfieldCollisionProfile for the attempted direction
 - Level forwards the request to PlayfieldCollisionResolver
-- PlayfieldCollisionResolver asks MazeGrid.EvaluateArcadePixelStep(...) for the static result
+- PlayfieldCollisionResolver asks MazeGrid.EvaluateArcadePixelStep(...) for the static result using the static-wall lead
 - if the static maze blocks the step, the final result is BlockedByFixedWall
-- if the static step is allowed, PlayfieldCollisionResolver checks the runtime GateSystem overlay
+- if the static step is allowed, PlayfieldCollisionResolver checks the runtime GateSystem overlay using the gate-contact lead
 - the final result is returned as PlayfieldStepResult
 
 MazeGrid only knows about the static maze.
 PlayfieldCollisionResolver owns the static maze + dynamic gate combination.
+PlayfieldCollisionProfile describes which probe offsets an actor wants for fixed walls and for rotating gates.
 
 ## 12. Rotating Gate Integration
 
@@ -424,6 +429,19 @@ Current behavior:
   - the same pixel step is evaluated again
 
 This same-tick re-evaluation is necessary for the player to push a gate and move through it without requiring an extra artificial delay.
+
+### 12.1 Player gate contact timing
+
+The player currently uses two different forward probes:
+
+```text
+fixed walls:     Left=8, Right=7, Up=8, Down=7
+rotating gates:  Left=6, Right=6, Up=6, Down=6
+```
+
+The fixed-wall values preserve the body lead needed to keep the sprite out of static maze walls. The shorter gate-contact values delay pivot-door interaction until actual contact, avoiding the earlier bug where an approaching player could rotate a nearby door too soon.
+
+This timing is intentionally stored in `PlayerMovementTuning.GetCollisionProfile(...)` instead of being hardcoded globally in the playfield resolver.
 
 ## 13. Collectible Pickup During Movement
 
@@ -472,6 +490,7 @@ The current implementation includes:
 - close-range correction path
 - static maze validation for each committed segment
 - dynamic rotating-gate validation through PlayfieldCollisionResolver
+- actor-specific collision profiles for fixed walls versus rotating-gate contact
 - immediate gate push resolution through LevelGateRuntime and same-tick step re-evaluation
 - movement segment reporting for collectible pickup through CollectibleFieldRuntime
 - optional movement debug tracing disabled by default
@@ -490,6 +509,7 @@ The current movement behavior has been manually tested and is believed to handle
 - small successive taps without holding a direction continuously
 - blocked wall turns without unwanted sideways sliding
 - assisted-turn interactions with pushable gates
+- calibrated player gate contact timing that avoids both premature pivoting and visible door traversal
 - collectible pickup during assisted turns
 - same-tick gate push and movement re-evaluation
 - debug coordinate drawing above rotating gates
@@ -503,7 +523,8 @@ The current implementation is stable, but it is not a literal ROM-level reproduc
 Open movement-related questions include:
 - exact pixel-perfect equivalence between generated turn-lane maps and the original ROM masks
 - exact original collision details from the ROM
-- whether the current collision leads match the original checks exactly
+- whether the current fixed-wall collision leads match the original checks exactly
+- whether the current player gate-contact lead of 6 pixels matches the original code path exactly or is only a gameplay-calibrated equivalent
 - whether the current gate probe/boundary combination matches the original code path exactly
 - whether straight-line recentering in the arcade original is identical to the current practical implementation
 - exact relationship between a human keyboard tap and an arcade sub-step

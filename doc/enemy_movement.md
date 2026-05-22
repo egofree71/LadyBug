@@ -93,7 +93,7 @@ Enemy movement is a hybrid system:
 6. Only if the current direction is also rejected does fallback search another direction in the fixed arcade order `01, 02, 04, 08`.
 7. Outside decision centers, the enemy normally continues straight.
 8. The arcade has special door/local-tile cases that can force reversal outside a decision center, but the current Godot implementation intentionally does not trigger reversal from broad gate / boundary validation.
-9. Current Godot local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2. Exact tile-shape filtering around rotating gates remains a future refinement.
+9. Current Godot local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2. These offsets are supplied as the enemy collision profile for both fixed-wall and rotating-gate checks, so player-specific gate contact tuning does not affect enemies. Exact tile-shape filtering around rotating gates remains a future refinement.
 10. Movement is pixel-by-pixel, not tile-by-tile.
 
 Implementation consequence:
@@ -262,8 +262,9 @@ EnemyMovementAi
 	direction validation, current-direction preservation before fallback, a
 	`61C1`-like rejected-direction mask, fixed-order fallback selection,
 	straight outside-center movement, and simulator-derived local probe offsets.
-	Broad outside-center gate/boundary reversal is intentionally disabled until
-	a precise local tile/gate reversal rule is validated.
+	It asks Level for playfield validation using the enemy collision profile from
+	EnemyMovementTuning. Broad outside-center gate/boundary reversal is
+	intentionally disabled until a precise local tile/gate reversal rule is validated.
 
 EnemyBasePreferenceSystem
 	Prepares the non-chase preferred directions continuously before chase/BFS
@@ -1602,12 +1603,12 @@ right -> sample X + 8, Y
 down  -> sample X, Y + 2
 ```
 
-In code, these offsets are centralized in `EnemyMovementTuning` and applied before calling the playfield step resolver. This is closer to the enemy traces than using player-style body probes.
+In code, these offsets are centralized in `EnemyMovementTuning.GetCollisionProfile(...)` and passed to the playfield step resolver. The enemy profile currently uses the same offsets for fixed-wall and rotating-gate checks. This is closer to the enemy traces than using player-style body probes, and it prevents the player's calibrated 6-pixel gate contact lead from leaking into enemy validation.
 
 Important limitation:
 
 ```text
-The offsets are now in place, but the current Godot implementation still delegates the final local validation to the high-level PlayfieldCollisionResolver. A future refinement should replace this with a more semantic tile/gate probe that blocks only the local forms confirmed by arcade traces.
+The offsets are now in place and are actor-specific, but the current Godot implementation still delegates the final local validation to the high-level PlayfieldCollisionResolver. A future refinement should replace this with a more semantic tile/gate probe that blocks only the local forms confirmed by arcade traces.
 ```
 
 ### One-pixel movement
@@ -1819,6 +1820,7 @@ Confirmed enough:
 - apparent center reversals can be fallback results
 - arcade forced reversal can occur outside intersections, but broad Godot gate/boundary reversal is currently disabled
 - local enemy movement probes use simulator-derived offsets: left X-1,Y; up X,Y-7; right X+8,Y; down X,Y+2
+- these offsets are kept in the enemy collision profile and are not affected by the player's separate 6-pixel rotating-gate contact tuning
 - skull tile 63 kills enemies
 - vegetable sets enemy freeze timer 61E1 in the arcade
 - frozen enemies remain fatal

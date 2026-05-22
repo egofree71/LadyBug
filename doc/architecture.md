@@ -216,6 +216,7 @@ scripts/
 │  ├─ scoring/
 │  ├─ player/
 │  ├─ session/
+│  ├─ PlayfieldCollisionProfile.cs
 │  ├─ PlayfieldCollisionResolver.cs
 │  ├─ PlayfieldStepKind.cs
 │  └─ PlayfieldStepResult.cs
@@ -848,8 +849,9 @@ Long-term direction:
 PlayfieldCollisionResolver is the current bridge between the static maze and dynamic gates.
 
 Responsibilities:
-- ask MazeGrid to evaluate the static movement step
-- detect gate blocking at probe level
+- accept an actor-supplied PlayfieldCollisionProfile
+- ask MazeGrid to evaluate the static movement step with the profile's static-wall probe
+- detect gate blocking at probe level with the profile's gate-contact probe
 - detect gate blocking when crossing logical-cell boundaries
 - return a PlayfieldStepResult indicating:
   - allowed
@@ -857,7 +859,7 @@ Responsibilities:
   - blocked by gate
 
 It should remain independent of player-specific turn logic.
-Players and future enemies can ask the playfield whether a step is legal without duplicating static maze + gate overlay checks.
+Players and enemies can ask the playfield whether a step is legal without duplicating static maze + gate overlay checks. Actor-specific timing, such as the player's shorter rotating-gate contact lead, belongs in collision profiles/tuning classes rather than in the resolver itself.
 
 ## 16. HUD / UI Architecture
 

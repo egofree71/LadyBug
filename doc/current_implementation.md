@@ -148,6 +148,7 @@ scripts/
 │  │  ├─ CollectibleScoreService.cs
 │  │  ├─ HeartMultiplierState.cs
 │  │  └─ ScoreState.cs
+│  ├─ PlayfieldCollisionProfile.cs
 │  ├─ PlayfieldCollisionResolver.cs
 │  ├─ PlayfieldStepKind.cs
 │  └─ PlayfieldStepResult.cs
@@ -625,6 +626,7 @@ Level.cs is currently the runtime coordinator for one active board.
 - expose coordinate conversion wrapper methods
 - expose TryConsumeCollectible(...) for the player pickup path
 - expose TryPushGate(...) for movement / gate interactions
+- expose EvaluateArcadePixelStepWithGates(...) for actor movement probes, including actor-specific collision profiles
 - check player/enemy collision after enemy and player movement have both advanced
 - restart only the attempt-level enemy state after player death while preserving collectibles and rotating gates
 - preserve prototype session-like state while advancing to the next level
@@ -1228,7 +1230,7 @@ Current arcade sprite selection model:
 It stores allowed directions and BFS guidance directions separately.
 
 **EnemyMovementAi** advances one active monster by one arcade pixel.
-It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight outside-center movement, and simulator-derived local movement probe offsets. Broad outside-center gate / boundary reversal has been disabled because simulator comparison showed that it was too coarse.
+It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight outside-center movement, and simulator-derived local movement probe offsets. These offsets are supplied as an enemy collision profile so enemy local checks keep their own probe timing. Broad outside-center gate / boundary reversal has been disabled because simulator comparison showed that it was too coarse.
 
 At decision centers, `EnemyMovementAi` now follows the simulator-validated decision order: try the preferred direction first, then keep the current direction if it is still valid, and only then scan fallback directions. Preferred and current candidates are validated through both the enemy navigation grid and the local playfield / gate probe. A rejected preferred or current direction is added to the local rejected mask before fallback scans the arcade order: Left, Up, Right, Down.
 
@@ -1268,6 +1270,7 @@ Current implemented behavior:
 - outside decision centers, preferred direction and fallback are ignored and the enemy keeps its current direction
 - broad outside-center reversal from high-level gate / boundary blocks is intentionally disabled
 - local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2
+- enemy movement passes those offsets through `EnemyMovementTuning.GetCollisionProfile(...)`, using the same probe for fixed walls and rotating gates so player-specific gate timing does not affect enemies
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
 - base preferred directions are recalculated continuously before chase/BFS override
@@ -1369,6 +1372,7 @@ Rotating gates are implemented as a dynamic gameplay system.
 - LevelGateRuntime builds the runtime GateSystem
 - gate logic is kept separate from the static maze
 - gate collision is evaluated by PlayfieldCollisionResolver
+- actor-specific probe timing is supplied through PlayfieldCollisionProfile
 - gate timers are advanced by the Level-owned fixed simulation tick
 
 Current gate-related files:
@@ -1387,21 +1391,32 @@ Current gate-related files:
 
 Dynamic movement legality is evaluated beyond the static maze.
 
-**File:**
+**Files:**
+- scripts/gameplay/PlayfieldCollisionProfile.cs
 - scripts/gameplay/PlayfieldCollisionResolver.cs
 
 Current flow:
-- PlayerMovementMotor requests one attempted pixel step
+- an actor movement system requests one attempted pixel step
+- the actor supplies a PlayfieldCollisionProfile
+- the profile contains one probe for fixed maze walls and one probe for rotating-gate contact
 - Level forwards the request to PlayfieldCollisionResolver
-- PlayfieldCollisionResolver asks MazeGrid for the static result
-- PlayfieldCollisionResolver overlays dynamic rotating-gate checks
+- PlayfieldCollisionResolver asks MazeGrid for the static result using the profile's static-wall probe
+- if the static maze blocks the step, the result is BlockedByFixedWall
+- otherwise, PlayfieldCollisionResolver overlays dynamic rotating-gate checks using the profile's gate-contact probe
 - the final result is returned as PlayfieldStepResult
-- if a gate blocks the step and can be pushed, PlayerMovementMotor asks Level to push the gate and then re-evaluates the same step
+- if a gate blocks a player step and can be pushed, PlayerMovementMotor asks Level to push the gate and then re-evaluates the same step
 
 **Current possible outcomes:**
 - Allowed
 - BlockedByFixedWall
 - BlockedByGate
+
+**Current collision profiles:**
+- player fixed-wall leads remain calibrated as Left=8, Right=7, Up=8, Down=7
+- player rotating-gate contact leads are calibrated separately as Left=6, Right=6, Up=6, Down=6
+- enemies keep their simulator-derived local probe offsets for both fixed-wall and gate checks: Left=1, Right=8, Up=7, Down=2
+
+This keeps the player-specific gate contact timing from leaking into enemy movement and decision validation.
 
 ## 16. Player Movement System
 
