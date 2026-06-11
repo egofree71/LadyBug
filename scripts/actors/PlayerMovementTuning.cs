@@ -28,7 +28,10 @@ public static class PlayerMovementTuning
     public static readonly Vector2I SpriteRenderOffsetLeftArcade = new(5, 8);
 
     // Render offset used while the player is effectively moving right.
-    public static readonly Vector2I SpriteRenderOffsetRightArcade = new(4, 8);
+    // Keep this aligned with the left/vertical offsets: the right-wall contact
+    // mismatch was visual only, while changing CollisionLeadRight breaks the
+    // gameplay position used by vertical movement near the maze border.
+    public static readonly Vector2I SpriteRenderOffsetRightArcade = new(5, 8);
 
     // Render offset used while the player is effectively moving vertically.
     public static readonly Vector2I SpriteRenderOffsetVerticalArcade = new(5, 8);
