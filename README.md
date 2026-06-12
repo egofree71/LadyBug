@@ -36,7 +36,7 @@ Implemented systems include:
 - rotating gates
 - flowers, hearts, letters, skulls and bonus vegetables
 - scoring, score multipliers and lives
-- SPECIAL and EXTRA word progress
+- SPECIAL and EXTRA word progress, including EXTRA extra-life and SPECIAL three-life rewards
 - player death sequence and life-entry animation
 - enemy release through the animated border timer
 - first playable enemy movement system

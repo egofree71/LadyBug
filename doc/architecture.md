@@ -325,7 +325,7 @@ Level should not own long-term session state.
 Level should only manage one active playfield runtime.
 
 Current temporary implementation note:
-- Level currently owns ScoreState, HeartMultiplierState, WordProgressState, PlayerLifeState, a special-award placeholder counter, the current level number, a minimal game-over flag, and the current prototype level-transition state
+- Level currently owns ScoreState, HeartMultiplierState, WordProgressState, PlayerLifeState, the current level number, a minimal game-over flag, and the current prototype level-transition state
 - this is acceptable while the project has no screen flow
 - these should later move into GameSession or a GameplayScreen-owned session model when title/gameplay/game-over flow exists
 
@@ -759,7 +759,7 @@ Current implemented rules:
 - yellow valid letters progress EXTRA
 - blue letters are score-only
 - EXTRA completion awards one extra life
-- SPECIAL completion currently increments a placeholder free-game award counter
+- SPECIAL completion grants three extra lives as the web-remake equivalent of the arcade free game
 - skulls give no score and trigger death
 - vegetables give a fixed level-based bonus score without using the heart multiplier
 
@@ -769,7 +769,7 @@ Future session architecture:
 - WordProgressState should probably move from Level to GameSession once stages and screen flow exist
 - lives should be owned by GameSession or a session-level LifeState
 - EXTRA should call into the life/session system to award an extra life
-- SPECIAL should call into the session/screen-flow system to award a credit/free game or remake-equivalent reward
+- SPECIAL should call into the life/session system to award the remake-equivalent three-life bonus, or a future session/screen-flow system if credits/free games are modeled later
 - stage transitions should be owned above Level or coordinated through explicit Level events
 
 ## 13. Pickup Popup / Temporary Freeze Architecture
@@ -1009,7 +1009,7 @@ The following part of the target architecture is already implemented now:
 - blue-heart score multiplier advancement
 - SPECIAL / EXTRA word progress
 - EXTRA extra-life reward
-- SPECIAL placeholder award
+- SPECIAL three-life remake reward
 - skull lethality
 - central vegetable bonus appearance, scoring and enemy movement freeze
 - frozen enemies remain fatal through unchanged collision flags
@@ -1064,7 +1064,6 @@ The largest remaining systems are:
 - proper stage progression / stage flow controller
 - arcade-accurate intermission screen with upcoming item / vegetable preview
 - immediate next-level transition when SPECIAL or EXTRA is completed
-- final SPECIAL free-credit / free-game behavior or remake equivalent
 - further enemy AI / movement refinements toward arcade accuracy
 - enemy interaction with rotating gates
 - arcade-exact vegetable timing / freeze cadence if future traces justify it
@@ -1098,7 +1097,6 @@ The player movement, level runtime, rotating gates, maze-border timer, collectib
 The next major architectural expansions should happen around:
 - documenting and protecting movement behavior with regression scenarios
 - moving level clear and stage transition flow out of Level into GameplayScreen / GameSession when screen flow exists
-- deciding final SPECIAL reward behavior in a remake context
 - GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
 - refining the maze-border / enemy-release interaction where arcade traces justify it
 - refining enemy movement and AI

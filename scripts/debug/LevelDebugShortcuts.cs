@@ -32,6 +32,7 @@ public partial class LevelDebugShortcuts : Node
     ///
     /// F1 advances through the normal next-level transition path.
     /// F2 simulates collecting all EXTRA letters while they are yellow.
+    /// F3 simulates collecting all SPECIAL letters while they are red.
     /// F12 saves the current viewport as a PNG screenshot.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
@@ -50,6 +51,10 @@ public partial class LevelDebugShortcuts : Node
 
             case Key.F2:
                 CompleteExtraWordAsYellowLetters();
+                break;
+
+            case Key.F3:
+                CompleteSpecialWordAsRedLetters();
                 break;
 
             case Key.F12:
@@ -89,6 +94,20 @@ public partial class LevelDebugShortcuts : Node
         }
 
         _level.DebugCompleteExtraWordAsYellowLetters();
+    }
+
+    /// <summary>
+    /// Delegates the debug SPECIAL-completion action to Level, which owns word and life state.
+    /// </summary>
+    private void CompleteSpecialWordAsRedLetters()
+    {
+        if (_level == null)
+        {
+            GD.PushWarning("LevelDebugShortcuts could not find its owning Level node.");
+            return;
+        }
+
+        _level.DebugCompleteSpecialWordAsRedLetters();
     }
 
     /// <summary>

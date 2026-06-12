@@ -109,8 +109,9 @@ public partial class Level : Node2D
     // Duration of the temporary between-level PART screen.
     private const int LevelTransitionDurationTicks = 120;
 
-    // Prototype counter for completed SPECIAL awards. Proper free-game / credit flow is not implemented yet.
-    private int _specialAwardCount;
+    // Remake-equivalent reward for completing SPECIAL. The arcade awards a free game;
+    // this web version has no credit flow, so SPECIAL grants three extra lives instead.
+    private const int SpecialCompletionExtraLives = 3;
 
     // Data files loaded when the runtime level starts.
     private const string MazeJsonPath = "res://data/maze.json";
@@ -370,6 +371,38 @@ public partial class Level : Node2D
     }
 
     /// <summary>
+    /// Simulates collecting every SPECIAL letter while the collectible color is red.
+    /// </summary>
+    /// <remarks>
+    /// This mirrors <see cref="DebugCompleteExtraWordAsYellowLetters"/> for the
+    /// remake SPECIAL reward. It uses the normal word-completion path, so it awards
+    /// the configured extra lives and resets SPECIAL exactly like regular gameplay.
+    /// </remarks>
+    public void DebugCompleteSpecialWordAsRedLetters()
+    {
+        if (_isGameOver ||
+            _isPlayerDeathSequenceActive ||
+            _isPlayerEntryAnimationActive ||
+            _isEndLevelFreezeActive ||
+            _isLevelTransitionScreenActive)
+        {
+            return;
+        }
+
+        _pickupPopupState.Clear();
+        ClearPickupPopupView();
+        _isNextLevelQueuedAfterPopup = false;
+
+        _wordProgressState.ResetSpecial();
+        _hud?.SetWordProgress(_wordProgressState);
+
+        foreach (LetterKind letter in WordProgressState.SpecialWordLetters)
+            ApplyLetterWordProgress(letter, CollectibleColor.Red);
+
+        _hud?.SetWordProgress(_wordProgressState);
+    }
+
+    /// <summary>
     /// Builds all runtime-only board systems after the scene nodes have been resolved.
     /// </summary>
     /// <remarks>
@@ -454,7 +487,6 @@ public partial class Level : Node2D
         _heartMultiplierState.Reset();
         _wordProgressState.Reset();
         _lifeState.Reset();
-        _specialAwardCount = 0;
         _isPlayerDeathSequenceActive = false;
         _isGameOver = false;
         _isEndLevelFreezeActive = false;
@@ -1010,8 +1042,8 @@ public partial class Level : Node2D
     /// Red letters can progress SPECIAL, yellow letters can progress EXTRA, and blue
     /// letters are points-only. When EXTRA completes, the current player gains one
     /// life immediately, then clears EXTRA so the next extra-life award requires
-    /// collecting the full word again. SPECIAL currently records a placeholder award
-    /// because free credit / free game flow is not implemented yet.
+    /// collecting the full word again. When SPECIAL completes, the web remake grants
+    /// three extra lives, then clears SPECIAL so the reward can be earned again.
     /// </remarks>
     private void ApplyLetterWordProgress(LetterKind letter, CollectibleColor color)
     {
@@ -1033,8 +1065,11 @@ public partial class Level : Node2D
         }
         else if (wordResult.CompletedWord == WordCompletionKind.Special)
         {
-            _specialAwardCount++;
-            GD.Print($"SPECIAL completed: free-game placeholder award #{_specialAwardCount}. Free-credit flow is not implemented yet.");
+            _lifeState.AddLife(SpecialCompletionExtraLives);
+            _wordProgressState.ResetSpecial();
+            _hud?.SetLives(_lifeState.Lives);
+            _hud?.SetWordProgress(_wordProgressState);
+            GD.Print($"SPECIAL completed: awarded {SpecialCompletionExtraLives} extra lives and reset SPECIAL progress.");
         }
     }
 

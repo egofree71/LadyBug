@@ -785,7 +785,7 @@ Current implementation detail:
 - triggers the temporary pickup popup
 - if it was the final remaining progression collectible, the next-level transition is queued until the popup finishes
 - when EXTRA completes, the player gains one extra life immediately and EXTRA progress is reset so a future extra-life award requires collecting the full word again
-- when SPECIAL completes, a placeholder free-game award counter is incremented and a debug message is printed
+- when SPECIAL completes, the web remake grants three extra lives immediately and SPECIAL progress is reset so the reward can be earned again
 - SPECIAL / EXTRA completion does not yet trigger an immediate separate stage transition; normal board-clear level transition is implemented
 
 **Skull:**
@@ -1598,7 +1598,6 @@ lives
 SPECIAL progress
 EXTRA progress
 heart multiplier step
-SPECIAL placeholder award count
 ```
 
 The following board-local runtime state is rebuilt:
@@ -1623,10 +1622,11 @@ Current shortcuts:
 ```text
 F1  = start the normal transition to the next level
 F2  = simulate collecting E X T R A as yellow letters
+F3  = simulate collecting S P E C I A L as red letters
 F12 = save the current viewport as a PNG screenshot
 ```
 
-F2 is intended for testing the extra-life award and the five-icon lives HUD cap. It resets EXTRA first, simulates the full yellow-letter sequence, awards one life through the normal completion path, and then resets EXTRA again so no letters remain active afterward.
+F2 is intended for testing the EXTRA extra-life award and the five-icon lives HUD cap. It resets EXTRA first, simulates the full yellow-letter sequence, awards one life through the normal completion path, and then resets EXTRA again so no letters remain active afterward. F3 does the same for SPECIAL with red letters, awarding three lives through the normal completion path and resetting SPECIAL afterward.
 
 These shortcuts are development-only and should later either be removed or guarded behind a broader debug build / tooling policy.
 
@@ -1727,7 +1727,7 @@ The following is already implemented and functional:
 - SPECIAL word progress works for valid red letters
 - EXTRA word progress works for valid yellow letters
 - EXTRA completion grants one extra life and resets EXTRA progress
-- SPECIAL completion records a placeholder free-game award
+- SPECIAL completion grants three extra lives and resets SPECIAL progress
 - lives are tracked and displayed as sprite icons, with no semantic cap and a five-icon HUD display cap
 - spare-life icons use the second player spritesheet frame by default
 - the initial PART screen shows the full starting life stock before the first active life enters the maze
@@ -1775,6 +1775,7 @@ The following is already implemented and functional:
 - the transition-screen collectible preview uses the same cached spawn plan that the next level rebuild consumes
 - F1 can be used as a debug shortcut to test the normal next-level transition
 - F2 can be used as a debug shortcut to test yellow EXTRA completion, extra-life award, and EXTRA reset
+- F3 can be used as a debug shortcut to test red SPECIAL completion, three-life award, and SPECIAL reset
 - F12 can be used as a debug shortcut to save screenshots
 - player death uses the red shrink, ghost apparition, and ghost zigzag sequence
 - the player respawns at PlayerStartCell when lives remain
@@ -1789,7 +1790,6 @@ The following systems are still not implemented yet:
 - persistent session state / GameSession
 - high-score persistence
 - immediate separate next-level transition when SPECIAL or EXTRA is completed
-- exact free-credit / free-game behavior from SPECIAL
 - credits / coin / arcade-style free-play handling
 - top score display
 - automated movement / enemy regression tests
@@ -1802,12 +1802,12 @@ The enemy system is intentionally a first playable approximation rather than a f
 Current limitations include:
 - level transition is implemented as a Level-owned prototype state rather than a future GameplayScreen / GameSession flow
 - the PART screen is implemented with high-level Godot UI controls rather than original tile / color RAM rendering
-- score, lives, multiplier, word progress, and special-award placeholder are still owned by Level rather than a future GameSession
+- score, lives, multiplier, and word progress are still owned by Level rather than a future GameSession
 - HUD is functional but still scene-local rather than part of a full screen-flow architecture
 - the HUD-to-maze life-entry animation is high-level Sprite2D/UI rendering rather than original VRAM / color RAM reproduction
 - pickup popup uses Label-based temporary text, not original tile-based popup graphics
-- SPECIAL completion is only a placeholder award and does not implement credits/free games yet
-- SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition; EXTRA currently awards a life and resets word progress
+- SPECIAL completion uses a web-remake reward of three extra lives instead of arcade credits/free games
+- SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition; EXTRA currently awards one life and resets EXTRA progress, while SPECIAL awards three lives and resets SPECIAL progress
 - game over has a visible overlay and return-to-title flow, but not the full original arcade screen flow
 - exact low-level tile / color RAM behavior is not reproduced literally
 - enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
@@ -1829,7 +1829,6 @@ A reasonable current priority is now:
 5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
 6) refine exact bonus vegetable timing, scoring presentation, and freeze duration if new arcade evidence justifies it
 7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
-8) decide the remake behavior for SPECIAL completion
-9) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-10) implement remaining screen-flow and persistence systems
-11) continue refining arcade fidelity only where reverse engineering or testing justifies it
+8) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
+9) implement remaining screen-flow and persistence systems
+10) continue refining arcade fidelity only where reverse engineering or testing justifies it
