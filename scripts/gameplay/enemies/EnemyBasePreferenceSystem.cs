@@ -18,8 +18,8 @@ public sealed class EnemyBasePreferenceSystem
     // without changing the public shape of this system.
     private readonly int _levelNumber;
 
-    // Arcade-inspired B9 counter. Level-1 tests observed an initial value around
-    // 0xB4 and a deterministic-mode threshold of 0x90.
+    // Arcade-inspired B9 counter (RAM 0x61B9): reloaded to 0xB3 at each life
+    // start, decremented once per gameplay tick, wrapping over 256 ticks.
     private int _b9;
 
     // Small deterministic PRNG state used as a practical replacement for the Z80
@@ -180,11 +180,17 @@ public sealed class EnemyBasePreferenceSystem
     /// <summary>
     /// Gets the B9 threshold for switching from player-derived to random mode.
     /// </summary>
+    /// <remarks>
+    /// Arcade routine 0x2E5C reads a two-entry ROM table (0x0EA4) selected by
+    /// bit 0 of the level function: odd levels use 0x90, even levels use 0x24.
+    /// Both values were validated with MAME memory traces (level 1: no
+    /// player-derived mode below 0x90; level 2: player-derived mode observed
+    /// throughout the 0x24..0x8F range). The parity rule itself is taken
+    /// directly from the Z80 branch and extrapolated to all levels.
+    /// </remarks>
     private static int GetThresholdForLevel(int levelNumber)
     {
-        // Level 1 was validated at 0x90. Keep later levels conservative until
-        // additional MAME logs confirm their table values.
-        return 0x90;
+        return (levelNumber & 1) != 0 ? 0x90 : 0x24;
     }
 
     /// <summary>
@@ -192,8 +198,8 @@ public sealed class EnemyBasePreferenceSystem
     /// </summary>
     private static int GetInitialB9ForLevel(int levelNumber)
     {
-        // Level 1 stationary-player tests observed a value around 0xB4.
-        // Reuse it for now as a configurable high-level approximation.
-        return 0xB4;
+        // MAME traces show the arcade counter reloaded to exactly 0xB3 at each
+        // life start (three independent respawns observed), independent of level.
+        return 0xB3;
     }
 }

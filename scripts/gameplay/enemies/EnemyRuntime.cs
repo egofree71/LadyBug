@@ -38,6 +38,10 @@ public sealed class EnemyRuntime
     // Temporary chase timer system with round-robin enemy activation.
     private readonly EnemyChaseSystem _chaseSystem;
 
+    // Arcade speed chain: one global fractional accumulator, one sub-step count
+    // per tick shared by all four enemies.
+    private readonly EnemySpeedSystem _speedSystem = new();
+
     // Four arcade-like logical enemy slots.
     private readonly MonsterEntity[] _monsters = new MonsterEntity[EnemyMovementTuning.MaxEnemyCount];
 
@@ -138,13 +142,28 @@ public sealed class EnemyRuntime
             _navigationGrid,
             _level.ArcadePixelToLogicalCell);
 
+        // Arcade order (0x40B1 / 0x40B4): the sub-step count is computed once per
+        // tick from the global accumulator, then each enemy runs ALL of its
+        // sub-steps before the next enemy is processed. The skull check runs on
+        // every sub-step so the existing kill/return-to-lair cycle is preserved
+        // at any speed.
+        int subSteps = _speedSystem.ComputeStepsForThisTick(
+            _levelNumber,
+            _chaseSystem.LifeSecondsCapped);
+
         foreach (MonsterEntity monster in _monsters)
         {
             if (!monster.MovementActive)
                 continue;
 
-            _movementAi.UpdateMonsterOnePixel(monster, _navigationGrid);
-            TryHandleSkullCollision(monster, tryConsumeSkullAt, onEnemyKilledBySkull);
+            for (int step = 0; step < subSteps; step++)
+            {
+                _movementAi.UpdateMonsterOnePixel(monster, _navigationGrid);
+                TryHandleSkullCollision(monster, tryConsumeSkullAt, onEnemyKilledBySkull);
+
+                if (!monster.MovementActive)
+                    break;
+            }
         }
 
         UpdateWaitingLairVisibility();
@@ -164,6 +183,7 @@ public sealed class EnemyRuntime
     {
         _basePreferenceSystem.Reset();
         _chaseSystem.Reset();
+        _speedSystem.Reset();
         _suppressEnemyViewsDuringPlayerDeath = false;
 
         _root.Visible = true;

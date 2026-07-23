@@ -1406,6 +1406,32 @@ public partial class Level : Node2D
             collisionProfile);
     }
 
+    /// <summary>
+    /// Returns whether a rotating-gate arm blocks the given movement axis at one probe offset.
+    /// </summary>
+    /// <param name="arcadePixelPos">Enemy gameplay position in arcade pixels.</param>
+    /// <param name="direction">Attempted one-pixel movement direction.</param>
+    /// <param name="probeLead">Probe offset relative to the enemy position.</param>
+    /// <remarks>
+    /// Used by the enemy gate-reversal rule (arcade routine 0x4189). Only a
+    /// gate block matters here; fixed walls at the probed pixel are ignored
+    /// because the resolver reports a gate contact with priority.
+    /// </remarks>
+    public bool IsGateBlockingEnemyProbe(
+        Vector2I arcadePixelPos,
+        Vector2I direction,
+        Vector2I probeLead)
+    {
+        // Static-wall lead stays at the plain one-pixel step so a wall probe at
+        // the arcade gate offsets cannot short-circuit the gate detection.
+        PlayfieldStepResult step = _playfieldCollisionResolver.EvaluateArcadePixelStep(
+            arcadePixelPos,
+            direction,
+            new PlayfieldCollisionProfile(Vector2I.Zero, probeLead));
+
+        return step.Kind == PlayfieldStepKind.BlockedByGate;
+    }
+
     // --- Coordinate Conversion ---------------------------------------------
 
     /// <summary>

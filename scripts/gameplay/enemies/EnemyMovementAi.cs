@@ -96,13 +96,8 @@ public sealed class EnemyMovementAi
         }
         else
         {
-            // Simulator comparison refinement: outside a decision center, the
-            // arcade-like default is to preserve the current direction and keep
-            // moving one pixel. Do not reverse merely because the high-level
-            // playfield resolver reports a nearby gate or gate boundary.
-            //
-            // A future arcade-accurate door reversal should be reintroduced only
-            // from a precise local tile/gate probe, not from the broad resolver.
+            // Outside a decision center the enemy keeps its current direction;
+            // only the precise arcade gate probe below may reverse it.
             decisionReason = "outside-center-keep-current";
         }
 
@@ -161,6 +156,18 @@ public sealed class EnemyMovementAi
                     decisionReason,
                     blockKind);
             }
+        }
+
+        // Arcade gate reversal (routines 0x4189 -> 0x4347): on EVERY sub-step,
+        // including the one right after a center decision, the enemy reverses
+        // when a rotating-gate arm blocking its axis covers the near or far
+        // probed pixel ahead. The reversed direction is not re-validated, like
+        // the arcade: it points back into the corridor the enemy came from.
+        if (TryGetGateReversal(monster.ArcadePixelPos, chosenDir))
+        {
+            chosenDir = chosenDir.Opposite();
+            forcedReverse = true;
+            decisionReason = "gate-forced-reverse";
         }
 
         monster.Direction = chosenDir;
@@ -308,10 +315,26 @@ public sealed class EnemyMovementAi
         return EvaluateStep(monster, dir).Allowed;
     }
 
-    // Intentionally no broad outside-center gate reversal here. Earlier versions
-    // used EvaluateStep(...).Kind == BlockedByGate as a reversal trigger, but the
-    // simulator comparison showed that this is too coarse: gate proximity and
-    // boundary probes can look blocked even when the arcade keeps moving.
+    /// <summary>
+    /// Returns whether the arcade gate-reversal probes detect a blocking gate arm.
+    /// </summary>
+    /// <remarks>
+    /// Reproduces routine 0x4189: two probed pixels per direction (near and far),
+    /// reversal when either is covered by a gate arm blocking the movement axis.
+    /// The earlier broad resolver-based reversal was too coarse; this rule only
+    /// fires on an actual gate block at the exact arcade offsets.
+    /// </remarks>
+    private bool TryGetGateReversal(Vector2I arcadePixelPos, MonsterDir dir)
+    {
+        if (dir == MonsterDir.None)
+            return false;
+
+        (Vector2I near, Vector2I far) = EnemyMovementTuning.GetGateReversalProbes(dir);
+        Vector2I direction = dir.ToVector();
+
+        return _level.IsGateBlockingEnemyProbe(arcadePixelPos, direction, near)
+            || _level.IsGateBlockingEnemyProbe(arcadePixelPos, direction, far);
+    }
 
     /// <summary>
     /// Evaluates a one-pixel enemy step through the current level collision resolver.

@@ -120,6 +120,29 @@ public static class EnemyMovementTuning
         };
     }
 
+    // Arcade gate-reversal probes (routine 0x4189), one near and one far pixel
+    // offset per direction. While moving between decision centers, the arcade
+    // reverses the enemy when a rotating-gate arm blocking the current axis
+    // covers either probed pixel:
+    //   left  -> X - 1 and X - 3
+    //   up    -> Y - 1 and Y - 7
+    //   right -> X + 2 and X + 8
+    //   down  -> Y + 2 and Y + 4
+    /// <summary>
+    /// Gets the near and far arcade gate-reversal probe offsets for one direction.
+    /// </summary>
+    public static (Vector2I Near, Vector2I Far) GetGateReversalProbes(MonsterDir dir)
+    {
+        return dir switch
+        {
+            MonsterDir.Left => (new Vector2I(-1, 0), new Vector2I(-3, 0)),
+            MonsterDir.Up => (new Vector2I(0, -1), new Vector2I(0, -7)),
+            MonsterDir.Right => (new Vector2I(2, 0), new Vector2I(8, 0)),
+            MonsterDir.Down => (new Vector2I(0, 2), new Vector2I(0, 4)),
+            _ => (Vector2I.Zero, Vector2I.Zero)
+        };
+    }
+
     /// <summary>
     /// Gets the complete playfield collision profile for one enemy step.
     /// </summary>
