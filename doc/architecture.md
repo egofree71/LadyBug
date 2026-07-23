@@ -530,34 +530,81 @@ The current movement system is stable enough that future changes should be prote
 
 ## 8. Enemy Architecture
 
-The final game will need one or more enemy systems that stay compatible with the same maze and coordinate model as the player.
+The enemy system now uses the same arcade-pixel coordinate model and fixed-tick
+board loop as the player, while keeping enemy-specific decision and probe rules.
+Gameplay state is deliberately separated from rendering.
 
-Expected enemy architecture:
+Current enemy architecture:
 
-EnemyController:
-- high-level orchestration of one enemy
+```text
+EnemyRuntime
+- top-level coordinator owned by Level
+- owns the four logical enemy slots and their views
+- rebuilds navigation and BFS guidance
+- prepares base preferences, advances chase timers and computes speed sub-steps
+- processes enemies in stable slot order
+- handles skull deaths, lair visibility, release and attempt reset
 
-EnemyMovementMotor:
-- effective movement logic on the maze
+MonsterEntity
+- gameplay truth for one enemy slot
+- stores position, current/preferred direction, chase timer and runtime flags
 
-EnemyAiState:
-- target choice / chase logic / patrol logic / home logic
+EnemyController
+- visual-only Node2D controller
+- selects animations and synchronizes the scene position from MonsterEntity
 
-EnemyMovementStepResult:
-- structured tick result, similar in spirit to the player motor
+EnemyNavigationGrid
+- combines static maze legality with current rotating-gate state
+- stores allowed directions separately from BFS guidance toward Lady Bug
 
-Possible shared concepts:
-- same arcade-pixel coordinate system
-- same static maze validation
-- same dynamic gate legality framework
-- same Level-owned fixed tick structure
-- same board-level temporary freeze states for pickup popups, death, and stage transitions
+EnemyBasePreferenceSystem
+- prepares non-chase preferred directions every simulation tick
+- owns the B9-like player-derived / pseudo-random mode cycle
 
-Important:
-Enemy logic should probably reuse the same playfield-step legality model, but not necessarily the exact player movement rules.
-Do not extract a generic ActorMovementMotor too early.
-The player has special input and assisted-turn behavior that enemies may not share.
+EnemyChaseSystem
+- owns the one-second divider, life-time counter, ROM-table activation windows,
+  round-robin slot selection and chase-duration tables
+- can arm an enemy while it is still waiting in the lair
 
+EnemySpeedSystem
+- converts the ROM speed tables into one shared sub-step count per tick
+- owns the global 8-bit fractional accumulator
+
+EnemyMovementAi
+- performs one arcade-pixel sub-step
+- applies preferred -> current -> fallback decisions at cell centers
+- validates directions through both navigation and local playfield probes
+- applies precise near/far rotating-gate reversal probes on every sub-step
+
+EnemyMovementTuning
+- centralizes enemy-specific collision and gate-reversal probe offsets
+
+Level / PlayfieldCollisionResolver
+- provide semantic playfield validation without exposing gate internals to the AI
+- Level.IsGateBlockingEnemyProbe(...) bridges the precise enemy probes to the
+  existing rotating-gate collision model
+```
+
+Fixed-tick ordering:
+
+```text
+rebuild enemy navigation / BFS
+prepare base preferred directions
+advance chase timers and activation windows
+apply BFS chase overrides
+compute one global enemy sub-step count
+for Enemy0..Enemy3:
+    execute all sub-steps for that enemy
+    test skull collision after every sub-step
+```
+
+Architectural rules:
+- keep `MonsterEntity` as gameplay truth and `EnemyController` as visual sync only
+- keep player and enemy direction enums separate
+- reuse the playfield collision model, but not player assisted-turn rules
+- compute speed once per tick and preserve stable enemy slot order
+- preserve the four-slot lair / release cycle when an enemy is killed by a skull
+- avoid extracting a generic actor motor unless a real shared behavior emerges
 
 ## 9. Maze Border Timer / Enemy Release Clock Architecture
 
@@ -991,6 +1038,7 @@ The following part of the target architecture is already implemented now:
 - MazeBorderTimerView
 - EnemyReleaseBorderTimer
 - EnemyRuntime / enemy movement runtime helpers
+- EnemySpeedSystem with ROM-table speed ramps and a shared fractional accumulator
 - level-aware enemy visual catalog for enemy_level1 through enemy_level8
 - ScoreState
 - HeartMultiplierState
@@ -1064,8 +1112,7 @@ The largest remaining systems are:
 - proper stage progression / stage flow controller
 - arcade-accurate intermission screen with upcoming item / vegetable preview
 - immediate next-level transition when SPECIAL or EXTRA is completed
-- further enemy AI / movement refinements toward arcade accuracy
-- enemy interaction with rotating gates
+- remaining enemy timing, lair-transition and edge-case refinements where new arcade evidence justifies them
 - arcade-exact vegetable timing / freeze cadence if future traces justify it
 - score / lives / word-progress migration to session-level ownership
 - high-score persistence
@@ -1099,7 +1146,7 @@ The next major architectural expansions should happen around:
 - moving level clear and stage transition flow out of Level into GameplayScreen / GameSession when screen flow exists
 - GameSession / GameplayScreen extraction when state needs to persist cleanly across levels and screens
 - refining the maze-border / enemy-release interaction where arcade traces justify it
-- refining enemy movement and AI
+- protecting the current arcade-informed enemy behavior and refining only validated edge cases
 - refining vegetable timing / arcade details only where testing justifies it
 
 Future refactoring candidates should be driven by new gameplay systems rather than by abstract cleanup alone.

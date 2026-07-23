@@ -39,7 +39,7 @@ Implemented systems include:
 - SPECIAL and EXTRA word progress, including EXTRA extra-life and SPECIAL three-life rewards
 - player death sequence and life-entry animation
 - enemy release through the animated border timer
-- first playable enemy movement system
+- arcade-informed enemy movement with timed chase phases, progressive speed and precise rotating-gate reversals
 - enemy freeze after collecting the central bonus vegetable, while enemies remain fatal
 - level progression through PART transition screens
 - HUD with score, lives, SPECIAL, EXTRA and multipliers
@@ -50,7 +50,7 @@ Some areas are still approximate or incomplete, including:
 
 - high-score screens and persistence
 - exact arcade transition-screen tile / color RAM rendering
-- some low-level enemy movement details around rotating gates
+- some remaining arcade enemy timing and edge-case details
 - exact arcade coin / credit / free-game behavior
 
 ## Technology

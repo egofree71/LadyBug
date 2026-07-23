@@ -119,6 +119,7 @@ scripts/
 │  │  ├─ EnemyNavigationGrid.cs
 │  │  ├─ EnemyReleaseBorderTimer.cs
 │  │  ├─ EnemyRuntime.cs
+│  │  ├─ EnemySpeedSystem.cs
 │  │  ├─ MonsterDir.cs
 │  │  ├─ MonsterEntity.cs
 │  │  └─ MonsterRuntimeState.cs
@@ -1155,8 +1156,10 @@ Level 5+      = 3 simulation ticks per border step
 
 ## 13. Enemy System
 
-Enemies are now implemented as a first playable runtime system.
-The current implementation is intentionally high-level and maintainable: it keeps the reverse-engineered arcade principles but does not copy the original RAM layout literally.
+Enemies now use an arcade-informed runtime with validated chase timing, progressive
+speed and precise rotating-gate reversal probes. The implementation remains
+intentionally high-level and maintainable: it preserves reverse-engineered gameplay
+principles without copying the original RAM layout literally.
 
 Current enemy-related files:
 
@@ -1182,6 +1185,7 @@ scripts/gameplay/enemies/
 ├─ EnemyNavigationGrid.cs
 ├─ EnemyReleaseBorderTimer.cs
 ├─ EnemyRuntime.cs
+├─ EnemySpeedSystem.cs
 ├─ MonsterDir.cs
 ├─ MonsterEntity.cs
 └─ MonsterRuntimeState.cs
@@ -1190,9 +1194,18 @@ scripts/gameplay/enemies/
 ### 13.1 Runtime architecture
 
 **EnemyRuntime** is the top-level enemy coordinator owned by Level.
-It creates the runtime Enemies parent if needed, instantiates four enemy views, owns the four logical enemy slots, advances enemy navigation / chase / movement, checks skull deaths for enemies, exposes collision-active monsters to Level, handles release from the lair, and resets enemy state after player death.
+It creates the runtime Enemies parent if needed, instantiates four enemy views,
+owns the four logical enemy slots, rebuilds navigation and BFS guidance, prepares
+base preferences, advances chase timing, computes the global speed sub-step count,
+checks skull deaths after each sub-step, exposes collision-active monsters to
+Level, handles release from the lair, and resets attempt-level enemy state after
+player death.
 
-When the vegetable-freeze state is active, Level skips enemy movement updates but still checks collision-active monsters after player movement, preserving the arcade rule that frozen enemies remain fatal.
+The runtime preserves the arcade processing order: the sub-step count is computed
+once per fixed tick, then Enemy0 completes all of its sub-steps before Enemy1,
+Enemy2 and Enemy3. When the vegetable-freeze state is active, Level skips enemy
+movement updates but still checks collision-active monsters after player movement,
+so frozen enemies remain fatal.
 
 **MonsterEntity** stores the gameplay state of one enemy slot:
 - slot id
@@ -1207,10 +1220,15 @@ When the vegetable-freeze state is active, Level skips enemy movement updates bu
 - lair visibility flag
 
 **EnemyController** owns only the visual node for one enemy.
-It receives the slot-specific visual definition, loads the matching enemy spritesheet, builds right/up animations at runtime, mirrors the sprite for left/down, and applies the visual offset used to align the enemy art with the maze.
+It receives the slot-specific visual definition, loads the matching enemy
+spritesheet, builds right/up animations at runtime, mirrors the sprite for
+left/down, and applies the visual offset used to align the enemy art with the maze.
 
-**EnemyLevelCatalog / EnemyLevelDefinition** map the current level number and enemy slot id to the arcade sprite code, arcade attribute, spritesheet path, and animation frame layout used by EnemyController.
-The current implementation provides enemy visual sheets for the eight arcade insect types through assets/sprites/enemies/enemy_level1.png through enemy_level8.png.
+**EnemyLevelCatalog / EnemyLevelDefinition** map the current level number and enemy
+slot id to the arcade sprite code, arcade attribute, spritesheet path, and animation
+frame layout used by EnemyController. The current implementation provides enemy
+visual sheets for the eight arcade insect types through
+`assets/sprites/enemies/enemy_level1.png` through `enemy_level8.png`.
 
 Current arcade sprite selection model:
 - levels 1 through 8 ignore the enemy slot and use one insect type for all four slots
@@ -1226,26 +1244,43 @@ Current arcade sprite selection model:
   - attr = n + 1
 - current Godot spritesheets are stored by first visible level name, so spriteCode 0x48 maps to enemy_level4.png and spriteCode 0x60 maps to enemy_level3.png
 
-**EnemyNavigationGrid** builds an enemy navigation map from the static MazeGrid and the current GateSystem state.
-It stores allowed directions and BFS guidance directions separately.
+**EnemyNavigationGrid** builds an enemy navigation map from the static MazeGrid and
+the current GateSystem state. It stores allowed directions and BFS guidance
+directions separately.
 
-**EnemyMovementAi** advances one active monster by one arcade pixel.
-It handles decision-center checks, preferred-direction validation, current-direction preservation before fallback, a `61C1`-like rejected-direction mask, fixed-order fallback directions, straight outside-center movement, and simulator-derived local movement probe offsets. These offsets are supplied as an enemy collision profile so enemy local checks keep their own probe timing. Broad outside-center gate / boundary reversal has been disabled because simulator comparison showed that it was too coarse.
+**EnemyMovementAi** performs one active enemy sub-step of exactly one arcade pixel.
+At decision centers it follows the validated preferred -> current -> fallback
+order, using a local `61C1`-like rejected-direction mask and the fixed arcade
+fallback order Left, Up, Right, Down. Candidate directions are validated through
+both the navigation grid and the local playfield resolver.
 
-At decision centers, `EnemyMovementAi` now follows the simulator-validated decision order: try the preferred direction first, then keep the current direction if it is still valid, and only then scan fallback directions. Preferred and current candidates are validated through both the enemy navigation grid and the local playfield / gate probe. A rejected preferred or current direction is added to the local rejected mask before fallback scans the arcade order: Left, Up, Right, Down.
+On every sub-step, including immediately after a decision-center choice,
+`EnemyMovementAi` also evaluates the precise rotating-gate reversal probes. The
+near/far offsets are Left (-1/-3), Up (-1/-7), Right (+2/+8), Down (+2/+4) on the
+movement axis. `Level.IsGateBlockingEnemyProbe(...)` reports only a semantic gate
+block, avoiding the earlier broad gate/boundary reversal rule.
 
-Apparent 180-degree turns at centers are therefore modeled as normal fallback results when both the preferred and current directions fail, not as forced reversals.
-
-Outside decision centers, preferred direction and fallback are not consulted. The enemy keeps its current direction and advances one pixel. The previous broad rule that reversed an enemy when the high-level resolver reported a gate / boundary block has been removed. A future arcade-accurate forced reversal should be reintroduced only from a precise local door/tile probe.
-
-**EnemyBasePreferenceSystem** prepares the non-chase preferred directions continuously before chase/BFS overrides are applied.
-It implements the currently reverse-engineered two-mode arcade-inspired behavior: a B9-like counter chooses between player-direction-derived preferences and one pseudo-random preferred direction per enemy.
+**EnemyBasePreferenceSystem** prepares non-chase preferred directions continuously
+before chase/BFS overrides. Its B9-like counter starts at `0xB3`, decrements once
+per gameplay tick with byte wrapping, and uses threshold `0x90` on odd levels or
+`0x24` on even levels. The pseudo-random branch remains a deterministic C#
+approximation of the Z80 R-register source.
 
 **EnemyChaseSystem** owns the arcade-inspired chase timing state:
-- divider
-- B8-like activation counter
+- a 60-tick divider and capped per-life elapsed-time counter
+- level activation-pattern table at ROM 0x4788
+- activation match table at ROM 0x47A6
 - round-robin enemy selector
-- activation index / duration sequence
+- chase duration tables at ROM 0x47AE / 0x47CD
+- optional hard-table selection
+
+A waiting lair enemy may receive a chase timer. BFS guidance is applied after the
+enemy becomes movement-active.
+
+**EnemySpeedSystem** computes one global sub-step count per fixed tick from the
+level base-index table at ROM 0x0EA6, the per-life time ramp, and the speed tables
+at ROM 0x0ED8 / 0x0EE8. Encoded speeds range from 1.0 to 2.0 pixels per tick. One
+shared 8-bit fractional accumulator reproduces the 1.2, 1.5 and 1.8 speeds.
 
 ### 13.2 Current enemy behavior
 
@@ -1259,7 +1294,9 @@ Current implemented behavior:
 - levels 9 and later use the current level number plus enemy slot id to produce four different insects per level
 - each MonsterEntity stores the arcade-facing SpriteCode and SpriteAttribute values used to select its visual definition
 - after one enemy leaves the lair, another waiting enemy becomes visible if a slot is available
-- active enemies move one arcade pixel per fixed simulation tick
+- active enemies move through one or more one-pixel sub-steps per fixed tick
+- the speed is selected from arcade ROM tables by level and elapsed time in the current life, with one global fractional accumulator shared by all enemies
+- the default speed table ranges from 1.0 to about 1.8 pixels per tick; the optional hard table reaches 2.0
 - enemies make direction choices at decision centers
 - at decision centers, the preferred direction is validated before movement
 - if the preferred direction is rejected, the current direction is tested before fallback
@@ -1267,21 +1304,23 @@ Current implemented behavior:
 - fallback scans the arcade direction order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
 - fallback candidates are validated through both the enemy navigation grid and the local playfield / gate probe
 - apparent center reversals can be normal fallback results after rejection, not forced-reversal events
-- outside decision centers, preferred direction and fallback are ignored and the enemy keeps its current direction
-- broad outside-center reversal from high-level gate / boundary blocks is intentionally disabled
-- local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2
-- enemy movement passes those offsets through `EnemyMovementTuning.GetCollisionProfile(...)`, using the same probe for fixed walls and rotating gates so player-specific gate timing does not affect enemies
+- outside decision centers, preferred direction and fallback are ignored and the enemy normally keeps its current direction
+- precise near/far gate probes can force an immediate reversal on any sub-step when a rotating-gate arm blocks the movement axis
+- normal local movement probes use simulator-derived directional offsets: left = X-1,Y; up = X,Y-7; right = X+8,Y; down = X,Y+2
+- gate-reversal probes use the arcade offsets left X-1/X-3, up Y-1/Y-7, right X+2/X+8, down Y+2/Y+4
 - enemy directions use a separate MonsterDir enum: Left=0x01, Up=0x02, Right=0x04, Down=0x08
 - navigation considers the static maze and current rotating-gate states
 - base preferred directions are recalculated continuously before chase/BFS override
-- the base preference system alternates between a B9-like player-direction-derived mode and a pseudo-random mode
+- B9 starts at 0xB3 and switches mode at 0x90 on odd levels or 0x24 on even levels
 - the deterministic mode rotates the player's current/effective direction through the four enemy direction bits
-- enemy collision / local movement probes use the enemy anchor directly, with simulator-derived directional lead offsets, so enemies can reach their X&0x0F=0x08 / Y&0x0F=0x06 decision centers
+- the pseudo-random mode generates one direction per enemy through a reproducible C# approximation of the Z80 R-register source
 - a BFS guidance map can temporarily override preferred directions during chase phases
-- chase activation uses a level-dependent first activation threshold and a round-robin enemy selector
+- chase activation follows the level/pattern ROM tables rather than a single first-threshold approximation
+- chase duration is indexed by elapsed life time through the ROM duration table
+- a waiting enemy in the lair can be armed for chase, and its timer counts down normally
 - enemies collide with the player using the strict arcade-style window: abs(dx) < 9 and abs(dy) < 9
 - enemies can be frozen by the central vegetable bonus; while frozen, movement is skipped but collision remains fatal
-- enemies can be killed by skulls and return to the lair
+- enemies can be killed by skulls, return to the lair and later re-enter the normal release cycle
 
 ### 13.3 Enemy visual selection by level and slot
 
@@ -1352,15 +1391,18 @@ The attempt restart deliberately preserves:
 
 ### 13.5 Current enemy limitations
 
-The current enemy system is a first playable approximation.
-The following details are still approximate or not implemented yet:
-- exact arcade cadence / reload behavior of the B9-like base preference counter beyond the currently observed level-1 behavior
-- exact pseudo-random source behavior compared with the Z80 R register
-- exact enemy path while leaving the lair
-- exact local door rejection behavior from the arcade routines
-- exact forced reversal semantics around rotating doors
-- full chase activation tables for all levels and DIP settings
-- exact visual state progression for lair / release transitions
+The current enemy system is substantially closer to the arcade than the earlier
+first-playable implementation, but it is not claimed to be a literal or fully
+verified hardware reproduction.
+
+Remaining approximations / open points:
+- the pseudo-random branch uses a deterministic C# generator rather than the Z80 R register
+- the exact UI difficulty-label mapping for the alternative chase and speed tables has not been validated end-to-end in the remake
+- the speed accumulator is reset on each life; if the arcade preserves a fractional phase in an edge case, at most one sub-step phase can differ
+- the rejected-direction mask is local to one Godot decision call rather than persisting across multiple sub-steps of the same enemy frame
+- the precise semantic mapping from every original local tile code to the high-level rotating-gate model is not reproduced literally
+- the exact enemy path and visual state progression while leaving or returning to the lair remain simplified
+- enemy behavior has been tested in the running game, but there is still no automated full-project movement regression suite
 
 ## 14. Rotating Gate System
 
@@ -1737,10 +1779,11 @@ The following is already implemented and functional:
 - skull pickup is lethal to the player
 - skull death removes all remaining skulls before the death sequence starts
 - skull death removes one life and starts the player death sequence
-- enemies are implemented as a first playable system
+- enemies use an arcade-informed movement system with ROM-table chase timing, progressive speed and precise gate reversals
 - one enemy is visible waiting in the central lair before the first release
 - enemies are released by the maze-border timer
-- enemy movement is fixed-tick and pixel-based
+- enemy movement is fixed-tick and built from one-pixel sub-steps
+- enemy speed follows arcade ROM tables by level and elapsed life time, using one shared fractional accumulator
 - enemies use a separate direction enum from player movement
 - enemies use decision-center movement at X&0x0F=0x08 and Y&0x0F=0x06
 - enemy center decisions use preferred-direction validation before movement
@@ -1748,11 +1791,11 @@ The following is already implemented and functional:
 - enemy center decisions use a local `61C1`-like rejected-direction mask
 - enemy fallback scans the arcade order Left, Up, Right, Down / 01, 02, 04, 08 only after preferred and current directions both fail
 - enemy fallback validates candidates through the navigation grid and local playfield / gate probe
-- outside-center broad gate / boundary reversal is disabled; outside centers, enemies keep their current direction
-- enemy local movement probes use simulator-derived directional offsets instead of player-style body probes
+- outside centers, enemies normally keep their current direction, but precise near/far gate probes can force an immediate reversal
+- enemy local movement probes and gate-reversal probes use separate reverse-engineered directional offsets
 - enemies use a navigation grid generated from the static maze and current rotating-gate states
-- enemies can receive temporary BFS chase guidance toward the player
-- enemy chase activation uses a round-robin selector and level-dependent timing thresholds
+- enemies can receive temporary BFS chase guidance toward the player, including chase timers armed while waiting in the lair
+- enemy chase activation uses a round-robin selector and the reverse-engineered level/pattern ROM tables
 - enemies collide with the player using a strict <9 pixels window on both axes
 - touching an enemy starts the player death sequence
 - enemy views are hidden immediately when the player dies from an enemy
@@ -1796,8 +1839,8 @@ The following systems are still not implemented yet:
 
 ## 22. Current Limitations
 
-The movement, gate, collectible, scoring, HUD, death-sequence, bonus-vegetable, and first enemy systems are functional enough to continue development from this point.
-The enemy system is intentionally a first playable approximation rather than a fully verified arcade-perfect reproduction.
+The movement, gate, collectible, scoring, HUD, death-sequence, bonus-vegetable, and enemy systems are functional enough to continue development from this point.
+The enemy system now implements several validated arcade timing and movement mechanisms, while still avoiding a claim of complete hardware-level equivalence.
 
 Current limitations include:
 - level transition is implemented as a Level-owned prototype state rather than a future GameplayScreen / GameSession flow
@@ -1810,25 +1853,20 @@ Current limitations include:
 - SPECIAL / EXTRA completion does not yet trigger its own immediate stage transition; EXTRA currently awards one life and resets EXTRA progress, while SPECIAL awards three lives and resets SPECIAL progress
 - game over has a visible overlay and return-to-title flow, but not the full original arcade screen flow
 - exact low-level tile / color RAM behavior is not reproduced literally
-- enemy base preferred direction generation now uses the observed two-mode B9-like behavior, but the exact arcade reload/cadence rules and Z80 R-register randomness still need more traces
-- enemy center decisions now follow the simulator-validated preferred -> current -> fallback order, but exact pixel-perfect local-door probing around rotating doors still needs targeted MAME traces
-- outside-center broad gate / boundary reversal is intentionally disabled; exact arcade forced-reversal semantics around rotating doors should be reintroduced only after precise local probes are validated
-- enemy release from the lair is simplified and does not yet reproduce every visual / state transition from the arcade
-- chase activation is based on currently observed levels and should remain configurable until more MAME traces cover later levels and DIP settings
-- enemy skull death is implemented at the current high-level gameplay-cell level and may need additional pixel-level refinement
+- enemy base preference cadence now uses B9=0xB3 and odd/even thresholds 0x90/0x24, but the pseudo-random branch still approximates the Z80 R register
+- enemy center decisions follow the validated preferred -> current -> fallback order; the rejected mask remains local to one decision call rather than persisting across multiple sub-steps of one enemy frame
+- precise outside-center rotating-gate reversal probes are implemented, but the remake maps them through semantic gate state rather than reproducing every original local tile code literally
+- enemy release from and return to the lair are simplified and do not reproduce every visual / state transition from the arcade
+- chase activation and duration now use the extracted ROM tables; the alternative difficulty-table label mapping remains configurable rather than hard-wired to an unverified UI label
+- enemy speed now uses the extracted level/time tables and a global fractional accumulator; resetting its fractional phase on each life is a documented approximation
 - vegetable bonus / freeze is implemented as a first playable feature, but exact arcade duration, central-area state transitions, and low-level visual timing may need more traces
 
 ## 23. Current Development Priority
 
 A reasonable current priority is now:
 
-1) keep the current enemy preferred -> current -> fallback refinement, disabled broad outside-center reversal, and simulator-derived local probe offsets as a stable checkpoint
-2) keep the current movement, gate, scoring, collectible, HUD, lives, death, vegetable, and enemy reset systems stable
-3) document and protect validated player/enemy movement behavior with regression scenarios
-4) refine exact local door/gate tile probing and decide whether a precise outside-center forced-reversal path should be reintroduced using targeted MAME traces
-5) refine base enemy preference B9 cadence / pseudo-random details if additional traces justify it
-6) refine exact bonus vegetable timing, scoring presentation, and freeze duration if new arcade evidence justifies it
-7) continue fine-tuning the PART transition screen only if new arcade evidence justifies it
-8) introduce a GameSession or GameplayScreen-level session model when persistent state starts outgrowing Level
-9) implement remaining screen-flow and persistence systems
-10) continue refining arcade fidelity only where reverse engineering or testing justifies it
+1) keep the current enemy fidelity pass as a stable checkpoint and avoid unrelated movement refactors
+2) protect the four-slot, skull-return, vegetable, chase, speed and rotating-gate behaviors with lightweight regression scenarios when practical
+3) keep the current movement, gate, scoring, collectible, HUD, lives, death and level-transition systems stable
+4) refine enemy lair visuals, Z80-style pseudo-random behavior or difficulty-table mapping only if new evidence or a visible gameplay problem justifies the work
+5) continue the remaining screen-flow, high-score and session-state work independently from low-level enemy tuning
